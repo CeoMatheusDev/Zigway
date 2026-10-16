@@ -321,9 +321,13 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
         api.WM_KILLFOCUS => {
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
                 pending.reg.slots.items[slot].focused = false;
+                const wid = pending.reg.idOf(slot);
                 events.dispatch(queue, state, .{
-                    .focus = .{ .window = pending.reg.idOf(slot), .focused = false },
+                    .focus = .{ .window = wid, .focused = false },
                 });
+                // Solta o que estava pressionado: os ups correspondentes
+                // nao serao entregues com outra janela focada.
+                input.releaseAll(wid, queue, state);
             }
             return 0;
         },

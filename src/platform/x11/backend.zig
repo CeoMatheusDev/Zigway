@@ -287,10 +287,14 @@ pub const Backend = struct {
                 const slot = self.slotOfNative(reg, ev.focus.window) orelse return;
                 const focused = ev.type == api.FocusIn;
                 reg.slots.items[slot].focused = focused;
+                const wid = reg.idOf(slot);
                 events.dispatch(queue, state, .{ .focus = .{
-                    .window = reg.idOf(slot),
+                    .window = wid,
                     .focused = focused,
                 } });
+                // Perda de foco libera o que estava pressionado: o SO nao
+                // entregara os key_up/button_up correspondentes.
+                if (!focused) input.releaseAll(wid, queue, state);
             },
             api.ClientMessage => {
                 if (ev.client.format != 32) return;

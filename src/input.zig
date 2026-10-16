@@ -66,6 +66,44 @@ pub const InputState = struct {
     }
 };
 
+/// Libera tudo que esta pressionado com eventos sinteticos (key_up e
+/// pointer_button solto, modificadores zerados). Usado na perda de foco:
+/// sem isso, teclas/botoes segurados durante Alt+Tab (cujo key_up o SO
+/// nunca entrega) ficariam presos para sempre. A ordem (teclas, depois
+/// botoes) nao carrega garantia causal; consumidores nao devem inferir
+/// sequencia fisica desses eventos.
+pub fn releaseAll(
+    window: ?WindowId,
+    queue: *events.EventQueue,
+    state: *InputState,
+) void {
+    var i: usize = 0;
+    while (i < Key.count) : (i += 1) {
+        if (!state.keys.isSet(i)) continue;
+        const key: Key = @fromBackingInt(@intCast(@as(u16, @intCast(i))));
+        events.dispatch(queue, state, .{ .key_up = .{
+            .window = window,
+            .key = key,
+            .modifiers = .{},
+            .repeat = false,
+        } });
+    }
+    var b: usize = 0;
+    while (b < MouseButton.count) : (b += 1) {
+        if (!state.buttons.isSet(b)) continue;
+        const button: MouseButton = @fromBackingInt(@intCast(@as(u8, @intCast(b))));
+        events.dispatch(queue, state, .{ .pointer_button = .{
+            .window = window,
+            .button = button,
+            .pressed = false,
+            .x = state.pointer_x,
+            .y = state.pointer_y,
+            .modifiers = .{},
+        } });
+    }
+    state.modifiers = .{};
+}
+
 test "key down/up transitions" {
     var state = InputState{};
     const down: events.Event = .{ .key_down = .{
@@ -156,4 +194,58 @@ test "scroll keeps buttons and tracks window" {
     state.apply(.{ .scroll = .{ .window = id, .dx = 0, .dy = 1 } });
     try std.testing.expect(state.isButtonDown(.middle));
     try std.testing.expect(state.pointer_window.?.eql(id));
+}
+
+test "releaseAll synthesizes releases and clears state" {
+    var state = InputState{};
+    var q = try events.EventQueue.init(std.testing.allocator, 16);
+    defer q.deinit();
+    const id: WindowId = .{ .index = 0, .generation = 0 };
+
+    state.apply(.{ .key_down = .{
+        .window = id,
+        .key = .a,
+        .modifiers = .{ .shift = true },
+        .repeat = false,
+    } });
+    state.apply(.{ .key_down = .{
+        .window = id,
+        .key = .left_control,
+        .modifiers = .{ .shift = true },
+        .repeat = false,
+    } });
+    state.apply(.{ .pointer_button = .{
+        .window = id,
+        .button = .left,
+        .pressed = true,
+        .x = 3,
+        .y = 4,
+        .modifiers = .{},
+    } });
+
+    releaseAll(id, &q, &state);
+
+    try std.testing.expect(!state.isKeyDown(.a));
+    try std.testing.expect(!state.isKeyDown(.left_control));
+    try std.testing.expect(!state.isButtonDown(.left));
+    try std.testing.expect(!state.modifiers.shift);
+
+    // 2 key_up + 1 button_up, todos associados a janela.
+    var ups: usize = 0;
+    while (q.next()) |ev| {
+        switch (ev) {
+            .key_up => |e| {
+                try std.testing.expect(e.window.?.eql(id));
+                try std.testing.expect(!e.repeat);
+                ups += 1;
+            },
+            .pointer_button => |e| {
+                try std.testing.expect(e.window.?.eql(id));
+                try std.testing.expect(!e.pressed);
+                ups += 1;
+            },
+            else => return error.UnexpectedEvent,
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 3), ups);
 }
