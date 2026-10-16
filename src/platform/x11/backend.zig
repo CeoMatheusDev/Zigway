@@ -6,6 +6,7 @@
 // limitacao conhecida desta fase.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const api = @import("api.zig");
 const registry = @import("../registry.zig");
 const events = @import("../../events.zig");
@@ -467,6 +468,10 @@ test "state mask maps modifiers" {
     try std.testing.expect(!none.shift and !none.control and !none.alt and !none.super);
 }
 
-test "xevent union is 192 bytes" {
-    try std.testing.expectEqual(@as(usize, 192), @sizeOf(api.XEvent));
+test "xevent union matches C long pad" {
+    // Xlib define `long pad[24]`: 192 bytes onde C long tem 8 bytes
+    // (LP64 Unix), 96 onde tem 4 (Windows LLP64; o backend X11 nunca
+    // executa la, mas os tipos compilam em qualquer alvo).
+    const expected: usize = if (builtin.os.tag == .windows) 96 else 192;
+    try std.testing.expectEqual(expected, @sizeOf(api.XEvent));
 }
