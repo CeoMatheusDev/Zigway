@@ -66,7 +66,10 @@ Limitações conhecidas:
 - `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` entregam coordenadas de tela, mas
   `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
   (`ScreenToClient`).
-- Estado inicial de modificadores é `false` até o primeiro evento.
+- Modificadores são rastreados de forma incremental e zerados no
+  `WM_KILLFOCUS` (sem isso, um Alt/Super segurado no Alt+Tab vazaria
+  para os eventos seguintes). O `wparam` do mouse só recobre
+  shift/control; alt/super vêm do tracking de teclado.
 - `focus()` usa `SetFocus` (melhor esforço; foreground pertence ao SO).
 
 ## Wayland
