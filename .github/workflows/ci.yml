@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: linux + x11 (Zig ${{ matrix.zig }} ${{ matrix.optimize }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ["0.17.0"]
+        optimize: ["Debug", "ReleaseFast"]
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # mlugg/setup-zig v2.2.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: ${{ matrix.zig }}
+      - name: Install X11 dev files and Xvfb
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+      - run: zig version
+      - run: zig fmt --check src/ examples/ tests/ build.zig
+      - run: zig build -Doptimize=${{ matrix.optimize }}
+      - run: zig build test --summary all -Doptimize=${{ matrix.optimize }}
+      - run: zig build examples -Doptimize=${{ matrix.optimize }}
+      - name: Live X11 integration test (virtual display)
+        run: xvfb-run -a zig build test-x11 -Doptimize=${{ matrix.optimize }}
+
+  windows:
+    name: windows (Zig ${{ matrix.zig }} ${{ matrix.optimize }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ["0.17.0"]
+        optimize: ["Debug", "ReleaseFast"]
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # mlugg/setup-zig v2.2.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: ${{ matrix.zig }}
+      - run: zig version
+      - run: zig fmt --check src/ examples/ tests/ build.zig
+      - run: zig build -Doptimize=${{ matrix.optimize }}
+      - run: zig build test --summary all -Doptimize=${{ matrix.optimize }}
+      # Sem test-x11 aqui: exige X11 (link + display). Win32 em runtime
+      # ainda depende de validacao com desktop real (ver BACKENDS.md).

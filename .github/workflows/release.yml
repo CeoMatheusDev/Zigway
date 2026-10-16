@@ -1,0 +1,56 @@
+name: Release
+
+# Preparar releases organizadas. Disparado por tags SemVer; NADA e
+# publicado fora de tags. O Zigway e uma biblioteca: a release publica
+# o codigo-fonte (tarball automatico do GitHub), sem binarios.
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: verify + publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # mlugg/setup-zig v2.2.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: "0.17.0"
+      - name: Install X11 dev files
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          ZON_VERSION=$(grep -oP '(?<=\.version = ")[^"]+' build.zig.zon)
+          echo "tag: $TAG / zon: $ZON_VERSION"
+          test "$TAG" = "$ZON_VERSION"
+          grep -q "version.string" src/core/version.zig
+      - run: zig fmt --check src/ examples/ tests/ build.zig
+      - run: zig build test --summary all
+      - run: zig build
+      - name: Detect pre-release
+        id: prerelease
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *alpha*|*beta*|*rc*) echo "flag=--prerelease" >> "$GITHUB_OUTPUT" ;;
+            *) echo "flag=" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES="$(awk '/^## \[v?'"${GITHUB_REF_NAME#v}"'\]/{flag=1;next}/^## \[/{flag=0}flag' CHANGELOG.md)"
+          if [ -z "$NOTES" ]; then
+            NOTES="Ver CHANGELOG.md. Zig 0.17.0. Win32 validado apenas por compilacao cruzada."
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            ${{ steps.prerelease.outputs.flag }} \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "$NOTES"

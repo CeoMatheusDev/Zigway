@@ -1,0 +1,53 @@
+name: Bug report
+description: Reportar um comportamento incorreto do Zigway
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versão do Zigway
+      description: "Ex.: 0.1.0-alpha.1 (ver build.zig.zon)"
+    validations:
+      required: true
+  - type: input
+    id: zig
+    attributes:
+      label: Versão do Zig
+      description: "Ex.: 0.17.0 (`zig version`)"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Plataforma / backend
+      options:
+        - Linux / X11
+        - Windows / Win32
+        - Headless / null
+        - Outro
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamento observado
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reprodução mínima
+      description: Comandos e trechos de código para reproduzir
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / saída de testes
+      render: shell

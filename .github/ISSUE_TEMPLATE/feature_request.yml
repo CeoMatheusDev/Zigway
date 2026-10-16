@@ -1,0 +1,39 @@
+name: Feature request
+description: Propor funcionalidade ou melhoria para o Zigway
+labels: [enhancement]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivação
+      description: Qual problema resolve? Qual caso de uso (engine, GUI, app)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: API sketch, backends afetados, alternativas consideradas
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Escopo provável
+      options:
+        - Core
+        - Platform / Window
+        - Events / Input
+        - Backend Win32
+        - Backend X11
+        - Backend Wayland
+        - Graphics Integration
+        - ABI C
+        - Docs / Infra
+  - type: checkboxes
+    id: compat
+    attributes:
+      label: Compatibilidade
+      options:
+        - label: Mantém a API pública Zig existente
+        - label: Funciona no backend null/headless
