@@ -27,46 +27,87 @@ const Pending = struct {
     state: ?*input.InputState,
 };
 
-const class_name: [13:0]u16 = .{
-    'Z', 'i', 'g', 'w', 'a', 'y', 'W', 'i', 'n', 'd', 'o', 'w', 0,
-};
+/// Contador global para nomes de classe unicos por instancia Backend.
+/// Multiplas Platforms no mesmo processo sao suportadas; cada uma
+/// registra sua propria classe (o segundo RegisterClassExW com nome
+/// repetido falharia).
+var class_counter: std.atomic.Value(u32) = std.atomic.Value(u32).init(0);
+
+pub const max_class_name: usize = 32;
+
+const class_prefix = "ZigwayWindow#";
+
+/// Gera `ZigwayWindow#<counter>` em UTF-16 com sentinela. Pura e
+/// testavel sem SO (o contador global so existe no init).
+pub fn formatClassName(counter: u32, out: *[max_class_name:0]u16) void {
+    var i: usize = 0;
+    for (class_prefix) |c| {
+        out[i] = c;
+        i += 1;
+    }
+    // Digitos decimais via buffer temporario invertido.
+    var digits: [10]u16 = undefined;
+    var n_digits: usize = 0;
+    var n = counter;
+    if (n == 0) {
+        digits[0] = '0';
+        n_digits = 1;
+    } else {
+        while (n > 0) {
+            digits[n_digits] = '0' + @as(u16, @intCast(n % 10));
+            n_digits += 1;
+            n /= 10;
+        }
+    }
+    var j = n_digits;
+    while (j > 0) {
+        j -= 1;
+        out[i] = digits[j];
+        i += 1;
+    }
+    out[i] = 0;
+}
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
     instance: api.HINSTANCE,
     class_atom: api.ATOM,
+    class_name: [max_class_name:0]u16 = undefined,
     entries: std.ArrayList(Entry) = .empty,
     pending: ?Pending = null,
     mods: types.Modifiers = .{},
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
-        const instance = api.GetModuleHandleW(null);
+        var self = Backend{
+            .allocator = allocator,
+            .instance = api.GetModuleHandleW(null),
+            .class_atom = 0,
+        };
+        const id = class_counter.fetchAdd(1, .monotonic);
+        formatClassName(id, &self.class_name);
         const cls = api.WNDCLASSEXW{
             .cbSize = @sizeOf(api.WNDCLASSEXW),
             .style = api.CS_HREDRAW | api.CS_VREDRAW | api.CS_OWNDC,
             .lpfnWndProc = wndProc,
             .cbClsExtra = 0,
             .cbWndExtra = 0,
-            .hInstance = instance,
+            .hInstance = self.instance,
             .hIcon = null,
             .hCursor = api.LoadCursorW(null, api.IDC_ARROW),
             .hbrBackground = null,
             .lpszMenuName = null,
-            .lpszClassName = @ptrCast(&class_name),
+            .lpszClassName = @ptrCast(&self.class_name),
             .hIconSm = null,
         };
         const atom = api.RegisterClassExW(&cls);
         if (atom == 0) return error.ConnectionFailed;
-        return .{
-            .allocator = allocator,
-            .instance = instance,
-            .class_atom = atom,
-        };
+        self.class_atom = atom;
+        return self;
     }
 
     pub fn deinit(self: *Backend) void {
         self.entries.deinit(self.allocator);
-        _ = api.UnregisterClassW(@ptrCast(&class_name), self.instance);
+        _ = api.UnregisterClassW(@ptrCast(&self.class_name), self.instance);
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {
@@ -119,7 +160,7 @@ pub const Backend = struct {
         self.pending = .{ .reg = reg, .queue = null, .state = null };
         const hwnd = api.CreateWindowExW(
             0,
-            @ptrCast(&class_name),
+            @ptrCast(&self.class_name),
             @ptrCast(&title_buf),
             style,
             @as(c_int, @bitCast(@as(u32, 0x80000000))), // CW_USEDEFAULT
@@ -607,4 +648,18 @@ test "vk mapping covers basics" {
 test "win32 struct layouts match win64" {
     try std.testing.expectEqual(@as(usize, 80), @sizeOf(api.WNDCLASSEXW));
     try std.testing.expectEqual(@as(usize, 48), @sizeOf(api.MSG));
+}
+
+test "class names are unique per counter" {
+    var a: [max_class_name:0]u16 = undefined;
+    var b: [max_class_name:0]u16 = undefined;
+    formatClassName(0, &a);
+    formatClassName(4294967295, &b);
+    const expected_a = "ZigwayWindow#0";
+    for (expected_a, 0..) |c, i| try std.testing.expectEqual(@as(u16, c), a[i]);
+    try std.testing.expectEqual(@as(u16, 0), a[expected_a.len]);
+    const expected_b = "ZigwayWindow#4294967295";
+    for (expected_b, 0..) |c, i| try std.testing.expectEqual(@as(u16, c), b[i]);
+    try std.testing.expectEqual(@as(u16, 0), b[expected_b.len]);
+    try std.testing.expect(!std.mem.eql(u16, a[0..expected_a.len], b[0..expected_a.len]));
 }
