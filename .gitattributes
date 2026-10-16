@@ -1,0 +1,8 @@
+# Normaliza finais de linha para LF em todas as plataformas.
+# Sem isso, checkouts Windows (CRLF) quebram `zig fmt --check` no CI.
+* text=auto eol=lf
+*.zig text eol=lf
+*.zon text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
