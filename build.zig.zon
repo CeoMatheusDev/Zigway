@@ -1,0 +1,18 @@
+.{
+    .name = .zigway,
+    .version = "0.1.0-alpha.1",
+    .fingerprint = 0x2d29b8291f415527,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "examples",
+        "tests",
+        "docs",
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md",
+    },
+}

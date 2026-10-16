@@ -1,0 +1,274 @@
+// Zigway X11: declaracoes manuais da ABI Xlib (sem @cImport).
+//
+// Layouts conferidos contra /usr/include/X11/Xlib.h (x86_64-linux:
+// int=4, long=8, ponteiro=8). Tipos C mapeados:
+//   int -> c_int | unsigned long -> c_ulong | Bool -> c_int
+//   Window/Atom/Time/KeySym -> c_ulong | char -> c_char
+
+pub const Display = opaque {};
+
+pub const Window = c_ulong;
+pub const Atom = c_ulong;
+pub const Time = c_ulong;
+pub const KeySym = c_ulong;
+pub const XBool = c_int;
+pub const Status = c_int;
+
+pub const None: Window = 0;
+pub const CurrentTime: Time = 0;
+pub const RevertToParent: c_int = 2;
+
+// --- Tipos de evento (X.h) ---
+pub const KeyPress: c_int = 2;
+pub const KeyRelease: c_int = 3;
+pub const ButtonPress: c_int = 4;
+pub const ButtonRelease: c_int = 5;
+pub const MotionNotify: c_int = 6;
+pub const EnterNotify: c_int = 7;
+pub const LeaveNotify: c_int = 8;
+pub const FocusIn: c_int = 9;
+pub const FocusOut: c_int = 10;
+pub const Expose: c_int = 12;
+pub const DestroyNotify: c_int = 17;
+pub const UnmapNotify: c_int = 18;
+pub const MapNotify: c_int = 19;
+pub const ConfigureNotify: c_int = 22;
+pub const ClientMessage: c_int = 33;
+
+// --- Mascaras de evento ---
+pub const KeyPressMask: c_long = 1 << 0;
+pub const KeyReleaseMask: c_long = 1 << 1;
+pub const ButtonPressMask: c_long = 1 << 2;
+pub const ButtonReleaseMask: c_long = 1 << 3;
+pub const PointerMotionMask: c_long = 1 << 6;
+pub const ExposureMask: c_long = 1 << 15;
+pub const StructureNotifyMask: c_long = 1 << 17;
+pub const FocusChangeMask: c_long = 1 << 21;
+
+pub const input_mask: c_long = KeyPressMask | KeyReleaseMask |
+    ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+    ExposureMask | StructureNotifyMask | FocusChangeMask;
+
+// --- Botoes ---
+pub const Button1: c_uint = 1;
+pub const Button2: c_uint = 2;
+pub const Button3: c_uint = 3;
+pub const Button4: c_uint = 4; // roda: cima
+pub const Button5: c_uint = 5; // roda: baixo
+pub const Button6: c_uint = 6; // roda: esquerda
+pub const Button7: c_uint = 7; // roda: direita
+
+// --- Modificadores (mascara `state`) ---
+pub const ShiftMask: c_uint = 1 << 0;
+pub const ControlMask: c_uint = 1 << 2;
+pub const Mod1Mask: c_uint = 1 << 3; // Alt
+pub const Mod4Mask: c_uint = 1 << 6; // Super
+
+// --- KeySyms (X11/keysymdef.h) ---
+pub const XK_BackSpace: KeySym = 0xff08;
+pub const XK_Tab: KeySym = 0xff09;
+pub const XK_Return: KeySym = 0xff0d;
+pub const XK_Escape: KeySym = 0xff1b;
+pub const XK_Home: KeySym = 0xff50;
+pub const XK_Left: KeySym = 0xff51;
+pub const XK_Up: KeySym = 0xff52;
+pub const XK_Right: KeySym = 0xff53;
+pub const XK_Down: KeySym = 0xff54;
+pub const XK_Page_Up: KeySym = 0xff55;
+pub const XK_Page_Down: KeySym = 0xff56;
+pub const XK_End: KeySym = 0xff57;
+pub const XK_Insert: KeySym = 0xff63;
+pub const XK_Delete: KeySym = 0xffff;
+pub const XK_Shift_L: KeySym = 0xffe1;
+pub const XK_Shift_R: KeySym = 0xffe2;
+pub const XK_Control_L: KeySym = 0xffe3;
+pub const XK_Control_R: KeySym = 0xffe4;
+pub const XK_Caps_Lock: KeySym = 0xffe5;
+pub const XK_Alt_L: KeySym = 0xffe9;
+pub const XK_Alt_R: KeySym = 0xffea;
+pub const XK_Super_L: KeySym = 0xffeb;
+pub const XK_Super_R: KeySym = 0xffec;
+pub const XK_Num_Lock: KeySym = 0xff7f;
+pub const XK_F1: KeySym = 0xffbe;
+
+// --- Estruturas (ordem e tipos identicos a Xlib.h) ---
+
+pub const XAnyEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+};
+
+pub const XKeyEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    root: Window,
+    subwindow: Window,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    keycode: c_uint,
+    same_screen: XBool,
+};
+
+pub const XButtonEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    root: Window,
+    subwindow: Window,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    button: c_uint,
+    same_screen: XBool,
+};
+
+pub const XMotionEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    root: Window,
+    subwindow: Window,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    is_hint: c_char,
+    same_screen: XBool,
+};
+
+pub const XConfigureEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    event: Window,
+    window: Window,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    border_width: c_int,
+    above: Window,
+    override_redirect: XBool,
+};
+
+pub const XClientMessageEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    message_type: Atom,
+    format: c_int,
+    data: extern union {
+        b: [20]c_char,
+        s: [10]c_short,
+        l: [5]c_long,
+    },
+};
+
+pub const XDestroyWindowEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    event: Window,
+    window: Window,
+};
+
+pub const XFocusChangeEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    mode: c_int,
+    detail: c_int,
+};
+
+pub const XMapEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    event: Window,
+    window: Window,
+    override_redirect: XBool,
+};
+
+pub const XUnmapEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    event: Window,
+    window: Window,
+    from_configure: XBool,
+};
+
+/// Uniao de eventos Xlib: 24 longs (192 bytes em 64-bit).
+pub const XEvent = extern union {
+    type: c_int,
+    pad: [24]c_long,
+    any: XAnyEvent,
+    key: XKeyEvent,
+    button: XButtonEvent,
+    motion: XMotionEvent,
+    configure: XConfigureEvent,
+    client: XClientMessageEvent,
+    destroy: XDestroyWindowEvent,
+    focus: XFocusChangeEvent,
+    map: XMapEvent,
+    unmap: XUnmapEvent,
+};
+
+// --- Funcoes Xlib utilizadas ---
+
+pub extern "X11" fn XOpenDisplay(name: ?[*:0]const u8) ?*Display;
+pub extern "X11" fn XCloseDisplay(display: *Display) c_int;
+pub extern "X11" fn XDefaultScreen(display: *Display) c_int;
+pub extern "X11" fn XDefaultRootWindow(display: *Display) Window;
+pub extern "X11" fn XCreateSimpleWindow(
+    display: *Display,
+    parent: Window,
+    x: c_int,
+    y: c_int,
+    width: c_uint,
+    height: c_uint,
+    border_width: c_uint,
+    border: c_ulong,
+    background: c_ulong,
+) Window;
+pub extern "X11" fn XDestroyWindow(display: *Display, window: Window) c_int;
+pub extern "X11" fn XMapWindow(display: *Display, window: Window) c_int;
+pub extern "X11" fn XUnmapWindow(display: *Display, window: Window) c_int;
+pub extern "X11" fn XStoreName(display: *Display, window: Window, name: [*:0]const u8) c_int;
+pub extern "X11" fn XSelectInput(display: *Display, window: Window, event_mask: c_long) c_int;
+pub extern "X11" fn XPending(display: *Display) c_int;
+pub extern "X11" fn XNextEvent(display: *Display, event: *XEvent) c_int;
+pub extern "X11" fn XFlush(display: *Display) c_int;
+pub extern "X11" fn XSync(display: *Display, discard: XBool) c_int;
+pub extern "X11" fn XInternAtom(display: *Display, name: [*:0]const u8, only_if_exists: XBool) Atom;
+pub extern "X11" fn XSetWMProtocols(display: *Display, window: Window, protocols: [*]Atom, count: c_int) Status;
+pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_uint, height: c_uint) c_int;
+pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to: c_int, time: Time) c_int;
+pub extern "X11" fn XLookupKeysym(event: *const XKeyEvent, index: c_int) KeySym;
