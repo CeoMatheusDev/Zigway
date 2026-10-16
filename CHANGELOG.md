@@ -1,7 +1,36 @@
 # Changelog — Zigway
 
 Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
-(ver `docs/versioning.md`).
+(ver `docs/VERSIONING.md`).
+
+## [Não lançado]
+
+### Adicionado
+
+- Teste de sincronia de versão (`version string matches build.zig.zon`):
+  falha ruidosamente se `src/core/version.zig` divergir de
+  `build.zig.zon` (declarado como entrada do passo de teste).
+- `docs/API.md`: referência da API pública real.
+- `docs/ROADMAP.md`: intenção de evolução por versão.
+- `docs/GRAPHICS.md`: contrato da integração gráfica planejada
+  (sem renderer próprio; nada implementado).
+
+### Alterado
+
+- Documentação em `docs/` com nomes em maiúsculas (`ARCHITECTURE.md`,
+  `BUILDING.md`, `BACKENDS.md`, `VERSIONING.md`); `getting-started.md`
+  virou `BUILDING.md` com conteúdo de build/testes/cross.
+- Exemplos movidos para `examples/` (antes `examples/zig/`), sem
+  mudança de nomes ou comportamento.
+- `tests/live_x11.zig` pula (em vez de falhar) quando o backend X11
+  está indisponível no alvo (`UnsupportedBackend`/`NotImplemented`).
+
+### Corrigido
+
+- `Platform.setWindowSize` não atualiza mais o slot otimisticamente:
+  o slot reflete o último tamanho confirmado (via evento nativo ou
+  backend síncrono); antes, o `ConfigureNotify` do X11 era engolido e
+  nenhum evento `resize` era emitido.
 
 ## [0.1.0-alpha.1] — 2026-10-15
 
@@ -9,7 +38,7 @@ Primeira etapa validável: fundação, build e API inicial (Fase 1 parcial).
 
 ### Adicionado
 
-- Build system Zig 0.17.0 com `-Dplatform=auto|win32|x11|null`
+- Build system Zig 0.17.0 com `-Dplatform=auto|win32|x11|null_backend`
   (`wayland` rejeitado com erro claro; seleções incompatíveis com o
   alvo também falham no build).
 - Core: tipos (`Key`, `MouseButton`, `Modifiers`, ids), errors, handles
