@@ -88,6 +88,21 @@ pub const Event = union(enum) {
             else => false,
         };
     }
+
+    /// Janela associada ao evento, quando houver. Usado para podar
+    /// eventos de janelas destruidas sem deixar referencias invalidas.
+    pub fn window(self: Event) ?WindowId {
+        return switch (self) {
+            .close => |e| e.window,
+            .resize => |e| e.window,
+            .focus => |e| e.window,
+            .key_down => |e| e.window,
+            .key_up => |e| e.window,
+            .pointer_move => |e| e.window,
+            .pointer_button => |e| e.window,
+            .scroll => |e| e.window,
+        };
+    }
 };
 
 /// Fila de eventos com capacidade fixa e sem alocacao apos o init.
@@ -243,4 +258,50 @@ test "queue drops incoming when full of critical events" {
 test "zero capacity is rejected" {
     const res = EventQueue.init(std.testing.allocator, 0);
     try std.testing.expectError(error.InvalidConfig, res);
+}
+
+test "event window accessor covers all variants" {
+    const id: WindowId = .{ .index = 3, .generation = 1 };
+    const cases = [_]Event{
+        .{ .close = .{ .window = id } },
+        .{ .resize = .{ .window = id, .width = 1, .height = 1 } },
+        .{ .focus = .{ .window = id, .focused = true } },
+        .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
+        .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
+        .{ .pointer_move = .{ .window = id, .x = 0, .y = 0 } },
+        .{ .pointer_button = .{
+            .window = id,
+            .button = .left,
+            .pressed = true,
+            .x = 0,
+            .y = 0,
+            .modifiers = .{},
+        } },
+        .{ .scroll = .{ .window = id, .dx = 0, .dy = 0 } },
+    };
+    for (cases) |ev| {
+        try std.testing.expect(ev.window().?.eql(id));
+    }
+    const floating: Event = .{ .key_down = .{
+        .window = null,
+        .key = .a,
+        .modifiers = .{},
+        .repeat = false,
+    } };
+    try std.testing.expect(floating.window() == null);
+}
+
+test "overflow drops oldest non-critical first" {
+    var q = try EventQueue.init(std.testing.allocator, 3);
+    defer q.deinit();
+    const id: WindowId = .{ .index = 0, .generation = 0 };
+    // Sem moves para coalescer: resize distintos preenchem a fila.
+    q.push(.{ .resize = .{ .window = id, .width = 1, .height = 1 } });
+    q.push(.{ .resize = .{ .window = id, .width = 2, .height = 2 } });
+    q.push(.{ .resize = .{ .window = id, .width = 3, .height = 3 } });
+    // Novo nao-critico expulsa o mais antigo nao-critico.
+    q.push(.{ .resize = .{ .window = id, .width = 4, .height = 4 } });
+    try std.testing.expectEqual(@as(u64, 0), q.dropped);
+    const first = q.next().?;
+    try std.testing.expectEqual(@as(u32, 2), first.resize.width);
 }

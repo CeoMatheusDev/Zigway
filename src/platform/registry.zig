@@ -15,6 +15,8 @@ const types = @import("../core/types.zig");
 pub const WindowId = types.WindowId;
 
 pub const Slot = struct {
+    // A geracao incrementa a cada reutilizacao do indice (wrapping em
+    // 2^32 usos; ids antigos invalidam e nunca atingem outra janela).
     generation: u32 = 0,
     occupied: bool = false,
     should_close: bool = false,

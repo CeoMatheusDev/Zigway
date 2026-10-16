@@ -270,11 +270,19 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             return 0;
         },
         api.WM_DESTROY => {
+            // Caminho proprio (destroyWindow) ja removeu a entrada: aqui
+            // so chega destruicao externa. Remove a entrada para que
+            // operacoes seguintes retornem InvalidWindow em vez de
+            // atingir HWND invalida.
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
+                const wid = pending.reg.idOf(slot);
                 pending.reg.slots.items[slot].should_close = true;
                 events.dispatch(queue, state, .{
-                    .close = .{ .window = pending.reg.idOf(slot) },
+                    .close = .{ .window = wid },
                 });
+                if (backend.findEntry(slot)) |i| {
+                    _ = backend.entries.swapRemove(i);
+                }
             }
             return 0;
         },

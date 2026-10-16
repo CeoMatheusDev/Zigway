@@ -24,23 +24,23 @@ pub const Backend = struct {
     display: *api.Display,
     root: api.Window,
     wm_delete: api.Atom,
+    wm_protocols: api.Atom,
     entries: std.ArrayList(Entry) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
         errdefer _ = api.XCloseDisplay(display);
         const root = api.XDefaultRootWindow(display);
-        var wm_delete_name: [16:0]u8 = undefined;
-        const proto = "WM_DELETE_WINDOW";
-        @memcpy(wm_delete_name[0..proto.len], proto);
-        wm_delete_name[proto.len] = 0;
-        const wm_delete = api.XInternAtom(display, @ptrCast(&wm_delete_name), 0);
+        const wm_delete = api.XInternAtom(display, "WM_DELETE_WINDOW", 0);
         if (wm_delete == 0) return error.ConnectionFailed;
+        const wm_protocols = api.XInternAtom(display, "WM_PROTOCOLS", 0);
+        if (wm_protocols == 0) return error.ConnectionFailed;
         return .{
             .allocator = allocator,
             .display = display,
             .root = root,
             .wm_delete = wm_delete,
+            .wm_protocols = wm_protocols,
         };
     }
 
@@ -294,9 +294,9 @@ pub const Backend = struct {
             },
             api.ClientMessage => {
                 if (ev.client.format != 32) return;
-                if (ev.client.message_type == 0) return;
+                if (ev.client.message_type != self.wm_protocols) return;
                 const slot = self.slotOfNative(reg, ev.client.window) orelse return;
-                // Protocolo WM_DELETE_WINDOW (atomo registrado no init).
+                // Protocolo WM_DELETE_WINDOW (atomos registrados no init).
                 const proto: api.Atom = @bitCast(ev.client.data.l[0]);
                 if (proto == self.wm_delete) {
                     events.dispatch(queue, state, .{ .close = .{ .window = reg.idOf(slot) } });
@@ -307,7 +307,14 @@ pub const Backend = struct {
                 // Janela destruida pelo servidor: marca fechamento para que
                 // o consumidor encerre e libere o slot.
                 reg.slots.items[slot].should_close = true;
-                events.dispatch(queue, state, .{ .close = .{ .window = reg.idOf(slot) } });
+                const wid = reg.idOf(slot);
+                events.dispatch(queue, state, .{ .close = .{ .window = wid } });
+                // Remove a entrada: a nativa morreu; operacoes seguintes
+                // retornam InvalidWindow em vez de atingir XID invalida
+                // (BadWindow encerra o processo no handler padrao).
+                if (self.findEntry(slot)) |i| {
+                    _ = self.entries.swapRemove(i);
+                }
             },
             api.MapNotify => {
                 const slot = self.slotOfNative(reg, ev.map.window) orelse return;
