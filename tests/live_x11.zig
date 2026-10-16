@@ -19,8 +19,11 @@ fn sleepMs(ms: u64) void {
 
 test "live x11: open display, create window, poll, destroy" {
     var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
-        if (err == error.NoDisplay or err == error.ConnectionFailed) {
-            std.debug.print("\n[x11-live] sem display; pulando.\n", .{});
+        // Sem display, backend indisponivel ou SO sem X11: pula sem falhar.
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
             return;
         }
         return err;

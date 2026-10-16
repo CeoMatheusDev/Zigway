@@ -38,3 +38,18 @@ test "version numbers match version string" {
         try std.fmt.bufPrint(&buf, "{d}.{d}.{d}-{s}", .{ major, minor, patch, prerelease });
     try std.testing.expectEqualStrings(string, rendered);
 }
+
+test "version string matches build.zig.zon" {
+    // Guarda de sincronia: a versao canonica vive no zon; este teste
+    // falha ruidosamente em caso de deriva. Leitura em runtime com CWD
+    // na raiz do repo (fluxo `zig build test` e CI); fora dela, falha
+    // ruidosamente em vez de aprovar em silencio.
+    const std = @import("std");
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const zon = std.Io.Dir.cwd().readFileAlloc(io, "build.zig.zon", gpa, .limited(4096)) catch
+        return error.MissingVersion;
+    defer gpa.free(zon);
+    const needle = ".version = \"" ++ string ++ "\"";
+    try std.testing.expect(std.mem.indexOf(u8, zon, needle) != null);
+}
