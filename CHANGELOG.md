@@ -33,6 +33,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   de protocolo recuperáveis: antes, um `BadWindow` de uma requisição
   assíncrona (janela destruída pelo servidor antes do `poll`) encerrava
   o processo pelo handler padrão da Xlib.
+- Win32 `setWindowSize` não ativa mais a janela (`SWP_NOACTIVATE`):
+  sem essa flag o `SetWindowPos` ativa a janela por padrão, então
+  redimensionar roubava o foco.
+- Win32 `WM_SIZE` não infere mais visibilidade a partir do resize: o
+  slot passa a refletir `IsWindowVisible` (WS_VISIBLE). Antes,
+  redimensionar uma janela oculta a marcava como visível em
+  `isWindowVisible`.
 
 ### Adicionado
 
