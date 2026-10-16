@@ -96,6 +96,9 @@ pub const GWL_STYLE: c_int = -16;
 
 pub const SWP_NOMOVE: UINT = 0x0002;
 pub const SWP_NOZORDER: UINT = 0x0004;
+/// Sem ativacao: sem esta flag, SetWindowPos ativa a janela (traz para
+/// o topo do grupo). Um resize nao deve roubar foco.
+pub const SWP_NOACTIVATE: UINT = 0x0010;
 
 pub const SIZE_MINIMIZED: WPARAM = 1;
 
@@ -208,6 +211,7 @@ pub extern "user32" fn SetWindowPos(
     flags: UINT,
 ) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, cmd: c_int) BOOL;
+pub extern "user32" fn IsWindowVisible(hwnd: HWND) BOOL;
 pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;

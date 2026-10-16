@@ -233,7 +233,9 @@ pub const Backend = struct {
             0,
             rect.right - rect.left,
             rect.bottom - rect.top,
-            api.SWP_NOMOVE | api.SWP_NOZORDER,
+            // SWP_NOACTIVATE: um resize nao deve ativar/roubar foco da
+            // janela (sem a flag, SetWindowPos ativa por padrao).
+            api.SWP_NOMOVE | api.SWP_NOZORDER | api.SWP_NOACTIVATE,
         );
         // Confirmacao chega via WM_SIZE.
     }
@@ -339,7 +341,9 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                 const w: u32 = @as(u16, @truncate(bits));
                 const h: u32 = @as(u16, @truncate(bits >> 16));
                 const entry = &pending.reg.slots.items[slot];
-                entry.visible = true;
+                // Visibilidade real (WS_VISIBLE), nao inferida do resize:
+                // redimensionar uma janela oculta nao deve torna-la visivel.
+                entry.visible = api.IsWindowVisible(hwnd) != 0;
                 if (entry.width != w or entry.height != h) {
                     entry.width = w;
                     entry.height = h;
