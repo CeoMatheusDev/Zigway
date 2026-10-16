@@ -18,6 +18,13 @@ operações seguintes retornam `InvalidWindow` em vez de atingir XID
 morta (o handler padrão de erros X encerra o processo em `BadWindow`).
 O slot segue ocupado até `destroyWindow` do consumidor.
 
+Erros de protocolo X: `Platform.init(.x11)` instala um handler de erro
+(`XSetErrorHandler`) que ignora erros recuperáveis, em vez do handler
+padrão da Xlib (que encerra o processo). Isso cobre a corrida entre uma
+requisição assíncrona e uma janela destruída pelo servidor antes do
+`poll`. O handler é global ao processo (limitação da Xlib) e permanece
+instalado após `deinit`; não tem estado próprio.
+
 Limitações conhecidas:
 
 - Auto-repeat chega como `key_down` repetidos (`repeat=false`).

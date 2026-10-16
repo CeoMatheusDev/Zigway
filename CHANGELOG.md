@@ -29,6 +29,10 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 - `Platform.destroyWindow` limpa a referência de ponteiro do estado de
   input (`pointer_window`) quando ela aponta para a janela destruída:
   antes o estado mantinha um id morto após o destroy.
+- X11 instala um handler de erro (`XSetErrorHandler`) que ignora erros
+  de protocolo recuperáveis: antes, um `BadWindow` de uma requisição
+  assíncrona (janela destruída pelo servidor antes do `poll`) encerrava
+  o processo pelo handler padrão da Xlib.
 
 ### Adicionado
 
