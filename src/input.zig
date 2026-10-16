@@ -105,3 +105,55 @@ test "pointer state tracks moves and buttons" {
     try std.testing.expect(state.isButtonDown(.left));
     try std.testing.expect(!state.isButtonDown(.right));
 }
+
+test "button release clears without disturbing other buttons" {
+    var state = InputState{};
+    const down_left: events.Event = .{ .pointer_button = .{
+        .window = null,
+        .button = .left,
+        .pressed = true,
+        .x = 0,
+        .y = 0,
+        .modifiers = .{},
+    } };
+    const down_right: events.Event = .{ .pointer_button = .{
+        .window = null,
+        .button = .right,
+        .pressed = true,
+        .x = 0,
+        .y = 0,
+        .modifiers = .{ .shift = true },
+    } };
+    state.apply(down_left);
+    state.apply(down_right);
+    try std.testing.expect(state.modifiers.shift);
+
+    state.apply(.{ .pointer_button = .{
+        .window = null,
+        .button = .left,
+        .pressed = false,
+        .x = 5,
+        .y = 6,
+        .modifiers = .{},
+    } });
+    try std.testing.expect(!state.isButtonDown(.left));
+    try std.testing.expect(state.isButtonDown(.right));
+    try std.testing.expectEqual(@as(i32, 5), state.pointer_x);
+    try std.testing.expect(!state.modifiers.shift);
+}
+
+test "scroll keeps buttons and tracks window" {
+    var state = InputState{};
+    state.apply(.{ .pointer_button = .{
+        .window = null,
+        .button = .middle,
+        .pressed = true,
+        .x = 1,
+        .y = 1,
+        .modifiers = .{},
+    } });
+    const id: WindowId = .{ .index = 7, .generation = 0 };
+    state.apply(.{ .scroll = .{ .window = id, .dx = 0, .dy = 1 } });
+    try std.testing.expect(state.isButtonDown(.middle));
+    try std.testing.expect(state.pointer_window.?.eql(id));
+}
