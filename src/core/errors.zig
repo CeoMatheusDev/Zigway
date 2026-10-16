@@ -15,6 +15,8 @@ pub const Error = error{
     NoDisplay,
     /// Falha ao conectar/negociar com o sistema de janelas.
     ConnectionFailed,
+    /// Operacao sobre plataforma ja encerrada (`deinit` executado).
+    PlatformClosed,
     /// Configuracao de janela invalida (dimensoes, titulo, capacidade).
     InvalidConfig,
     /// Falha na criacao da janela nativa.

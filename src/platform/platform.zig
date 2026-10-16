@@ -60,6 +60,10 @@ pub const Platform = struct {
     input_state: input.InputState = .{},
     reg: registry.Registry = .{},
     backend: BackendUnion,
+    /// Pós-deinit: todas as operações tornam-se falhas seguras
+    /// (erros ou no-ops) em vez de use-after-free. Ownership da
+    /// instancia e unico e intransferivel: nao copiar Platform.
+    closed: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, options: Options) !Platform {
         if (options.event_queue_capacity == 0) return error.InvalidConfig;
@@ -96,6 +100,9 @@ pub const Platform = struct {
     }
 
     pub fn deinit(self: *Platform) void {
+        // Idempotente: segundo deinit e no-op (nunca double-free ou
+        // duplo fechamento nativo).
+        if (self.closed) return;
         // Destroi nativas restantes antes de fechar o backend.
         switch (self.backend) {
             inline else => |*b| {
@@ -109,6 +116,7 @@ pub const Platform = struct {
         }
         self.reg.deinit(self.allocator);
         self.events.deinit();
+        self.closed = true;
     }
 
     pub fn backendKind(self: *const Platform) ActiveBackend {
@@ -120,6 +128,7 @@ pub const Platform = struct {
     }
 
     pub fn createWindow(self: *Platform, cfg: WindowConfig) !Window {
+        if (self.closed) return error.PlatformClosed;
         if (cfg.width == 0 or cfg.height == 0) return error.InvalidConfig;
         if (cfg.width > 16384 or cfg.height > 16384) return error.InvalidConfig;
         if (cfg.title.len > 1024) return error.InvalidConfig;
@@ -144,6 +153,7 @@ pub const Platform = struct {
     }
 
     pub fn destroyWindow(self: *Platform, id: types.WindowId) !void {
+        if (self.closed) return error.PlatformClosed;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
             inline else => |*b| b.destroyWindow(&self.reg, index),
@@ -154,54 +164,64 @@ pub const Platform = struct {
     }
 
     /// Drena o sistema nativo para a fila interna. Infalivel: erros de
-    /// transporte sao ignorados pelo backend apos o init.
+    /// transporte sao ignorados pelo backend apos o init. No-op apos deinit.
     pub fn pollEvents(self: *Platform) void {
+        if (self.closed) return;
         switch (self.backend) {
             inline else => |*b| b.poll(&self.reg, &self.events, &self.input_state),
         }
     }
 
     pub fn nextEvent(self: *Platform) ?Event {
+        if (self.closed) return null;
         return self.events.next();
     }
 
     /// Injeta um evento sintetico (testes/ferramentas). Atualiza o input
-    /// como um evento nativo.
+    /// como um evento nativo. No-op apos deinit.
     pub fn injectEvent(self: *Platform, event: Event) void {
+        if (self.closed) return;
         events.dispatch(&self.events, &self.input_state, event);
     }
 
     pub fn isWindowAlive(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return false;
         return self.reg.get(id) != null;
     }
 
-    /// Invalido -> true (falha segura: loops de exemplo encerram).
+    /// Invalido ou plataforma encerrada -> true (falha segura).
     pub fn windowShouldClose(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return true;
         const slot = self.reg.get(id) orelse return true;
         return slot.should_close;
     }
 
     pub fn requestWindowClose(self: *Platform, id: types.WindowId) void {
+        if (self.closed) return;
         const slot = self.reg.get(id) orelse return;
         slot.should_close = true;
     }
 
     pub fn windowSize(self: *Platform, id: types.WindowId) types.WindowSize {
+        if (self.closed) return .{ .width = 0, .height = 0 };
         const slot = self.reg.get(id) orelse return .{ .width = 0, .height = 0 };
         return .{ .width = slot.width, .height = slot.height };
     }
 
     pub fn isWindowVisible(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return false;
         const slot = self.reg.get(id) orelse return false;
         return slot.visible;
     }
 
     pub fn isWindowFocused(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return false;
         const slot = self.reg.get(id) orelse return false;
         return slot.focused;
     }
 
     pub fn setWindowTitle(self: *Platform, id: types.WindowId, title: []const u8) !void {
+        if (self.closed) return error.PlatformClosed;
         if (title.len > 1024) return error.InvalidConfig;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
@@ -210,6 +230,7 @@ pub const Platform = struct {
     }
 
     pub fn setWindowSize(self: *Platform, id: types.WindowId, width: u32, height: u32) !void {
+        if (self.closed) return error.PlatformClosed;
         if (width == 0 or height == 0) return error.InvalidConfig;
         if (width > 16384 or height > 16384) return error.InvalidConfig;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
@@ -221,6 +242,7 @@ pub const Platform = struct {
     }
 
     pub fn setWindowVisible(self: *Platform, id: types.WindowId, visible: bool) !void {
+        if (self.closed) return error.PlatformClosed;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
             inline else => |*b| try b.setVisible(&self.reg, index, visible),
@@ -228,6 +250,7 @@ pub const Platform = struct {
     }
 
     pub fn focusWindow(self: *Platform, id: types.WindowId) !void {
+        if (self.closed) return error.PlatformClosed;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
             inline else => |*b| try b.focusWindow(&self.reg, index),
@@ -241,7 +264,7 @@ pub const Platform = struct {
     fn pruneEvents(self: *Platform, id: types.WindowId) void {
         var kept: usize = 0;
         for (self.events.events.items) |ev| {
-            if (eventWindow(ev)) |wid| {
+            if (ev.window()) |wid| {
                 if (wid.eql(id)) continue;
             }
             self.events.events.items[kept] = ev;
@@ -250,19 +273,6 @@ pub const Platform = struct {
         self.events.events.items.len = kept;
     }
 };
-
-fn eventWindow(ev: Event) ?types.WindowId {
-    return switch (ev) {
-        .close => |e| e.window,
-        .resize => |e| e.window,
-        .focus => |e| e.window,
-        .key_down => |e| e.window,
-        .key_up => |e| e.window,
-        .pointer_move => |e| e.window,
-        .pointer_button => |e| e.window,
-        .scroll => |e| e.window,
-    };
-}
 
 // --- Testes de lifecycle sobre o backend null (sem display) ---
 
@@ -355,4 +365,290 @@ test "resize via backend updates slot and queues event" {
     try w.setTitle("novo titulo");
     try w.setVisible(false);
     try std.testing.expect(!plat.isWindowVisible(w.windowId()));
+}
+
+test "slot reuse bumps generation at platform level" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{});
+    const old_id = w1.windowId();
+    try plat.destroyWindow(old_id);
+    w1.id = types.WindowId.invalid;
+
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+    // Mesmo indice, geracao maior; id antigo segue invalido.
+    try std.testing.expectEqual(old_id.index, w2.windowId().index);
+    try std.testing.expect(w2.windowId().generation > old_id.generation);
+    try std.testing.expect(!plat.isWindowAlive(old_id));
+    try std.testing.expectError(error.InvalidWindow, plat.destroyWindow(old_id));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowTitle(old_id, "x"));
+}
+
+test "destroy during dispatch is safe" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{});
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+    const id1 = w1.windowId();
+
+    plat.injectEvent(.{ .close = .{ .window = id1 } });
+    plat.injectEvent(.{ .close = .{ .window = w2.windowId() } });
+
+    // Destroi w1 no meio do consumo; a fila restante segue valida.
+    var saw_w2_close = false;
+    while (plat.nextEvent()) |ev| {
+        if (ev != .close) continue;
+        if (ev.close.window.eql(id1)) {
+            try plat.destroyWindow(id1);
+            w1.id = types.WindowId.invalid;
+        } else if (ev.close.window.eql(w2.windowId())) {
+            saw_w2_close = true;
+        }
+    }
+    try std.testing.expect(saw_w2_close);
+    try std.testing.expect(!plat.isWindowAlive(id1));
+}
+
+test "mixed prune keeps other windows events" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{});
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+    const id1 = w1.windowId();
+
+    plat.injectEvent(.{ .pointer_move = .{ .window = id1, .x = 1, .y = 1 } });
+    plat.injectEvent(.{ .pointer_move = .{ .window = w2.windowId(), .x = 2, .y = 2 } });
+    plat.injectEvent(.{ .key_down = .{
+        .window = id1,
+        .key = .a,
+        .modifiers = .{},
+        .repeat = false,
+    } });
+
+    try plat.destroyWindow(id1);
+    w1.id = types.WindowId.invalid;
+
+    // Resta apenas o evento de w2.
+    const ev = plat.nextEvent().?;
+    try std.testing.expect(ev == .pointer_move);
+    try std.testing.expect(ev.pointer_move.window.?.eql(w2.windowId()));
+    try std.testing.expect(plat.nextEvent() == null);
+}
+
+test "deinit destroys live windows without leaks" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    // Sem deinit individual: Platform.deinit deve limpar as nativas.
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        _ = try plat.createWindow(.{});
+    }
+    plat.deinit();
+    // testing.allocator falharia no leak ao fim do teste.
+}
+
+test "window copy and double deinit are safe" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    const id = w.windowId();
+    var alias = w; // copia rasa: mesmo id, mesma platform
+    w.deinit();
+    alias.deinit(); // segundo deinit e ignorado
+    try std.testing.expect(!plat.isWindowAlive(id));
+    try std.testing.expect(!w.isValid());
+}
+
+test "alloc failure in createWindow leaves no slot" {
+    // Uma alocacao para a fila no init; a seguinte (slot) falha.
+    var fail = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var plat = try Platform.init(fail.allocator(), .{ .backend = .null_backend });
+    defer plat.deinit();
+    try std.testing.expectError(error.OutOfMemory, plat.createWindow(.{}));
+    try std.testing.expectEqual(@as(usize, 0), plat.reg.slots.items.len);
+}
+
+test "many windows stress create and destroy" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var alive: [16]Window = undefined;
+    var kept: usize = 0;
+    var i: u32 = 0;
+    while (i < 32) : (i += 1) {
+        var w = try plat.createWindow(.{ .width = 100 + i, .height = 100 });
+        if (i % 2 == 0) {
+            w.deinit(); // destruicao imediata intercalada
+        } else {
+            alive[kept] = w;
+            kept += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 16), kept);
+    for (alive[0..kept]) |*w| {
+        try std.testing.expect(w.isValid());
+        w.deinit();
+    }
+    // Registro sem ocupados.
+    for (plat.reg.slots.items) |slot| {
+        try std.testing.expect(!slot.occupied);
+    }
+}
+
+test "invalid ops on dead id return InvalidWindow" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    const id = w.windowId();
+    w.deinit();
+
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowTitle(id, "x"));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowSize(id, 10, 10));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
+    try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
+}
+
+test "double deinit is safe" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    _ = try plat.createWindow(.{});
+    plat.deinit();
+    plat.deinit(); // no-op, sem double-free
+}
+
+test "operations after deinit fail safe" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    var w = try plat.createWindow(.{});
+    const id = w.windowId();
+    plat.deinit();
+
+    try std.testing.expectError(error.PlatformClosed, plat.createWindow(.{}));
+    try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
+    plat.pollEvents(); // no-op
+    plat.injectEvent(.{ .close = .{ .window = id } }); // no-op
+    try std.testing.expect(plat.nextEvent() == null);
+    try std.testing.expect(plat.windowShouldClose(id));
+    try std.testing.expect(!plat.isWindowAlive(id));
+    // Window.deinit apos platform.deinit: erro ignorado, handle invalida.
+    w.deinit();
+    try std.testing.expect(!w.isValid());
+}
+
+test "reinit after deinit starts clean" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    _ = try plat.createWindow(.{});
+    plat.deinit();
+
+    plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+    // Estado anterior nao vaza: slot 0 geracao 0 de novo, fila vazia.
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+    try std.testing.expect(plat.nextEvent() == null);
+    try std.testing.expect(!plat.inputState().isKeyDown(.a));
+}
+
+test "multiple platform instances are independent" {
+    // Politica multi-instancia: cada Platform detem recursos proprios
+    // (no Win32, classes de janela com nomes unicos; no X11, conexoes
+    // proprias). Filas, inputs e ids nao se misturam.
+    var p1 = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer p1.deinit();
+    var p2 = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer p2.deinit();
+
+    var a = try p1.createWindow(.{ .title = "a" });
+    defer a.deinit();
+    var b = try p2.createWindow(.{ .title = "b" });
+    defer b.deinit();
+
+    p1.injectEvent(.{ .key_down = .{
+        .window = a.windowId(),
+        .key = .space,
+        .modifiers = .{},
+        .repeat = false,
+    } });
+    try std.testing.expect(p1.inputState().isKeyDown(.space));
+    try std.testing.expect(!p2.inputState().isKeyDown(.space));
+    try std.testing.expect(p1.nextEvent() != null);
+    try std.testing.expect(p2.nextEvent() == null);
+
+    // Ids iguais em instancias distintas nao se confundem.
+    try std.testing.expect(a.windowId().eql(b.windowId()));
+    try std.testing.expect(p1.isWindowAlive(a.windowId()));
+    try std.testing.expect(p2.isWindowAlive(b.windowId()));
+}
+
+test "failed create preserves previous windows" {
+    // Cenario C: falha controlada (config invalida) nao consome slot
+    // nem afeta as janelas ja criadas.
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{ .width = 100, .height = 100 });
+    defer w1.deinit();
+    var w2 = try plat.createWindow(.{ .width = 200, .height = 200 });
+    defer w2.deinit();
+
+    try std.testing.expectError(error.InvalidConfig, plat.createWindow(.{ .width = 0, .height = 10 }));
+    try std.testing.expect(w1.isValid());
+    try std.testing.expect(w2.isValid());
+    try std.testing.expectEqual(@as(u32, 100), w1.size().width);
+    try std.testing.expectEqual(@as(u32, 200), w2.size().width);
+
+    // Nenhum slot consumido: proxima janela reutiliza a ordem natural.
+    var w3 = try plat.createWindow(.{});
+    defer w3.deinit();
+    try std.testing.expectEqual(@as(u32, 2), w3.windowId().index);
+}
+
+test "three windows destroy middle keeps others" {
+    // Cenario A: primeira e terceira seguem utilizaveis; o indice do
+    // meio e reutilizado com geracao maior.
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{ .title = "um" });
+    defer w1.deinit();
+    var w2 = try plat.createWindow(.{ .title = "dois" });
+    var w3 = try plat.createWindow(.{ .title = "tres" });
+    defer w3.deinit();
+    const dead = w2.windowId();
+
+    plat.injectEvent(.{ .resize = .{
+        .window = dead,
+        .width = 10,
+        .height = 10,
+    } });
+    plat.injectEvent(.{ .resize = .{
+        .window = w3.windowId(),
+        .width = 30,
+        .height = 30,
+    } });
+
+    try plat.destroyWindow(dead);
+    w2.id = types.WindowId.invalid;
+
+    try std.testing.expect(w1.isValid());
+    try std.testing.expect(w3.isValid());
+    try std.testing.expect(!plat.isWindowAlive(dead));
+
+    // Evento da janela morta foi podado; o de w3 permanece.
+    const ev = plat.nextEvent().?;
+    try std.testing.expect(ev == .resize);
+    try std.testing.expect(ev.resize.window.eql(w3.windowId()));
+    try std.testing.expect(plat.nextEvent() == null);
+
+    // Reutilizacao do indice com geracao maior.
+    var w4 = try plat.createWindow(.{});
+    defer w4.deinit();
+    try std.testing.expectEqual(dead.index, w4.windowId().index);
+    try std.testing.expect(w4.windowId().generation > dead.generation);
 }

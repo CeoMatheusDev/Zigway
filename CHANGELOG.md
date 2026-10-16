@@ -5,8 +5,33 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+### Corrigido
+
+- `Platform.deinit` idempotente + guards pós-deinit (`PlatformClosed`,
+  no-ops e falhas seguras em vez de use-after-free/double-free).
+- Perda de foco libera teclas/botões pressionados com eventos
+  sintéticos (`input.releaseAll` no `FocusOut`/`WM_KILLFOCUS`):
+  nada fica preso após Alt+Tab.
+- Win32 registra classe de janela com nome único por instância
+  (`ZigwayWindow#N`): múltiplas `Platform` coexistem no processo.
+- Destruição externa de janela (servidor/WM no X11, `WM_DESTROY`
+  externo no Win32) agora remove a entrada nativa do backend: marca
+  `should_close`, emite `close` uma vez e operações seguintes
+  retornam `InvalidWindow`. Antes, chamadas atingiam handles mortos
+  (no X11, `BadWindow` encerra o processo no handler padrão).
+- `ClientMessage` no X11 agora exige `message_type == WM_PROTOCOLS`
+  antes de aceitar `WM_DELETE_WINDOW` (evita `close` espúrio de
+  mensagens alheias).
+
 ### Adicionado
 
+- `Event.window()`: janela associada ao evento, quando houver
+  (usado pela poda de eventos de janelas destruídas).
+- Cobertura de regressão: reuso de slot/geração no nível Platform,
+  destroy durante o consumo, poda mista, deinit com janelas vivas,
+  cópia + double-deinit, falha de alocação em `createWindow`, stress
+  de 32 janelas, `InvalidWindow` em ops sobre id morto, ordenação de
+  overflow, transições de botões/modificadores/scroll.
 - Teste de sincronia de versão (`version string matches build.zig.zon`):
   falha ruidosamente se `src/core/version.zig` divergir de
   `build.zig.zon` (declarado como entrada do passo de teste).
