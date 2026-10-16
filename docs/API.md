@@ -72,7 +72,12 @@ pub const Event = union(enum) {
 Fila: capacidade fixa, sem alocação após init; coalescing de
 `pointer_move` adjacente; overflow preserva `close` (`dropped` conta
 descartes). Eventos carregam só ids/escalares — destruir a janela
-poda seus eventos pendentes.
+poda seus eventos pendentes (seguro destruir durante o consumo da
+fila: `nextEvent` não retém índices). `Event.window()` retorna a
+janela associada, quando houver.
+
+Teclas sem mapeamento geram eventos com `.key == .unknown` (não são
+filtradas); o estado de input as registra normalmente.
 
 ## Input
 

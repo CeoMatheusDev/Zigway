@@ -7,9 +7,16 @@ header do sistema. Link dinâmico com `libX11.so` (dependência de sistema
 documentada — não é pacote Zig, não usa `@cImport`).
 
 Cobertura: abrir/fechar display, criar/destruir, mapear/desmapear,
-título, resize, foco, `WM_DELETE_WINDOW` (close), teclado via
-`XLookupKeysym`, mouse (movimento, 5 botões, roda vertical/horizontal),
-modificadores (Shift/Ctrl/Alt/Super), multi-janelas.
+título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
+`WM_PROTOCOLS`), teclado via `XLookupKeysym`, mouse (movimento,
+5 botões, roda vertical/horizontal), modificadores
+(Shift/Ctrl/Alt/Super), multi-janelas.
+
+Destruição externa (servidor/WM mata a janela): o backend marca
+`should_close`, emite `close` uma vez e remove a entrada nativa —
+operações seguintes retornam `InvalidWindow` em vez de atingir XID
+morta (o handler padrão de erros X encerra o processo em `BadWindow`).
+O slot segue ocupado até `destroyWindow` do consumidor.
 
 Limitações conhecidas:
 
@@ -33,6 +40,10 @@ teclado (VK→`Key`, flag `repeat` via bit 30, modificadores incrementais
 + flags `MK_*` no mouse), mouse (movimento, 5 botões, wheel
 vertical/horizontal com `ScreenToClient`), `WM_SIZE` (inclui minimize
 como invisível), foco, `WM_CLOSE`→evento sem destruir, multi-janelas.
+
+Destruição externa: como no X11, a entrada nativa é removida e
+operações seguintes retornam `InvalidWindow`; o slot segue ocupado
+até `destroyWindow` do consumidor.
 
 Limitações conhecidas:
 
