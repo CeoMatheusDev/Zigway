@@ -19,6 +19,19 @@ const Entry = struct {
     win: api.Window,
 };
 
+/// Handler de erro de protocolo X. Por padrao a Xlib encerra o processo em
+/// qualquer erro; a corrida real e: uma requisicao assincrona (ex.
+/// `XStoreName`) e enviada antes de processarmos o `DestroyNotify` de uma
+/// janela que o servidor acabou de destruir — a remocao de entrada fecha o
+/// caminho normal, mas a janela de tempo existe. Retornar 0 mantem o
+/// processo (o host) vivo. E global ao processo (a Xlib tem um unico
+/// handler), sem estado proprio, e permanece instalado apos `deinit`.
+fn xErrorHandler(display: ?*api.Display, event: *api.XErrorEvent) callconv(.c) c_int {
+    _ = display;
+    _ = event;
+    return 0;
+}
+
 pub const Backend = struct {
     allocator: std.mem.Allocator,
     display: *api.Display,
@@ -30,6 +43,9 @@ pub const Backend = struct {
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
         errdefer _ = api.XCloseDisplay(display);
+        // Nao deixa o handler padrao da Xlib encerrar o processo em um erro
+        // de protocolo recuperavel (ver xErrorHandler).
+        _ = api.XSetErrorHandler(xErrorHandler);
         const root = api.XDefaultRootWindow(display);
         const wm_delete = api.XInternAtom(display, "WM_DELETE_WINDOW", 0);
         if (wm_delete == 0) return error.ConnectionFailed;
@@ -485,4 +501,18 @@ test "xevent union matches C long pad" {
     // executa la, mas os tipos compilam em qualquer alvo).
     const expected: usize = if (builtin.os.tag == .windows) 96 else 192;
     try std.testing.expectEqual(expected, @sizeOf(api.XEvent));
+}
+
+test "xerror event layout matches LP64" {
+    // XErrorEvent (Xlib.h): int + Display* + XID(long) + ulong + 3 uchar
+    // -> 40 bytes em LP64. No Windows nao executa (X11 e Linux-only).
+    if (builtin.os.tag != .windows) {
+        try std.testing.expectEqual(@as(usize, 40), @sizeOf(api.XErrorEvent));
+    }
+}
+
+test "xerror handler swallows protocol errors" {
+    // Deve retornar 0 (a Xlib segue) em vez de encerrar o processo.
+    var ev = std.mem.zeroes(api.XErrorEvent);
+    try std.testing.expectEqual(@as(c_int, 0), xErrorHandler(null, &ev));
 }

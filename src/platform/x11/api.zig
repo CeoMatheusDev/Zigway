@@ -225,6 +225,22 @@ pub const XUnmapEvent = extern struct {
     from_configure: XBool,
 };
 
+/// Erro de protocolo X (async). Layout conferido contra
+/// /usr/include/X11/Xlib.h (XErrorEvent): 40 bytes em LP64.
+pub const XErrorEvent = extern struct {
+    type: c_int,
+    display: ?*Display,
+    resourceid: Window, // XID
+    serial: c_ulong,
+    error_code: u8,
+    request_code: u8,
+    minor_code: u8,
+};
+
+/// `int (*XErrorHandler)(Display*, XErrorEvent*)`. Retornar 0 faz a Xlib
+/// seguir; o handler padrao encerra o processo.
+pub const XErrorHandler = *const fn (display: ?*Display, event: *XErrorEvent) callconv(.c) c_int;
+
 /// Uniao de eventos Xlib: 24 longs (192 bytes em 64-bit).
 pub const XEvent = extern union {
     type: c_int,
@@ -272,3 +288,4 @@ pub extern "X11" fn XSetWMProtocols(display: *Display, window: Window, protocols
 pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_uint, height: c_uint) c_int;
 pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to: c_int, time: Time) c_int;
 pub extern "X11" fn XLookupKeysym(event: *const XKeyEvent, index: c_int) KeySym;
+pub extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
