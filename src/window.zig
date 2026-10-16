@@ -5,7 +5,7 @@
 // e invalida este handle (double-deinit e ignorado, nao falha).
 //
 // Nota arquitetural: este modulo importa `platform` apenas para o tipo
-// *Platform (par Window <-> Platform documentado em architecture.md);
+// *Platform (par Window <-> Platform documentado em docs/ARCHITECTURE.md);
 // `platform` importa este modulo para Window/WindowConfig. Nao ha ciclo
 // em nenhum outro nivel (backends nao conhecem Platform).
 

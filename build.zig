@@ -87,6 +87,9 @@ pub fn build(b: *std.Build) void {
     // Testes unitarios (sem display; backend null + logica central).
     const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
+    // O teste de sincronia de versao le build.zig.zon em compilacao:
+    // declara-lo como entrada invalida o cache quando so o zon muda.
+    run_mod_tests.addFileInput(b.path("build.zig.zon"));
     const test_step = b.step("test", "Executa os testes unitarios (headless)");
     test_step.dependOn(&run_mod_tests.step);
 
@@ -113,7 +116,7 @@ pub fn build(b: *std.Build) void {
         const exe = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
-                .root_source_file = b.path("examples/zig/" ++ name ++ ".zig"),
+                .root_source_file = b.path("examples/" ++ name ++ ".zig"),
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{.{ .name = "zigway", .module = mod }},
