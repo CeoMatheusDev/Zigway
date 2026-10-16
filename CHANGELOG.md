@@ -22,6 +22,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 - `ClientMessage` no X11 agora exige `message_type == WM_PROTOCOLS`
   antes de aceitar `WM_DELETE_WINDOW` (evita `close` espúrio de
   mensagens alheias).
+- `Platform.setWindowSize` não atualiza mais o slot otimisticamente:
+  o slot reflete o último tamanho confirmado (via evento nativo ou
+  backend síncrono); antes, o `ConfigureNotify` do X11 era engolido e
+  nenhum evento `resize` era emitido.
+- `Platform.destroyWindow` limpa a referência de ponteiro do estado de
+  input (`pointer_window`) quando ela aponta para a janela destruída:
+  antes o estado mantinha um id morto após o destroy.
 
 ### Adicionado
 
@@ -31,7 +38,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   destroy durante o consumo, poda mista, deinit com janelas vivas,
   cópia + double-deinit, falha de alocação em `createWindow`, stress
   de 32 janelas, `InvalidWindow` em ops sobre id morto, ordenação de
-  overflow, transições de botões/modificadores/scroll.
+  overflow, transições de botões/modificadores/scroll, limpeza de
+  `pointer_window` no destroy e consistência do estado de input sob
+  descarte por overflow.
 - Teste de sincronia de versão (`version string matches build.zig.zon`):
   falha ruidosamente se `src/core/version.zig` divergir de
   `build.zig.zon` (declarado como entrada do passo de teste).
@@ -49,13 +58,6 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   mudança de nomes ou comportamento.
 - `tests/live_x11.zig` pula (em vez de falhar) quando o backend X11
   está indisponível no alvo (`UnsupportedBackend`/`NotImplemented`).
-
-### Corrigido
-
-- `Platform.setWindowSize` não atualiza mais o slot otimisticamente:
-  o slot reflete o último tamanho confirmado (via evento nativo ou
-  backend síncrono); antes, o `ConfigureNotify` do X11 era engolido e
-  nenhum evento `resize` era emitido.
 
 ## [0.1.0-alpha.1] — 2026-10-15
 

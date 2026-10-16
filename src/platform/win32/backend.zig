@@ -613,6 +613,9 @@ pub fn fromVk(vk: u16) types.Key {
         api.VK_UP => .up,
         api.VK_RIGHT => .right,
         api.VK_DOWN => .down,
+        // Modificadores: WM_KEYDOWN entrega o VK generico, sem lado.
+        // Esquerda/direita so via scancode (lparam bits 16-23); o X11
+        // distingue. Documentado em docs/BACKENDS.md.
         api.VK_SHIFT, api.VK_LSHIFT, api.VK_RSHIFT => .left_shift,
         api.VK_CONTROL, api.VK_LCONTROL, api.VK_RCONTROL => .left_control,
         api.VK_MENU, api.VK_LMENU, api.VK_RMENU => .left_alt,
