@@ -366,9 +366,7 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                 events.dispatch(queue, state, .{
                     .focus = .{ .window = wid, .focused = false },
                 });
-                // Solta o que estava pressionado: os ups correspondentes
-                // nao serao entregues com outra janela focada.
-                input.releaseAll(wid, queue, state);
+                onFocusLost(backend, wid, queue, state);
             }
             return 0;
         },
@@ -518,6 +516,22 @@ fn trackModifier(backend: *Backend, vk: u16, pressed: bool) void {
     }
 }
 
+/// Perda de foco (WM_KILLFOCUS): solta teclas/botoes pressionados (os ups
+/// correspondentes nao serao entregues com outra janela focada) e zera os
+/// modificadores incrementais. `backend.mods` e mantido por evento — ao
+/// contrario do X11, que recalcula a partir de `state` —; sem zerar, um
+/// Alt/Super segurado no Alt+Tab vazaria para os eventos seguintes (em
+/// especial no mouse, cujo wparam so cobre shift/control).
+fn onFocusLost(
+    backend: *Backend,
+    wid: types.WindowId,
+    queue: *events.EventQueue,
+    state: *input.InputState,
+) void {
+    input.releaseAll(wid, queue, state);
+    backend.mods = .{};
+}
+
 pub fn fromVk(vk: u16) types.Key {
     if (vk >= 0x41 and vk <= 0x5a) {
         return switch (vk) {
@@ -665,4 +679,85 @@ test "class names are unique per counter" {
     for (expected_b, 0..) |c, i| try std.testing.expectEqual(@as(u16, c), b[i]);
     try std.testing.expectEqual(@as(u16, 0), b[expected_b.len]);
     try std.testing.expect(!std.mem.eql(u16, a[0..expected_a.len], b[0..expected_a.len]));
+}
+
+fn testBackend() Backend {
+    return .{
+        .allocator = std.testing.allocator,
+        .instance = null,
+        .class_atom = 0,
+    };
+}
+
+test "modifier tracking is incremental and cleared on focus loss" {
+    var backend = testBackend();
+    try std.testing.expect(!backend.mods.shift and !backend.mods.alt);
+
+    trackModifier(&backend, api.VK_LSHIFT, true);
+    trackModifier(&backend, api.VK_RMENU, true);
+    try std.testing.expect(backend.mods.shift and backend.mods.alt);
+
+    // Liberar uma tecla não zera o outro modificador.
+    trackModifier(&backend, api.VK_LSHIFT, false);
+    try std.testing.expect(!backend.mods.shift and backend.mods.alt);
+
+    // Reset (como no WM_KILLFOCUS): nada permanece pressionado.
+    backend.mods = .{};
+    try std.testing.expect(!backend.mods.shift and !backend.mods.control);
+    try std.testing.expect(!backend.mods.alt and !backend.mods.super);
+}
+
+test "mouse wparam overrides only shift and control" {
+    var backend = testBackend();
+    backend.mods = .{ .shift = true, .alt = true };
+    const mods = modsFromWparam(&backend, api.MK_CONTROL);
+    try std.testing.expect(mods.control);
+    try std.testing.expect(!mods.shift); // wparam manda em shift/control
+    try std.testing.expect(mods.alt); // alt vem do tracking incremental
+}
+
+test "focus loss releases held input and clears tracked modifiers" {
+    var backend = testBackend();
+    backend.mods = .{ .alt = true, .shift = true };
+
+    var queue = try events.EventQueue.init(std.testing.allocator, 32);
+    defer queue.deinit();
+    var state = input.InputState{};
+
+    // Estado como após um Alt+Tab com Alt segurado e botão pressionado.
+    const wid: types.WindowId = .{ .index = 7, .generation = 1 };
+    events.dispatch(&queue, &state, .{ .key_down = .{
+        .window = wid,
+        .key = .a,
+        .modifiers = .{ .alt = true },
+        .repeat = false,
+    } });
+    events.dispatch(&queue, &state, .{ .pointer_button = .{
+        .window = wid,
+        .button = .left,
+        .pressed = true,
+        .x = 5,
+        .y = 6,
+        .modifiers = .{ .alt = true },
+    } });
+    while (queue.next() != null) {} // descarta a preparação
+
+    onFocusLost(&backend, wid, &queue, &state);
+
+    // Nada fica preso e o tracking incremental zera (chave da correção).
+    try std.testing.expect(!state.isKeyDown(.a));
+    try std.testing.expect(!state.isButtonDown(.left));
+    try std.testing.expect(!state.modifiers.alt);
+    try std.testing.expect(!backend.mods.alt and !backend.mods.shift);
+
+    // Exatamente um key_up e um botão solto foram emitidos.
+    var ups: usize = 0;
+    var released: usize = 0;
+    while (queue.next()) |ev| switch (ev) {
+        .key_up => ups += 1,
+        .pointer_button => released += 1,
+        else => {},
+    };
+    try std.testing.expectEqual(@as(usize, 1), ups);
+    try std.testing.expectEqual(@as(usize, 1), released);
 }

@@ -12,6 +12,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 - Perda de foco libera teclas/botões pressionados com eventos
   sintéticos (`input.releaseAll` no `FocusOut`/`WM_KILLFOCUS`):
   nada fica preso após Alt+Tab.
+- Win32 zera os modificadores incrementais no `WM_KILLFOCUS`: antes,
+  um Alt/Super segurado no Alt+Tab permanecia ativo nos eventos
+  seguintes (o `wparam` do mouse só recobre shift/control).
 - Win32 registra classe de janela com nome único por instância
   (`ZigwayWindow#N`): múltiplas `Platform` coexistem no processo.
 - Destruição externa de janela (servidor/WM no X11, `WM_DESTROY`
