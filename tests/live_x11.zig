@@ -65,3 +65,35 @@ test "live x11: open display, create window, poll, destroy" {
     try std.testing.expect(saw_resize);
     try std.testing.expectEqual(@as(u32, 400), window.size().width);
 }
+
+// Acesso direto a Xlib apenas para provocar um erro de protocolo.
+extern "X11" fn XOpenDisplay(name: ?[*:0]const u8) ?*anyopaque;
+extern "X11" fn XDestroyWindow(display: *anyopaque, window: c_ulong) c_int;
+extern "X11" fn XSync(display: *anyopaque, discard: c_int) c_int;
+extern "X11" fn XCloseDisplay(display: *anyopaque) c_int;
+
+test "live x11: protocol error does not abort the process" {
+    // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
+    // erro de protocolo (BadWindow) encerra o processo no handler padrao —
+    // o que faria este binario de teste abortar. Se este teste termina, o
+    // processo sobreviveu.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+
+    // XID inexistente -> BadWindow assincrono, processado no XSync.
+    _ = XDestroyWindow(display, 0x7ffffffe);
+    _ = XSync(display, 0);
+
+    try std.testing.expectEqual(zigway.ActiveBackend.x11, plat.backendKind());
+}

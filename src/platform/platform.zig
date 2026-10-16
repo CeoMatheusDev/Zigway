@@ -161,6 +161,8 @@ pub const Platform = struct {
         try self.reg.freeSlot(id);
         // Remove eventos pendentes da janela destruida (sem refs invalidas).
         self.pruneEvents(id);
+        // Nao deixa o estado de input apontando para a janela morta.
+        self.input_state.forgetWindow(id);
     }
 
     /// Drena o sistema nativo para a fila interna. Infalivel: erros de
@@ -651,4 +653,57 @@ test "three windows destroy middle keeps others" {
     defer w4.deinit();
     try std.testing.expectEqual(dead.index, w4.windowId().index);
     try std.testing.expect(w4.windowId().generation > dead.generation);
+}
+
+test "destroy clears stale pointer window in input state" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{});
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+    const id1 = w1.windowId();
+
+    plat.injectEvent(.{ .pointer_move = .{ .window = id1, .x = 5, .y = 6 } });
+    try std.testing.expect(plat.inputState().pointer_window.?.eql(id1));
+
+    try plat.destroyWindow(id1);
+    w1.id = types.WindowId.invalid;
+
+    // Estado de input nao referencia mais a janela destruida.
+    try std.testing.expect(plat.inputState().pointer_window == null);
+    // Janela viva continua intacta.
+    try std.testing.expect(w2.isValid());
+}
+
+test "destroy does not disturb keys or buttons held elsewhere" {
+    // Destroy nao pode descarregar teclas/botoes de outras janelas: o
+    // estado de input e global e so a referencia de ponteiro e por janela.
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{});
+    var w2 = try plat.createWindow(.{});
+    defer w2.deinit();
+
+    plat.injectEvent(.{ .key_down = .{
+        .window = w2.windowId(),
+        .key = .a,
+        .modifiers = .{},
+        .repeat = false,
+    } });
+    plat.injectEvent(.{ .pointer_button = .{
+        .window = w2.windowId(),
+        .button = .left,
+        .pressed = true,
+        .x = 0,
+        .y = 0,
+        .modifiers = .{},
+    } });
+
+    try plat.destroyWindow(w1.windowId());
+    w1.id = types.WindowId.invalid;
+
+    try std.testing.expect(plat.inputState().isKeyDown(.a));
+    try std.testing.expect(plat.inputState().isButtonDown(.left));
 }

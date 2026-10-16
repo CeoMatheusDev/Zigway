@@ -101,6 +101,10 @@ delete/insert/home/end/page_up/page_down, setas, shifts/controls/alts/
 supers, caps_lock, num_lock, pontuação comum. `MouseButton`:
 left/right/middle/back/forward (roda chega como `scroll`).
 
+`pointer_window` é limpo quando a janela correspondente é destruída
+(`InputState.forgetWindow`), evitando referência a id morto. Teclas e
+botões são estado global e não são associados a janela.
+
 ## Tipos e erros
 
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,

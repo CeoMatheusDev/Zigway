@@ -305,3 +305,29 @@ test "overflow drops oldest non-critical first" {
     const first = q.next().?;
     try std.testing.expectEqual(@as(u32, 2), first.resize.width);
 }
+
+test "dispatch keeps input state consistent even when event is dropped" {
+    // Garantia: o estado de input e atualizado em `dispatch`
+    // independentemente da fila. Um evento descartado por overflow
+    // ainda reflete em `isKeyDown`/`isButtonDown`, evitando estado
+    // divergente entre "o que a fila entregou" e "o que esta pressionado".
+    var q = try EventQueue.init(std.testing.allocator, 1);
+    defer q.deinit();
+    var state = input.InputState{};
+    const id: WindowId = .{ .index = 0, .generation = 0 };
+
+    // Fila cheia de um critico: o proximo nao-critico sera descartado.
+    dispatch(&q, &state, .{ .close = .{ .window = id } });
+    dispatch(&q, &state, .{ .key_down = .{
+        .window = id,
+        .key = .a,
+        .modifiers = .{ .shift = true },
+        .repeat = false,
+    } });
+    try std.testing.expectEqual(@as(u64, 1), q.dropped);
+    try std.testing.expectEqual(@as(usize, 1), q.len());
+
+    // O evento nao entrou na fila, mas o estado reflete o key_down.
+    try std.testing.expect(state.isKeyDown(.a));
+    try std.testing.expect(state.modifiers.shift);
+}

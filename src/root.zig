@@ -1,4 +1,4 @@
-// Zigway: Native Platform Backend for Game Engines (Fase 1).
+// Zigway: Native Platform Backend (Fase 1).
 //
 // API publica:
 //

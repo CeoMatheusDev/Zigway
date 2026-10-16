@@ -18,6 +18,13 @@ operações seguintes retornam `InvalidWindow` em vez de atingir XID
 morta (o handler padrão de erros X encerra o processo em `BadWindow`).
 O slot segue ocupado até `destroyWindow` do consumidor.
 
+Erros de protocolo X: `Platform.init(.x11)` instala um handler de erro
+(`XSetErrorHandler`) que ignora erros recuperáveis, em vez do handler
+padrão da Xlib (que encerra o processo). Isso cobre a corrida entre uma
+requisição assíncrona e uma janela destruída pelo servidor antes do
+`poll`. O handler é global ao processo (limitação da Xlib) e permanece
+instalado após `deinit`; não tem estado próprio.
+
 Limitações conhecidas:
 
 - Auto-repeat chega como `key_down` repetidos (`repeat=false`).
@@ -39,8 +46,8 @@ múltiplas `Platform` no mesmo processo), `CreateWindowExW` (área de cliente
 ajustada via `AdjustWindowRectEx`), `WndProc` + pump com `PeekMessageW`,
 teclado (VK→`Key`, flag `repeat` via bit 30, modificadores incrementais
 + flags `MK_*` no mouse), mouse (movimento, 5 botões, wheel
-vertical/horizontal com `ScreenToClient`), `WM_SIZE` (inclui minimize
-como invisível), foco, `WM_CLOSE`→evento sem destruir, multi-janelas.
+vertical/horizontal), `WM_SIZE` (inclui minimize como invisível), foco,
+`WM_CLOSE`→evento sem destruir, multi-janelas.
 
 Destruição externa: como no X11, a entrada nativa é removida e
 operações seguintes retornam `InvalidWindow`; o slot segue ocupado
@@ -51,6 +58,14 @@ Limitações conhecidas:
 - Sem validação em runtime ainda (validado por compilação cruzada
   `x86_64-windows`; sem máquina Windows disponível).
 - Numpad 0–9 mapeados para `n0`–`n9` (sem distinção nesta fase).
+- No `WM_KEYDOWN` o `wparam` traz o VK genérico (ex.: `VK_SHIFT`), sem
+  distinguir lado: `VK_SHIFT`/`VK_LSHIFT`/`VK_RSHIFT` viram
+  `left_shift`, e o mesmo para Ctrl/Alt/Super. O X11 distingue
+  esquerda/direita. Distinguir no Win32 exigiria o scancode
+  (`lparam` bits 16–23) — fora do escopo desta fase.
+- `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` entregam coordenadas de tela, mas
+  `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
+  (`ScreenToClient`).
 - Estado inicial de modificadores é `false` até o primeiro evento.
 - `focus()` usa `SetFocus` (melhor esforço; foreground pertence ao SO).
 

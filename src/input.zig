@@ -64,6 +64,17 @@ pub const InputState = struct {
             .close => {},
         }
     }
+
+    /// Esquece qualquer referencia de ponteiro a `id`. Chamado ao
+    /// destruir a janela: sem isso, `pointer_window` continuaria
+    /// apontando para um id morto (estado de input invalido apos
+    /// destroy). Teclas/botoes nao sao associados a janela e ficam
+    /// intocados.
+    pub fn forgetWindow(self: *InputState, id: WindowId) void {
+        if (self.pointer_window) |pw| {
+            if (pw.eql(id)) self.pointer_window = null;
+        }
+    }
 };
 
 /// Libera tudo que esta pressionado com eventos sinteticos (key_up e
@@ -194,6 +205,20 @@ test "scroll keeps buttons and tracks window" {
     state.apply(.{ .scroll = .{ .window = id, .dx = 0, .dy = 1 } });
     try std.testing.expect(state.isButtonDown(.middle));
     try std.testing.expect(state.pointer_window.?.eql(id));
+}
+
+test "forgetWindow clears only the matching pointer window" {
+    var state = InputState{};
+    const a: WindowId = .{ .index = 1, .generation = 0 };
+    const b: WindowId = .{ .index = 2, .generation = 0 };
+
+    state.apply(.{ .pointer_move = .{ .window = a, .x = 1, .y = 1 } });
+    // Janela diferente nao afeta o estado.
+    state.forgetWindow(b);
+    try std.testing.expect(state.pointer_window.?.eql(a));
+    // A janela correspondente e esquecida.
+    state.forgetWindow(a);
+    try std.testing.expect(state.pointer_window == null);
 }
 
 test "releaseAll synthesizes releases and clears state" {
