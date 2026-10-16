@@ -2,9 +2,9 @@
 
 # Zigway
 
-**Native platform backend for game engines. Pure Zig.**
+**Native platform backend for desktop applications. Pure Zig.**
 
-A lightweight, native platform layer for desktop applications and game engines, built in Zig without `@cImport`, C headers, or external runtime dependencies.
+A lightweight, native platform layer for desktop applications and GUI toolkits, built in Zig without `@cImport`, C headers, or external runtime dependencies.
 
 Built for Zig 0.17.0 • Current version **0.1.0-alpha.1**
 
@@ -19,7 +19,7 @@ Built for Zig 0.17.0 • Current version **0.1.0-alpha.1**
 
 ## Overview
 
-Zigway provides a native windowing and input abstraction layer for game engines, GUI toolkits, and desktop applications. It is designed around Zig-first APIs with explicit ownership, generated handles, and zero global state.
+Zigway provides a native windowing and input abstraction layer for desktop applications and GUI toolkits. It is designed around Zig-first APIs with explicit ownership, generated handles, and zero global state.
 
 This project targets a clean separation between platform backend concerns and graphics/RHI concerns. Zigway manages windows, events, and input, while rendering and device integration remain outside this layer.
 
@@ -158,6 +158,6 @@ MIT — see `LICENSE`.
 
 <div align="center">
 
-**Zigway** · Native platform backend for game engines and desktop apps
+**Zigway** · Native platform backend for desktop applications and GUI toolkits
 
 </div>
