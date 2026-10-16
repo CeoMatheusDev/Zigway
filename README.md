@@ -1,68 +1,84 @@
+<div align="center">
+
 # Zigway
 
 **Native platform backend for game engines. Pure Zig.**
 
-Zigway abstrai o sistema de janelas nativo (Win32, X11) para game
-engines, frameworks GUI e aplicações nativas: janelas, eventos e input
-com API Zig nativa, sem `@cImport`, sem headers C e sem dependências
-externas. Versão atual: **0.1.0-alpha.1**. Exige **Zig 0.17.0**.
+A lightweight, native platform layer for desktop applications and game engines, built in Zig without `@cImport`, C headers, or external runtime dependencies.
 
-## Características
+Built for Zig 0.17.0 • Current version **0.1.0-alpha.1**
 
-- **API Zig nativa** — error sets, `union(enum)` de eventos, tipos fortes.
-- **Backends multiplataforma** — Win32, X11, null/headless; Wayland planejado.
-- **Múltiplas janelas** por instância, sem estado global.
-- **Handles geracionais** — ids expirados falham em vez de atingir outra janela.
-- **Memória explícita** — alocador do chamador, fila de eventos sem alocação no hot path.
-- **Headless** — backend null para testes e CI sem display.
-- **Extensível** — pontos reservados para Vulkan/OpenGL/Direct3D (Fase 4) e ABI C (Fase 8).
+[![Status](https://img.shields.io/badge/status-alpha-orange)](https://github.com/CeoMatheusDev/Zigway)
+[![Zig](https://img.shields.io/badge/Zig-0.17.0-f7a41d)](https://ziglang.org/)
+[![Platform](https://img.shields.io/badge/backends-Win32%20%7C%20X11%20%7C%20null-4b8bbe)](https://github.com/CeoMatheusDev/Zigway)
+[![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/CeoMatheusDev/Zigway/blob/main/LICENSE)
 
-## Compatibilidade
+</div>
 
-| Plataforma | Backend | Compilação | Runtime |
-|---|---|---|---|
-| Linux | X11 | validado | validado com display real |
-| Windows | Win32 | cross-compilação validada | **pendente** (sem Windows disponível) |
-| Qualquer | null/headless | validado | validado (testes unitários) |
-| Linux | Wayland | planejado (v0.5.0) | não implementado |
+---
 
-X11 exige `libX11` do sistema + headers em build (dependência de
-sistema documentada, não pacote Zig). Execução via XWayland conta como
-backend X11.
+## Overview
 
-## Requisitos
+Zigway provides a native windowing and input abstraction layer for game engines, GUI toolkits, and desktop applications. It is designed around Zig-first APIs with explicit ownership, generated handles, and zero global state.
 
-- Zig **0.17.0** (`zig version` deve imprimir `0.17.0`).
-- Linux/X11: `libX11-devel` (Fedora) ou `libx11-dev` (Debian/Ubuntu).
-- Windows: SDK padrão.
+This project targets a clean separation between platform backend concerns and graphics/RHI concerns. Zigway manages windows, events, and input, while rendering and device integration remain outside this layer.
 
-## Compilar, testar, exemplificar
+> [!IMPORTANT]
+> Wayland is not implemented and is explicitly not advertised as available. This repository currently supports Win32, X11, and a null/headless backend only.
+
+## Why Zigway
+
+- Native Zig API: explicit error sets, strong types, and structured event handling.
+- Multi-window support: multiple windows can coexist in a single platform instance.
+- Generated handles: stale IDs fail safely instead of referring to the wrong window.
+- Caller-owned memory model: no hidden global state, predictable lifetime semantics.
+- Headless testing: null backend for CI and display-free validation.
+- Platform-focused scope: no renderer, no GPU pipeline, no fake abstraction layers.
+
+## Supported backends
+
+| Platform | Backend | Status |
+| --- | --- | --- |
+| Windows | Win32 | Implemented |
+| Linux | X11 | Implemented |
+| Any | Null/headless | Implemented for tests and CI |
+| Linux | Wayland | Planned, not implemented |
+
+The current implementation is intentionally conservative: support is only declared when it is validated in code and build/test flow.
+
+## Requirements
+
+- Zig 0.17.0
+- Linux/X11: system X11 headers and libraries
+- Windows: standard Win32 SDK
+
+## Build and test
 
 ```bash
-zig build              # biblioteca
-zig build test         # unitários headless (sem display)
-zig build test-x11     # integração X11 (pula sem display; Xvfb no CI)
-zig build examples     # hello_window, multiple_windows, keyboard_input
-zig fmt --check .      # formatação
+zig build              # build the library
+zig build test         # headless unit tests
+zig build test-x11     # X11 integration tests (skips without a display)
+zig build examples     # example apps
+zig fmt --check .      # formatting validation
 ```
 
-Seleção de backend no build (padrão do `Options.backend == .auto`):
+Backend selection:
 
 ```bash
-zig build -Dplatform=x11            # Linux
-zig build -Dplatform=win32          # Windows (alvo Windows)
-zig build -Dplatform=null_backend   # headless
+zig build -Dplatform=x11          # Linux/X11
+zig build -Dplatform=win32        # Windows backend
+zig build -Dplatform=null_backend # headless backend
 ```
 
-Compilação cruzada:
+Cross-compilation for Windows:
 
 ```bash
 zig build -Dtarget=x86_64-windows -Dplatform=win32
 ```
 
-Ver `docs/BUILDING.md` para detalhes e solução de erros.
+See `docs/BUILDING.md` for backend details and troubleshooting.
 
-## Exemplo
+## Example
 
 ```zig
 const zigway = @import("zigway");
@@ -93,9 +109,9 @@ while (!window.shouldClose()) {
 }
 ```
 
-## Usar como dependência
+## Dependency usage
 
-Via caminho local (`build.zig.zon` do consumidor):
+Local path dependency:
 
 ```zig
 .dependencies = .{
@@ -111,32 +127,37 @@ const zigway_dep = b.dependency("zigway", .{
 exe.root_module.addImport("zigway", zigway_dep.module("zigway"));
 ```
 
-Fetch remoto (`zig fetch` de tag publicada): pendente da primeira
-release publicada no GitHub. Não há tarball oficial ainda.
+Remote fetch from a published tag is pending the first official release. No tarball is published yet.
 
 ## Roadmap
 
-- **Implementado (v0.1.0-alpha.1):** fundação, janelas, eventos, input, Win32+X11+null.
-- **Em desenvolvimento:** estabilização da Fase 1, CI, validação Win32 em runtime.
-- **Planejado:** Display/Cursor (v0.2.x), texto/clipboard (v0.3.x), gráficos (v0.4.x), Wayland (v0.5.x), expansões de input (v0.6.x), estabilização (v0.7.x), ABI C (v0.8.x), 1.0 estável. Ver `docs/ROADMAP.md`.
+- Implemented in v0.1.0-alpha.1: core platform foundation, windowing, events, input, Win32, X11, null backend
+- In progress: validation, CI stability, runtime checks
+- Planned: input expansion, text/clipboard, display/cursor work, Wayland evaluation, C ABI and broader portability
 
-## Documentação
+## Documentation
 
-- `docs/BUILDING.md` — requisitos, build, testes, cross, backends.
-- `docs/ARCHITECTURE.md` — camadas, ownership, handles, threading.
-- `docs/API.md` — referência da API pública.
-- `docs/BACKENDS.md` — cobertura e limitações por backend.
-- `docs/ROADMAP.md` — versões planejadas.
-- `docs/GRAPHICS.md` — integração gráfica planejada (sem renderer próprio).
-- `docs/VERSIONING.md` — SemVer e releases.
-- `CHANGELOG.md` — histórico de mudanças.
+- `docs/BUILDING.md` — build steps, dependencies, platform notes
+- `docs/ARCHITECTURE.md` — layers, ownership and backend boundaries
+- `docs/API.md` — public API reference
+- `docs/BACKENDS.md` — backend coverage and current limitations
+- `docs/ROADMAP.md` — planned milestones
+- `CHANGELOG.md` — change history
 
-## Contribuir
+## Contributing
 
-Ver `CONTRIBUTING.md`. Commits em Conventional Commits; toda mudança
-atualiza `CHANGELOG.md` (`## [Não lançado]`); nenhum teste declarado
-sem execução; nenhuma publicação remota sem autorização.
+Contributions are welcome, especially around validation, cross-platform behavior, cleanup, and documentation.
 
-## Licença
+Please follow the repository conventions and keep changes focused. Commit messages should use conventional commit style, and any functional change should be reflected in the changelog.
 
-MIT — ver `LICENSE`. Copyright (c) 2026 CeoMatheusDev.
+## License
+
+MIT — see `LICENSE`.
+
+---
+
+<div align="center">
+
+**Zigway** · Native platform backend for game engines and desktop apps
+
+</div>
