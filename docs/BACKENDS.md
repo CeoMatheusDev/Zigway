@@ -34,7 +34,8 @@ Validado com display real: `zig build test-x11`.
 ABI user32/kernel32/gdi32 declarada manualmente (`api.zig`, layouts
 para 64-bit). Sem link com CRT além do necessário.
 
-Cobertura: registro de classe, `CreateWindowExW` (área de cliente
+Cobertura: registro de classe (nome único por instância, permitindo
+múltiplas `Platform` no mesmo processo), `CreateWindowExW` (área de cliente
 ajustada via `AdjustWindowRectEx`), `WndProc` + pump com `PeekMessageW`,
 teclado (VK→`Key`, flag `repeat` via bit 30, modificadores incrementais
 + flags `MK_*` no mouse), mouse (movimento, 5 botões, wheel

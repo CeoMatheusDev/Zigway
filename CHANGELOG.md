@@ -7,6 +7,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Corrigido
 
+- `Platform.deinit` idempotente + guards pós-deinit (`PlatformClosed`,
+  no-ops e falhas seguras em vez de use-after-free/double-free).
+- Perda de foco libera teclas/botões pressionados com eventos
+  sintéticos (`input.releaseAll` no `FocusOut`/`WM_KILLFOCUS`):
+  nada fica preso após Alt+Tab.
+- Win32 registra classe de janela com nome único por instância
+  (`ZigwayWindow#N`): múltiplas `Platform` coexistem no processo.
 - Destruição externa de janela (servidor/WM no X11, `WM_DESTROY`
   externo no Win32) agora remove a entrada nativa do backend: marca
   `should_close`, emite `close` uma vez e operações seguintes

@@ -38,7 +38,8 @@ platform.isWindowFocused(id) bool
 platform.windowShouldClose(id) bool      // inválido -> true
 platform.requestWindowClose(id) void
 platform.setWindowTitle(id, title) !void
-platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO
+platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
+                                 // nativo confirma via evento; null aplica na hora
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
 ```
@@ -79,6 +80,12 @@ janela associada, quando houver.
 Teclas sem mapeamento geram eventos com `.key == .unknown` (não são
 filtradas); o estado de input as registra normalmente.
 
+Perda de foco libera o que estava pressionado: o backend emite
+`key_up` para cada tecla e `pointer_button` solto para cada botão
+(associados à janela que perdeu o foco, modificadores zerados), pois
+o SO não entregará os ups correspondentes. Sem isso, entradas
+ficariam presas após Alt+Tab.
+
 ## Input
 
 ```zig
@@ -103,4 +110,16 @@ left/right/middle/back/forward (roda chega como `scroll`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
-`WindowCreationFailed`, `InvalidWindow`.
+`WindowCreationFailed`, `InvalidWindow`, `PlatformClosed`.
+
+## Lifecycle
+
+- `Platform` tem ownership único e intransferível (não copiar o valor).
+- `deinit` é idempotente; após ele, mutações retornam
+  `error.PlatformClosed`, `pollEvents`/`injectEvent` são no-ops,
+  `nextEvent` retorna `null` e consultas usam falha segura.
+- `Window.deinit` após `deinit` da plataforma é ignorado com segurança.
+- Ordem correta: `defer window.deinit()` registrado **depois** do
+  `defer platform.deinit()` (LIFO garante janela antes da plataforma).
+- Múltiplas instâncias `Platform` coexistem com recursos independentes
+  (filas, inputs, ids e — no Win32 — classes de janela não se misturam).

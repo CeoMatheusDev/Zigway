@@ -54,6 +54,19 @@ no mesmo passo (`events.dispatch` — ponto único). `nextEvent()` consome.
 Sem alocação após o init; capacidade fixa; overflow preserva `close`
 (ver `events.zig`). Eventos de janela destruída são podados no destroy.
 
+Garantias reais de ordenação (sem promessas além do backend):
+
+- Ordem FIFO da ordem de despacho: o consumidor recebe na ordem em
+  que os eventos entraram na fila.
+- Backends nativos despacham na ordem de `XNextEvent`/`DispatchMessage`
+  (ordem do servidor). Sem garantia global além dessa.
+- Coalescing só funde `pointer_move` adjacentes da **mesma** janela;
+  nunca elimina `close` nem mistura janelas.
+- Overflow pode descartar o não-crítico mais antigo (com contador
+  `dropped`); `close` é preservado salvo fila cheia só de críticos.
+- Perda de foco gera `key_up`/`pointer_button` sintéticos (ver
+  `input.releaseAll`): sem garantia de sequência física desses eventos.
+
 ## Threading
 
 Afinidade com a thread criadora: `init`, `pollEvents` e operações de
