@@ -305,15 +305,17 @@ e depois na tecla lógica da API — o mapeamento é o mesmo do X11
 (`src/platform/keysym.zig`, compartilhado). `enter`/`leave` viram
 `focus` (a perda de foco libera as teclas pressionadas) e `key` vira
 `key_down`/`key_up`, com os modificadores do evento `modifiers` do
-compositor (shift/control/alt/super).
+compositor (shift/control/alt/super). O `raw_key` traz o keycode XKB
+(evdev + 8, como o keycode do X11), que identifica a tecla física
+independentemente do layout.
 
 Limitações conhecidas do Wayland:
 
 - O `wl_keyboard` não distingue auto-repeat: o Wayland reenvia o
   evento da tecla, e o backend marca a tecla como `key_down` (o
   `repeat` fica `false`).
-- A entrada de texto Unicode (`text_input`) e o `raw_key` (tecla
-  física) ainda não são entregues no Wayland.
+- A entrada de texto Unicode (`text_input`) ainda não é entregue no
+  Wayland (exige o protocolo `zwp_text_input_v3`).
 
 Limitações conhecidas:
 

@@ -34,7 +34,8 @@ não está disponível (`error.UnsupportedBackend`).
   (`src/platform/keysym.zig`, compartilhado com o X11). `enter`/`leave`
   viram `focus` (a perda de foco libera as teclas pressionadas) e
   `key` vira `key_down`/`key_up` com os modificadores do evento
-  `modifiers` do compositor.
+  `modifiers` do compositor. O `raw_key` traz o keycode XKB
+  (evdev + 8, como o keycode do X11).
 - **Ponteiro**: o `wl_pointer` é criado quando o compositor anuncia a
   capacidade no seat. `enter`/`leave`/`motion` viram `pointer_move`
   (com a janela da superfície), `button` vira `pointer_button` e `axis`

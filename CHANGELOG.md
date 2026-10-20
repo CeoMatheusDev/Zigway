@@ -16,11 +16,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   modificadores) e depois na tecla logica da API; `enter`/`leave`
   viram `focus` (a perda de foco libera as teclas pressionadas) e
   `key` vira `key_down`/`key_up` com os modificadores do evento
-  `modifiers` do compositor.
-- `src/platform/keysym.zig`: modulo compartilhado com o mapeamento
+  `modifiers` do compositor.- `src/platform/keysym.zig`: modulo compartilhado com o mapeamento
   keysym (X11/XKB) -> tecla logica, antes duplicado no backend X11.
   O backend X11 passou a usa-lo (sem mudanca de comportamento).
-- **Entrada de ponteiro no backend Wayland**: o `wl_pointer` e criado
+- `raw_key` no backend Wayland: o keycode XKB (evdev + 8, como o
+  keycode do X11) identifica a tecla fisica, independente do layout.- **Entrada de ponteiro no backend Wayland**: o `wl_pointer` e criado
   quando o compositor anuncia a capacidade no seat. `enter`/`leave`/
   `motion` viram `pointer_move` (com a janela da superficie e as
   coordenadas em pixels, convertidas de `wl_fixed_t`), `button` vira

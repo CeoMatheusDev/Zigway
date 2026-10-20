@@ -85,6 +85,13 @@ const PendingKey = struct {
     /// reenvia o evento com a tecla ja pressionada).
     repeat: bool = false,
 };
+
+/// Tecla fisica pendente (evento `raw_key`).
+const PendingRawKey = struct {
+    /// Keycode XKB (evdev + 8).
+    scancode: u32,
+    pressed: bool,
+};
 /// Estado de uma janela (wl_surface + xdg_surface + xdg_toplevel).
 const WindowEntry = struct {
     /// Slot no registro da plataforma (fonte de verdade da validade).
@@ -263,6 +270,9 @@ const State = struct {
     keyboard_modifiers: u32 = 0,
     /// Tecla pendente (evento `key_down`/`key_up`).
     pending_key: ?PendingKey = null,
+    /// Tecla fisica pendente (evento `raw_key`): o keycode XKB
+    /// (evdev + 8, como o keycode do X11).
+    pending_raw_key: ?PendingRawKey = null,
     /// Foco do teclado pendente (evento `focus`).
     pending_focus: ?bool = null,
     /// Superficie com o foco do ponteiro (a que recebe os eventos).
@@ -1289,6 +1299,25 @@ pub const Backend = struct {
                 } };
             events.dispatch(queue, state, event);
         }
+        if (self.state.pending_raw_key) |raw| {
+            self.state.pending_raw_key = null;
+            const modifiers: types.Modifiers = .{
+                .shift = (self.state.keyboard_modifiers & xkb.mod_index_shift) != 0,
+                .control = (self.state.keyboard_modifiers & xkb.mod_index_control) != 0,
+                .alt = (self.state.keyboard_modifiers & xkb.mod_index_alt) != 0,
+                .super = (self.state.keyboard_modifiers & xkb.mod_index_super) != 0,
+            };
+            // O evento `raw_key` exige uma janela (o teclado sem foco
+            // nao tem tecla fisica para reportar).
+            if (keyboard_window) |wid| {
+                events.dispatch(queue, state, .{ .raw_key = .{
+                    .window = wid,
+                    .scancode = raw.scancode,
+                    .pressed = raw.pressed,
+                    .modifiers = modifiers,
+                } });
+            }
+        }
         var i: usize = 0;
         while (i < self.state.windows.items.len) : (i += 1) {
             const entry = &self.state.windows.items[i];
@@ -1653,6 +1682,8 @@ fn onKeyboardKey(
     const key = keysym.fromKeysym(sym);
     if (key == .unknown) return;
     state.pending_key = .{ .key = key, .pressed = pressed };
+    // Tecla fisica: o keycode XKB (evdev + 8), como o keycode do X11.
+    state.pending_raw_key = .{ .scancode = keycode, .pressed = pressed };
 }
 
 fn onKeyboardModifiers(
