@@ -1,9 +1,9 @@
 // Zigway X11: backend sobre Xlib (declaracoes manuais em api.zig).
 //
 // Threading: afinidade com a thread criadora (Xlib nao e thread-safe por
-// padrao para a mesma conexao). Repeticao automatica de tecla (auto-repeat)
-// e reportada como key_down sucessivos (sem flag repeat); deteccao fina e
-// limitacao conhecida desta fase.
+// padrao para a mesma conexao). Auto-repeat: o init habilita detectable
+// autorepeat (XKB), de modo que repeticoes chegam como KeyPress sem
+// KeyRelease intermediario e sao marcadas com `repeat=true`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -46,6 +46,13 @@ pub const Backend = struct {
         // Nao deixa o handler padrao da Xlib encerrar o processo em um erro
         // de protocolo recuperavel (ver xErrorHandler).
         _ = api.XSetErrorHandler(xErrorHandler);
+        // Auto-repeat: "detectable autorepeat" faz o servidor enviar apenas
+        // KeyPress repetidos (sem KeyRelease no meio), o que permite marcar
+        // `repeat` sem apagar o estado da tecla. Servidor sem suporte
+        // devolve false em `supported`; nesse caso repeat fica false
+        // (fallback igual ao comportamento anterior).
+        var xkb_supported: api.XBool = 0;
+        _ = api.XkbSetDetectableAutoRepeat(display, 1, &xkb_supported);
         const root = api.XDefaultRootWindow(display);
         const wm_delete = api.XInternAtom(display, "WM_DELETE_WINDOW", 0);
         if (wm_delete == 0) return error.ConnectionFailed;
@@ -222,7 +229,7 @@ pub const Backend = struct {
                     .window = wid,
                     .key = key,
                     .modifiers = mods,
-                    .repeat = false,
+                    .repeat = pressed and isRepeat(state, key),
                 };
                 if (pressed) {
                     events.dispatch(queue, state, .{ .key_down = kev });
@@ -358,6 +365,16 @@ pub const Backend = struct {
     }
 };
 
+/// Auto-repeat: com detectable autorepeat ligado, o servidor omite o
+/// KeyRelease entre repeticoes, entao um KeyPress de uma tecla mapeada que
+/// ja esta pressionada e repeticao. `.unknown` agrupa teclas distintas nao
+/// mapeadas e por isso nunca e tratado como repeticao (evita marcar uma
+/// tecla diferente como repeat).
+pub fn isRepeat(state: *const input.InputState, key: types.Key) bool {
+    if (key == .unknown) return false;
+    return state.isKeyDown(key);
+}
+
 pub fn fromState(state: c_uint) types.Modifiers {
     return .{
         .shift = (state & api.ShiftMask) != 0,
@@ -486,6 +503,32 @@ test "keysym mapping covers basics" {
     try std.testing.expectEqual(types.Key.left_super, fromKeysym(api.XK_Super_L));
     try std.testing.expectEqual(types.Key.space, fromKeysym(0x20));
     try std.testing.expectEqual(types.Key.unknown, fromKeysym(0x1234));
+}
+
+test "repeat detection flags a second key_down of a mapped key" {
+    var state = input.InputState{};
+    const id: types.WindowId = .{ .index = 0, .generation = 0 };
+
+    try std.testing.expect(!isRepeat(&state, .a));
+    state.apply(.{ .key_down = .{
+        .window = id,
+        .key = .a,
+        .modifiers = .{},
+        .repeat = false,
+    } });
+    // Mesma tecla pressionada: repeticao. Outra tecla: nao.
+    try std.testing.expect(isRepeat(&state, .a));
+    try std.testing.expect(!isRepeat(&state, .b));
+    // `.unknown` agrupa teclas distintas; nunca vira repeticao.
+    try std.testing.expect(!isRepeat(&state, .unknown));
+
+    state.apply(.{ .key_up = .{
+        .window = id,
+        .key = .a,
+        .modifiers = .{},
+        .repeat = false,
+    } });
+    try std.testing.expect(!isRepeat(&state, .a));
 }
 
 test "state mask maps modifiers" {

@@ -289,3 +289,12 @@ pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_ui
 pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to: c_int, time: Time) c_int;
 pub extern "X11" fn XLookupKeysym(event: *const XKeyEvent, index: c_int) KeySym;
 pub extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
+/// Habilita "detectable autorepeat" (XKB, parte da Xlib): o servidor
+/// passa a enviar apenas KeyPress repetidos, sem o par
+/// KeyRelease/KeyPress entre repeticoes. Assinatura conferida em
+/// /usr/include/X11/XKBlib.h: `Bool (Display*, Bool, Bool*)`.
+pub extern "X11" fn XkbSetDetectableAutoRepeat(
+    display: *Display,
+    detectable: XBool,
+    supported: ?*XBool,
+) XBool;

@@ -82,6 +82,79 @@ extern "X11" fn XQueryTree(
     nchildren_return: *c_uint,
 ) c_int;
 extern "X11" fn XFetchName(display: *anyopaque, window: c_ulong, name_return: *?[*:0]u8) c_int;
+extern "X11" fn XSendEvent(
+    display: *anyopaque,
+    window: c_ulong,
+    propagate: c_int,
+    event_mask: c_long,
+    event: *anyopaque,
+) c_int;
+extern "X11" fn XKeysymToKeycode(display: *anyopaque, keysym: c_ulong) u8;
+extern "X11" fn XKeycodeToKeysym(display: *anyopaque, keycode: u8, index: c_int) c_ulong;
+
+/// XKeyEvent (Xlib.h) para eventos sinteticos. XEvent e uma uniao de 24
+/// longs (192 bytes em LP64); o buffer abaixo replica o tamanho total para
+/// que XSendEvent copie a quantidade correta de bytes.
+const XKeyEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: ?*anyopaque,
+    window: c_ulong,
+    root: c_ulong,
+    subwindow: c_ulong,
+    time: c_ulong,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    keycode: c_uint,
+    same_screen: c_int,
+};
+
+const XEventBuf = extern struct {
+    key: XKeyEvent,
+    pad: [96]u8,
+};
+
+const KeyPress: c_int = 2;
+const KeyRelease: c_int = 3;
+const KeyPressMask: c_long = 1;
+const KeyReleaseMask: c_long = 2;
+
+/// Envia um KeyPress/KeyRelease sintetico direto para `window` (sem
+/// depender de foco/XTEST) e sincroniza o servidor.
+fn sendKey(
+    display: *anyopaque,
+    window: c_ulong,
+    root: c_ulong,
+    keycode: u8,
+    pressed: bool,
+) void {
+    var ev: XEventBuf = std.mem.zeroes(XEventBuf);
+    ev.key = .{
+        .type = if (pressed) KeyPress else KeyRelease,
+        .serial = 0,
+        .send_event = 1,
+        .display = display,
+        .window = window,
+        .root = root,
+        .subwindow = 0,
+        .time = 0,
+        .x = 0,
+        .y = 0,
+        .x_root = 0,
+        .y_root = 0,
+        .state = 0,
+        .keycode = keycode,
+        .same_screen = 1,
+    };
+    const mask: c_long = if (pressed) KeyPressMask else KeyReleaseMask;
+    _ = XSendEvent(display, window, 0, mask, @ptrCast(&ev));
+    _ = XSync(display, 0);
+}
+
 extern "X11" fn XGetWMProtocols(
     display: *anyopaque,
     window: c_ulong,
@@ -129,6 +202,24 @@ fn hasWmProtocols(display: *anyopaque, window: c_ulong) bool {
     const has = XGetWMProtocols(display, window, &protocols, &count) != 0;
     if (protocols) |p| _ = XFree(@as(?*anyopaque, @ptrCast(p)));
     return has;
+}
+
+/// Drena eventos ate encontrar o key_down/key_up pedido (descarta os
+/// demais). Retorna null se nada chegar dentro da janela de espera.
+fn pollKey(plat: *zigway.Platform, pressed: bool) ?zigway.KeyEvent {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .key_down => |e| if (pressed) return e,
+                .key_up => |e| if (!pressed) return e,
+                else => {},
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
 }
 
 test "live x11: external destroy emits close once and invalidates operations" {
@@ -381,6 +472,79 @@ test "live x11: focus in/out updates state" {
     if (saw_focus) {
         try std.testing.expect(plat.isWindowFocused(w.windowId()));
     }
+}
+
+test "live x11: auto-repeat is flagged on repeated KeyPress" {
+    // Valida a deteccao de repeat de ponta a ponta: dois KeyPress da mesma
+    // tecla sem KeyRelease intermediario (semantica de detectable
+    // autorepeat). O primeiro e key_down normal; o segundo, repeat=true.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const title = "zigway-live-repeat";
+    var window = try plat.createWindow(.{ .width = 320, .height = 240, .title = title });
+    defer window.deinit();
+
+    // XEvent e uma uniao de 24 longs; o buffer precisa do tamanho total.
+    try std.testing.expectEqual(@as(usize, 192), @sizeOf(XEventBuf));
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+
+    var target: ?c_ulong = null;
+    var tries: usize = 0;
+    while (tries < 400 and target == null) : (tries += 1) {
+        _ = XSync(display, 0);
+        target = findClientWindowByTitle(display, root, title, 0);
+        if (target == null) sleepMs(5);
+    }
+    const native = target orelse {
+        std.debug.print("\n[x11-live] janela nativa nao encontrada; pulando.\n", .{});
+        return;
+    };
+
+    // Tecla cujo keysym em shift level 0 e uma letra ASCII (mapeada).
+    const keycode = XKeysymToKeycode(display, 0x61); // XK_a
+    if (keycode == 0) return;
+    const sym = XKeycodeToKeysym(display, keycode, 0);
+    const is_letter = (sym >= 0x61 and sym <= 0x7a) or (sym >= 0x41 and sym <= 0x5a);
+    if (!is_letter) {
+        std.debug.print("\n[x11-live] layout sem letra ASCII no keycode; pulando.\n", .{});
+        return;
+    }
+    // Key.a = 1, ..., Key.z = 26 (ordinais densos, cobertos por teste).
+    const expected: zigway.Key = @fromBackingInt(@intCast(@as(u16, @intCast((sym | 0x20) - 0x61 + 1))));
+
+    // Primeiro press: key_down normal.
+    sendKey(display, native, root, keycode, true);
+    const first = pollKey(&plat, true) orelse return error.MissingKeyEvent;
+    try std.testing.expectEqual(expected, first.key);
+    try std.testing.expect(!first.repeat);
+    try std.testing.expect(first.window.?.eql(window.windowId()));
+    try std.testing.expect(plat.inputState().isKeyDown(expected));
+
+    // Segundo press sem release: repeticao automatica.
+    sendKey(display, native, root, keycode, true);
+    const second = pollKey(&plat, true) orelse return error.MissingKeyEvent;
+    try std.testing.expectEqual(expected, second.key);
+    try std.testing.expect(second.repeat);
+    try std.testing.expect(plat.inputState().isKeyDown(expected));
+
+    // Release fisico: key_up normal e estado limpo.
+    sendKey(display, native, root, keycode, false);
+    const release = pollKey(&plat, false) orelse return error.MissingKeyEvent;
+    try std.testing.expectEqual(expected, release.key);
+    try std.testing.expect(!release.repeat);
+    try std.testing.expect(!plat.inputState().isKeyDown(expected));
 }
 
 test "live x11: protocol error does not abort the process" {

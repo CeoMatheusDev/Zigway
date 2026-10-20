@@ -33,6 +33,12 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   de protocolo recuperáveis: antes, um `BadWindow` de uma requisição
   assíncrona (janela destruída pelo servidor antes do `poll`) encerrava
   o processo pelo handler padrão da Xlib.
+- X11 marca `repeat=true` em auto-repeat: `init` habilita *detectable
+  autorepeat* (XKB, `XkbSetDetectableAutoRepeat`, parte da Xlib), de
+  modo que o servidor envia apenas `KeyPress` repetidos. Antes, toda
+  repetição chegava como `key_down` sem distinção (`repeat` sempre
+  `false`). Servidor sem suporte mantém o fallback seguro
+  (`repeat=false`), e `Key.unknown` nunca é marcado como repetição.
 
 ### Adicionado
 

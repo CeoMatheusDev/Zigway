@@ -12,6 +12,15 @@ título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
 5 botões, roda vertical/horizontal), modificadores
 (Shift/Ctrl/Alt/Super), multi-janelas.
 
+Auto-repeat: `Platform.init(.x11)` habilita *detectable autorepeat*
+(XKB, `XkbSetDetectableAutoRepeat` — parte da Xlib). O servidor passa a
+enviar apenas `KeyPress` repetidos, sem `KeyRelease` intermediário, e o
+backend marca `repeat=true` quando uma tecla mapeada já está
+pressionada. Servidores sem suporte retornam `supported=false`; nesse
+caso `repeat` permanece `false` (comportamento anterior, sem quebrar o
+estado da tecla). `Key.unknown` nunca é marcado como repetição, pois
+agrupa teclas distintas não mapeadas.
+
 Destruição externa (servidor/WM mata a janela): o backend marca
 `should_close`, emite `close` uma vez e remove a entrada nativa —
 operações seguintes retornam `InvalidWindow` em vez de atingir XID
@@ -27,7 +36,6 @@ instalado após `deinit`; não tem estado próprio.
 
 Limitações conhecidas:
 
-- Auto-repeat chega como `key_down` repetidos (`repeat=false`).
 - Mapeamento keysym→`Key` cobre o conjunto documentado; o restante é
   `.unknown` (não falha).
 - `focus()` usa `XSetInputFocus` (melhor esforço; o WM pode recusar).
