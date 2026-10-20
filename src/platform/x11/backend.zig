@@ -15,9 +15,20 @@ const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 
+const SavedFullscreenGeometry = struct {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+};
+
 const Entry = struct {
     slot: u32,
     win: api.Window,
+    /// Geometria anterior quando fullscreen foi aplicado sem EWMH.
+    saved_fullscreen: ?SavedFullscreenGeometry = null,
+    /// true quando o estado atual e controlado pelo fallback de geometria.
+    fullscreen_fallback: bool = false,
 };
 
 /// Handler de erro de protocolo X. Por padrao a Xlib encerra o processo em
@@ -87,6 +98,10 @@ pub const Backend = struct {
     net_moveresize_window: api.Atom,
     /// O WM anunciou `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`.
     net_moveresize_supported: bool = false,
+    /// Atoms EWMH para fullscreen e se o WM os anuncia em `_NET_SUPPORTED`.
+    net_wm_state: api.Atom,
+    net_wm_state_fullscreen: api.Atom,
+    net_fullscreen_supported: bool = false,
     entries: std.ArrayList(Entry) = .empty,
     /// Cache de cursores por variante, criado sob demanda e liberado no
     /// deinit. Handles sao globais ao backend (compartilhados por janelas).
@@ -130,6 +145,15 @@ pub const Backend = struct {
             net_supported,
             net_moveresize_window,
         );
+        const net_wm_state = api.XInternAtom(display, "_NET_WM_STATE", 0);
+        const net_wm_state_fullscreen = api.XInternAtom(
+            display,
+            "_NET_WM_STATE_FULLSCREEN",
+            0,
+        );
+        const net_fullscreen_supported =
+            propertyHasAtom(display, root, net_supported, net_wm_state) and
+            propertyHasAtom(display, root, net_supported, net_wm_state_fullscreen);
         // Opcional e sem dependencia de link. Carregado por ultimo: nao ha
         // mais operacoes faliveis no init, entao o errdefer do display
         // continua correto em qualquer falha anterior.
@@ -148,6 +172,9 @@ pub const Backend = struct {
             .wm_protocols = wm_protocols,
             .net_moveresize_window = net_moveresize_window,
             .net_moveresize_supported = net_moveresize_supported,
+            .net_wm_state = net_wm_state,
+            .net_wm_state_fullscreen = net_wm_state_fullscreen,
+            .net_fullscreen_supported = net_fullscreen_supported,
             .xrandr = xrandr_lib,
             .xrandr_monitors = xrandr_monitors,
             .xrandr_event_base = xrandr_event_base,
@@ -373,6 +400,126 @@ pub const Backend = struct {
         return self.clientPosition(self.entries.items[entry_idx].win) orelse .{ .x = 0, .y = 0 };
     }
 
+    /// Solicita fullscreen via EWMH quando suportado; caso contrario aplica
+    /// geometria direta sobre a tela X padrao. No caminho EWMH o estado e
+    /// confirmado por `PropertyNotify`; no fallback a aplicacao e sincrona.
+    pub fn setFullscreen(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        fullscreen: bool,
+    ) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const entry = &self.entries.items[entry_idx];
+        const win = entry.win;
+
+        if (self.net_fullscreen_supported and
+            self.net_wm_state != 0 and
+            self.net_wm_state_fullscreen != 0 and
+            !entry.fullscreen_fallback)
+        {
+            // Nao compara com o estado atual: uma solicitacao anterior pode
+            // ainda estar pendente no WM. Enviar add/remove extra e inofensivo
+            // e permite cancelar um fullscreen ainda nao confirmado.
+            var event = api.XEvent{
+                .client = .{
+                    .type = api.ClientMessage,
+                    .serial = 0,
+                    .send_event = 1,
+                    .display = self.display,
+                    .window = win,
+                    .message_type = self.net_wm_state,
+                    .format = 32,
+                    .data = .{
+                        .l = .{
+                            if (fullscreen) 1 else 0,
+                            @intCast(self.net_wm_state_fullscreen),
+                            0,
+                            1, // source: aplicacao
+                            0,
+                        },
+                    },
+                },
+            };
+            if (api.XSendEvent(
+                self.display,
+                self.root,
+                0,
+                api.SubstructureRedirectMask | api.SubstructureNotifyMask,
+                &event,
+            ) == 0) return error.WindowStateFailed;
+            _ = api.XFlush(self.display);
+            return;
+        }
+
+        const slot_state = &reg.slots.items[slot];
+        if (fullscreen) {
+            if (entry.fullscreen_fallback) return;
+            const pos = self.clientPosition(win) orelse return error.WindowStateFailed;
+            if (slot_state.width == 0 or slot_state.height == 0) return error.WindowStateFailed;
+            const screen = api.XDefaultScreen(self.display);
+            const screen_w = api.XDisplayWidth(self.display, screen);
+            const screen_h = api.XDisplayHeight(self.display, screen);
+            if (screen_w <= 0 or screen_h <= 0) return error.WindowStateFailed;
+            const width = std.math.cast(c_uint, screen_w) orelse return error.WindowStateFailed;
+            const height = std.math.cast(c_uint, screen_h) orelse return error.WindowStateFailed;
+            if (api.XMoveResizeWindow(self.display, win, 0, 0, width, height) == 0) {
+                return error.WindowStateFailed;
+            }
+            entry.saved_fullscreen = .{
+                .x = pos.x,
+                .y = pos.y,
+                .width = slot_state.width,
+                .height = slot_state.height,
+            };
+            entry.fullscreen_fallback = true;
+            slot_state.fullscreen = true;
+            _ = api.XFlush(self.display);
+            events.dispatch(queue, state, .{ .fullscreen = .{
+                .window = reg.idOf(slot),
+                .fullscreen = true,
+            } });
+            return;
+        }
+
+        if (!entry.fullscreen_fallback) return;
+        const saved = entry.saved_fullscreen orelse return error.WindowStateFailed;
+        const width = std.math.cast(c_uint, saved.width) orelse return error.WindowStateFailed;
+        const height = std.math.cast(c_uint, saved.height) orelse return error.WindowStateFailed;
+        if (api.XMoveResizeWindow(self.display, win, saved.x, saved.y, width, height) == 0) {
+            return error.WindowStateFailed;
+        }
+        entry.saved_fullscreen = null;
+        entry.fullscreen_fallback = false;
+        slot_state.fullscreen = false;
+        _ = api.XFlush(self.display);
+        events.dispatch(queue, state, .{ .fullscreen = .{
+            .window = reg.idOf(slot),
+            .fullscreen = false,
+        } });
+    }
+
+    /// Estado atual: fallback e sincrono; EWMH consulta `_NET_WM_STATE`.
+    pub fn isFullscreen(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return false;
+        const entry = self.entries.items[entry_idx];
+        if (entry.fullscreen_fallback) return true;
+        if (!self.net_fullscreen_supported or self.net_wm_state == 0) return false;
+        return propertyHasAtom(
+            self.display,
+            entry.win,
+            self.net_wm_state,
+            self.net_wm_state_fullscreen,
+        );
+    }
+
     fn clientPosition(self: *const Backend, win: api.Window) ?types.WindowPosition {
         var x: c_int = 0;
         var y: c_int = 0;
@@ -582,6 +729,20 @@ pub const Backend = struct {
                     .window = wid,
                     .x = ev.motion.x,
                     .y = ev.motion.y,
+                } });
+            },
+            api.PropertyNotify => {
+                if (ev.property.atom != self.net_wm_state) return;
+                const slot = self.slotOfNative(reg, ev.property.window) orelse return;
+                const entry_idx = self.findEntry(slot) orelse return;
+                if (self.entries.items[entry_idx].fullscreen_fallback) return;
+                const now = self.isFullscreen(reg, slot);
+                const entry = &reg.slots.items[slot];
+                if (entry.fullscreen == now) return;
+                entry.fullscreen = now;
+                events.dispatch(queue, state, .{ .fullscreen = .{
+                    .window = reg.idOf(slot),
+                    .fullscreen = now,
                 } });
             },
             api.ConfigureNotify => {

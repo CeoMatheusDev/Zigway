@@ -284,6 +284,31 @@ pub const Platform = struct {
         }
     }
 
+    /// Solicita/remove fullscreen. X11/EWMH confirma via evento nativo;
+    /// Win32/null aplicam de forma sincrona.
+    pub fn setWindowFullscreen(self: *Platform, id: types.WindowId, fullscreen: bool) !void {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.setFullscreen(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                index,
+                fullscreen,
+            ),
+        }
+    }
+
+    /// Estado de fullscreen atual. Id invalido/plataforma fechada -> false.
+    pub fn isWindowFullscreen(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return false;
+        const index = self.reg.indexOf(id) orelse return false;
+        return switch (self.backend) {
+            inline else => |*b| b.isFullscreen(&self.reg, index),
+        };
+    }
+
     pub fn setWindowVisible(self: *Platform, id: types.WindowId, visible: bool) !void {
         if (self.closed) return error.PlatformClosed;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
@@ -527,6 +552,7 @@ test "mixed prune keeps other windows events" {
         .modifiers = .{},
         .repeat = false,
     } });
+    plat.injectEvent(.{ .fullscreen = .{ .window = id1, .fullscreen = true } });
 
     try plat.destroyWindow(id1);
     w1.id = types.WindowId.invalid;
@@ -609,6 +635,7 @@ test "invalid ops on dead id return InvalidWindow" {
     try std.testing.expectError(error.InvalidWindow, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowSize(id, 10, 10));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowPosition(id, 10, 10));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowFullscreen(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowCursor(id, .text));
@@ -695,6 +722,40 @@ test "window position on null backend updates state and emits move" {
     try std.testing.expect(plat.nextEvent() == null);
 }
 
+test "fullscreen on null backend updates state and emits fullscreen events" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+    const id = w.windowId();
+
+    try std.testing.expect(!w.isFullscreen());
+    try w.setFullscreen(true);
+    try std.testing.expect(w.isFullscreen());
+
+    const on = plat.nextEvent() orelse return error.TestExpectedFullscreenEvent;
+    try std.testing.expect(on == .fullscreen);
+    try std.testing.expect(on.fullscreen.window.eql(id));
+    try std.testing.expect(on.window().?.eql(id));
+    try std.testing.expect(on.fullscreen.fullscreen);
+
+    // Idempotente: sem evento duplicado.
+    try w.setFullscreen(true);
+    try std.testing.expect(plat.nextEvent() == null);
+
+    try w.setFullscreen(false);
+    try std.testing.expect(!w.isFullscreen());
+    const off = plat.nextEvent() orelse return error.TestExpectedFullscreenEvent;
+    try std.testing.expect(off == .fullscreen);
+    try std.testing.expect(off.fullscreen.window.eql(id));
+    try std.testing.expect(!off.fullscreen.fullscreen);
+
+    try w.setFullscreen(false);
+    try std.testing.expect(plat.nextEvent() == null);
+    try std.testing.expect(!plat.isWindowFullscreen(.{ .index = 99, .generation = 0 }));
+}
+
 test "double deinit is safe" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     _ = try plat.createWindow(.{});
@@ -712,6 +773,7 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowPosition(id, 10, 10));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowFullscreen(id, true));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
     try std.testing.expectError(error.PlatformClosed, plat.captureWindowPointer(id));
     plat.releaseWindowPointer(id); // no-op apos deinit
@@ -720,6 +782,7 @@ test "operations after deinit fail safe" {
     try std.testing.expect(plat.nextEvent() == null);
     try std.testing.expect(plat.windowShouldClose(id));
     try std.testing.expect(!plat.isWindowAlive(id));
+    try std.testing.expect(!plat.isWindowFullscreen(id));
     const closed_pos = plat.windowPosition(id);
     try std.testing.expectEqual(@as(i32, 0), closed_pos.x);
     try std.testing.expectEqual(@as(i32, 0), closed_pos.y);

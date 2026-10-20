@@ -20,6 +20,9 @@ const Entry = struct {
     slot: u32,
     hwnd: api.HWND,
     cursor: types.Cursor = .default,
+    /// Retangulo externo e estilo anteriores ao fullscreen.
+    saved_fullscreen: ?api.RECT = null,
+    saved_style: usize = 0,
 };
 
 const Pending = struct {
@@ -374,6 +377,165 @@ pub const Backend = struct {
                     .x = client.x,
                     .y = client.y,
                 } });
+            }
+        }
+    }
+
+    /// Fullscreen sem borda sobre o monitor mais proximo. O estado e
+    /// controlado pela aplicacao (nao ha notificacao nativa equivalente).
+    pub fn setFullscreen(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        fullscreen: bool,
+    ) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+        const slot_state = &reg.slots.items[slot];
+        if (slot_state.fullscreen == fullscreen) return;
+
+        if (fullscreen) {
+            var saved: api.RECT = undefined;
+            if (api.GetWindowRect(hwnd, &saved) == 0) return error.WindowStateFailed;
+            const style_bits: usize = @bitCast(api.GetWindowLongPtrW(hwnd, api.GWL_STYLE));
+            const style: api.DWORD = @truncate(style_bits);
+            const monitor = api.MonitorFromWindow(hwnd, api.MONITOR_DEFAULTTONEAREST) orelse
+                return error.WindowStateFailed;
+            var info = api.MONITORINFO{
+                .cbSize = @sizeOf(api.MONITORINFO),
+                .rcMonitor = std.mem.zeroes(api.RECT),
+                .rcWork = std.mem.zeroes(api.RECT),
+                .dwFlags = 0,
+            };
+            if (api.GetMonitorInfoW(monitor, &info) == 0) return error.WindowStateFailed;
+            const width = info.rcMonitor.right - info.rcMonitor.left;
+            const height = info.rcMonitor.bottom - info.rcMonitor.top;
+            if (width <= 0 or height <= 0) return error.WindowStateFailed;
+
+            const new_style: api.DWORD =
+                (style & ~api.WS_OVERLAPPEDWINDOW) | api.WS_POPUP;
+            const new_style_param: api.LPARAM = @bitCast(@as(usize, new_style));
+            _ = api.SetWindowLongPtrW(hwnd, api.GWL_STYLE, new_style_param);
+            if (api.SetWindowPos(
+                hwnd,
+                null,
+                info.rcMonitor.left,
+                info.rcMonitor.top,
+                width,
+                height,
+                api.SWP_FRAMECHANGED | api.SWP_NOZORDER | api.SWP_NOACTIVATE,
+            ) == 0) {
+                // Desfaz o estilo para nao deixar a janela sem borda.
+                _ = api.SetWindowLongPtrW(hwnd, api.GWL_STYLE, @bitCast(style_bits));
+                _ = api.SetWindowPos(
+                    hwnd,
+                    null,
+                    saved.left,
+                    saved.top,
+                    saved.right - saved.left,
+                    saved.bottom - saved.top,
+                    api.SWP_FRAMECHANGED | api.SWP_NOZORDER | api.SWP_NOACTIVATE,
+                );
+                return error.WindowStateFailed;
+            }
+            const entry = &self.entries.items[entry_idx];
+            entry.saved_fullscreen = saved;
+            entry.saved_style = style_bits;
+            slot_state.fullscreen = true;
+            self.syncClientGeometry(reg, queue, state, slot, hwnd);
+            events.dispatch(queue, state, .{ .fullscreen = .{
+                .window = reg.idOf(slot),
+                .fullscreen = true,
+            } });
+            return;
+        }
+
+        const entry = &self.entries.items[entry_idx];
+        const saved = entry.saved_fullscreen orelse {
+            slot_state.fullscreen = false;
+            return;
+        };
+        const width = saved.right - saved.left;
+        const height = saved.bottom - saved.top;
+        if (width <= 0 or height <= 0) return error.WindowStateFailed;
+        const current_style_bits: usize = @bitCast(api.GetWindowLongPtrW(hwnd, api.GWL_STYLE));
+        _ = api.SetWindowLongPtrW(hwnd, api.GWL_STYLE, @bitCast(entry.saved_style));
+        if (api.SetWindowPos(
+            hwnd,
+            null,
+            saved.left,
+            saved.top,
+            width,
+            height,
+            api.SWP_FRAMECHANGED | api.SWP_NOZORDER | api.SWP_NOACTIVATE,
+        ) == 0) {
+            _ = api.SetWindowLongPtrW(hwnd, api.GWL_STYLE, @bitCast(current_style_bits));
+            return error.WindowStateFailed;
+        }
+        entry.saved_fullscreen = null;
+        entry.saved_style = 0;
+        slot_state.fullscreen = false;
+        self.syncClientGeometry(reg, queue, state, slot, hwnd);
+        events.dispatch(queue, state, .{ .fullscreen = .{
+            .window = reg.idOf(slot),
+            .fullscreen = false,
+        } });
+    }
+
+    pub fn isFullscreen(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = self;
+        if (slot >= reg.slots.items.len or !reg.slots.items[slot].occupied) return false;
+        return reg.slots.items[slot].fullscreen;
+    }
+
+    /// Atualiza posicao/tamanho do cliente e emite move/resize quando
+    /// `SetWindowPos` mudou a geometria com `pending` nulo (mensagens
+    /// sincronas ignoradas pelo WndProc).
+    fn syncClientGeometry(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        hwnd: api.HWND,
+    ) void {
+        _ = self;
+        var client = api.POINT{ .x = 0, .y = 0 };
+        if (api.ClientToScreen(hwnd, &client) != 0) {
+            const entry = &reg.slots.items[slot];
+            if (entry.x != client.x or entry.y != client.y) {
+                entry.x = client.x;
+                entry.y = client.y;
+                events.dispatch(queue, state, .{ .move = .{
+                    .window = reg.idOf(slot),
+                    .x = client.x,
+                    .y = client.y,
+                } });
+            }
+        }
+        var rect: api.RECT = undefined;
+        if (api.GetClientRect(hwnd, &rect) != 0) {
+            const width = rect.right - rect.left;
+            const height = rect.bottom - rect.top;
+            if (width > 0 and height > 0) {
+                const entry = &reg.slots.items[slot];
+                const w: u32 = @intCast(width);
+                const h: u32 = @intCast(height);
+                if (entry.width != w or entry.height != h) {
+                    entry.width = w;
+                    entry.height = h;
+                    events.dispatch(queue, state, .{ .resize = .{
+                        .window = reg.idOf(slot),
+                        .width = w,
+                        .height = h,
+                    } });
+                }
             }
         }
     }

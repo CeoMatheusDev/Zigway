@@ -86,6 +86,7 @@ pub const MONITORINFO = extern struct {
 };
 
 pub const MONITORINFOF_PRIMARY: DWORD = 0x00000001;
+pub const MONITOR_DEFAULTTONEAREST: DWORD = 0x00000002;
 
 /// CREATESTRUCTW parcial: apenas o primeiro campo e lido.
 pub const CREATESTRUCT_HEAD = extern struct {
@@ -105,6 +106,7 @@ pub const WS_MINIMIZEBOX: DWORD = 0x00020000;
 pub const WS_MAXIMIZEBOX: DWORD = 0x00100000;
 pub const WS_OVERLAPPEDWINDOW: DWORD = 0x00CF0000;
 pub const WS_OVERLAPPED_NONRESIZABLE: DWORD = 0x00CA0000;
+pub const WS_POPUP: DWORD = 0x80000000;
 
 pub const SW_HIDE: c_int = 0;
 pub const SW_SHOW: c_int = 5;
@@ -117,6 +119,7 @@ pub const SWP_NOSIZE: UINT = 0x0001;
 pub const SWP_NOMOVE: UINT = 0x0002;
 pub const SWP_NOZORDER: UINT = 0x0004;
 pub const SWP_NOACTIVATE: UINT = 0x0010;
+pub const SWP_FRAMECHANGED: UINT = 0x0020;
 
 pub const SIZE_MINIMIZED: WPARAM = 1;
 
@@ -243,6 +246,7 @@ pub extern "user32" fn SetWindowPos(
     flags: UINT,
 ) BOOL;
 pub extern "user32" fn GetWindowRect(hwnd: HWND, rect: *RECT) BOOL;
+pub extern "user32" fn GetClientRect(hwnd: HWND, rect: *RECT) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, cmd: c_int) BOOL;
 pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
 pub extern "user32" fn SetCapture(hwnd: HWND) HWND;
@@ -258,6 +262,7 @@ pub extern "user32" fn EnumDisplayMonitors(
     data: LPARAM,
 ) BOOL;
 pub extern "user32" fn GetMonitorInfoW(monitor: HMONITOR, info: *MONITORINFO) BOOL;
+pub extern "user32" fn MonitorFromWindow(hwnd: HWND, flags: DWORD) HMONITOR;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;

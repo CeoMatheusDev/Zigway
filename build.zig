@@ -113,6 +113,7 @@ pub fn build(b: *std.Build) void {
         "keyboard_input",
         "displays",
         "display_change",
+        "fullscreen",
     };
     inline for (example_names) |name| {
         const exe = b.addExecutable(.{

@@ -70,6 +70,17 @@ pub const Window = struct {
         try self.platform.setWindowPosition(self.id, x, y);
     }
 
+    /// Solicita/remove fullscreen. No X11 com EWMH e assincrono: o evento
+    /// `fullscreen` confirma o estado. Sem WM/EWMH usa geometria de fallback.
+    pub fn setFullscreen(self: Window, fullscreen: bool) !void {
+        try self.platform.setWindowFullscreen(self.id, fullscreen);
+    }
+
+    /// Estado de fullscreen atual (falha segura: false para id invalido).
+    pub fn isFullscreen(self: Window) bool {
+        return self.platform.isWindowFullscreen(self.id);
+    }
+
     pub fn setVisible(self: Window, visible: bool) !void {
         try self.platform.setWindowVisible(self.id, visible);
     }

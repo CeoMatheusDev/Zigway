@@ -45,6 +45,16 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   `move`. Falha de posicionamento nativo retorna `WindowMoveFailed`.
   Cobertura live X11 move uma janela e valida evento/posicao final
   (EWMH e fallback sem WM).
+- Fullscreen de janela: `Window.setFullscreen`/`isFullscreen`,
+  `Platform.setWindowFullscreen`/`isWindowFullscreen` e evento
+  `FullscreenEvent` (`{ window, fullscreen }`). X11 usa
+  `_NET_WM_STATE_FULLSCREEN` via EWMH e confirma por `PropertyNotify`;
+  sem WM/EWMH aplica geometria na tela X padrão e restaura ao sair.
+  Win32 remove a moldura (`WS_POPUP`) e cobre o monitor mais próximo,
+  restaurando estilo/retângulo; null mantém estado lógico e emite o
+  evento. Falha nativa retorna `WindowStateFailed`. Exemplo
+  `fullscreen.zig`; cobertura live X11 valida EWMH (KWin) e fallback
+  (Xwayland); Win32 apenas compilação cruzada.
 - Evento `display_change` (`DisplayChangeEvent`, sem payload) para
   reconfiguracao de monitores/display. X11 seleciona
   `RRScreenChangeNotify`/`RRNotify` via `libXrandr` opcional e atualiza o

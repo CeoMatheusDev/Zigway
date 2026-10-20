@@ -120,6 +120,33 @@ pub const Backend = struct {
         return .{ .x = entry.x, .y = entry.y };
     }
 
+    pub fn setFullscreen(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        fullscreen: bool,
+    ) !void {
+        _ = self;
+        const entry = &reg.slots.items[slot];
+        if (entry.fullscreen == fullscreen) return;
+        entry.fullscreen = fullscreen;
+        events.dispatch(queue, state, .{ .fullscreen = .{
+            .window = reg.idOf(slot),
+            .fullscreen = fullscreen,
+        } });
+    }
+
+    pub fn isFullscreen(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = self;
+        return reg.slots.items[slot].fullscreen;
+    }
+
     pub fn setVisible(
         self: *Backend,
         reg: *registry.Registry,

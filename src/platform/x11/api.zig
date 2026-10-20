@@ -55,6 +55,7 @@ pub const DestroyNotify: c_int = 17;
 pub const UnmapNotify: c_int = 18;
 pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
+pub const PropertyNotify: c_int = 28;
 pub const ClientMessage: c_int = 33;
 
 // --- Mascaras de evento ---
@@ -68,10 +69,12 @@ pub const StructureNotifyMask: c_long = 1 << 17;
 pub const SubstructureNotifyMask: c_long = 1 << 19;
 pub const SubstructureRedirectMask: c_long = 1 << 20;
 pub const FocusChangeMask: c_long = 1 << 21;
+pub const PropertyChangeMask: c_long = 1 << 22;
 
 pub const input_mask: c_long = KeyPressMask | KeyReleaseMask |
     ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
-    ExposureMask | StructureNotifyMask | FocusChangeMask;
+    ExposureMask | StructureNotifyMask | FocusChangeMask |
+    PropertyChangeMask;
 
 // --- Botoes ---
 pub const Button1: c_uint = 1;
@@ -263,6 +266,17 @@ pub const XUnmapEvent = extern struct {
     from_configure: XBool,
 };
 
+pub const XPropertyEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    atom: Atom,
+    time: Time,
+    state: c_int,
+};
+
 /// Erro de protocolo X (async). Layout conferido contra
 /// /usr/include/X11/Xlib.h (XErrorEvent): 40 bytes em LP64.
 pub const XErrorEvent = extern struct {
@@ -293,6 +307,7 @@ pub const XEvent = extern union {
     focus: XFocusChangeEvent,
     map: XMapEvent,
     unmap: XUnmapEvent,
+    property: XPropertyEvent,
 };
 
 // --- Funcoes Xlib utilizadas ---
@@ -328,6 +343,14 @@ pub extern "X11" fn XInternAtom(display: *Display, name: [*:0]const u8, only_if_
 pub extern "X11" fn XSetWMProtocols(display: *Display, window: Window, protocols: [*]Atom, count: c_int) Status;
 pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_uint, height: c_uint) c_int;
 pub extern "X11" fn XMoveWindow(display: *Display, window: Window, x: c_int, y: c_int) c_int;
+pub extern "X11" fn XMoveResizeWindow(
+    display: *Display,
+    window: Window,
+    x: c_int,
+    y: c_int,
+    width: c_uint,
+    height: c_uint,
+) c_int;
 pub extern "X11" fn XTranslateCoordinates(
     display: *Display,
     src_window: Window,

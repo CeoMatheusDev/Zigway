@@ -17,7 +17,7 @@
 zig build              # compila a biblioteca estática
 zig build test         # testes unitários (headless; backend null)
 zig build test-x11     # integração X11 (display real; pula sem display)
-zig build examples     # hello_window, multiple_windows, keyboard_input, displays, display_change
+zig build examples     # hello_window, multiple_windows, keyboard_input, displays, display_change, fullscreen
 zig fmt --check .      # formatação (a CI exige limpo)
 ```
 

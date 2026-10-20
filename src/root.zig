@@ -45,6 +45,7 @@ pub const CloseEvent = events_mod.CloseEvent;
 pub const ResizeEvent = events_mod.ResizeEvent;
 pub const MoveEvent = events_mod.MoveEvent;
 pub const DisplayChangeEvent = events_mod.DisplayChangeEvent;
+pub const FullscreenEvent = events_mod.FullscreenEvent;
 pub const FocusEvent = events_mod.FocusEvent;
 pub const KeyEvent = events_mod.KeyEvent;
 pub const PointerMoveEvent = events_mod.PointerMoveEvent;

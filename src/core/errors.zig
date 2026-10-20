@@ -23,6 +23,8 @@ pub const Error = error{
     WindowCreationFailed,
     /// Falha ao mover/reposicionar a janela nativa.
     WindowMoveFailed,
+    /// Falha ao alterar o estado da janela (ex.: fullscreen).
+    WindowStateFailed,
     /// Falha ao criar ou aplicar um cursor do sistema.
     CursorCreationFailed,
     /// Falha ao capturar o ponteiro (janela nao visivel, grab negado ou

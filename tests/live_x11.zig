@@ -1085,6 +1085,75 @@ test "live x11: window move updates position and emits move" {
     try std.testing.expectEqual(target_y, final.y);
 }
 
+test "live x11: fullscreen toggles state and emits fullscreen events" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var window = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-fullscreen-live",
+    });
+    defer window.deinit();
+    const id = window.windowId();
+
+    // Deixa o WM mapear/gerenciar antes de enviar _NET_WM_STATE.
+    var warmup: usize = 0;
+    while (warmup < 100) : (warmup += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        sleepMs(10);
+    }
+
+    try window.setFullscreen(true);
+    var saw_on = false;
+    var attempts: u32 = 0;
+    while (attempts < 400) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |event| {
+            if (event == .fullscreen and
+                event.fullscreen.window.eql(id) and
+                event.fullscreen.fullscreen)
+            {
+                saw_on = true;
+            }
+        }
+        if (saw_on and window.isFullscreen()) break;
+        sleepMs(10);
+    }
+    if (!saw_on) std.debug.print("\n[x11-live] fullscreen ON nao confirmado\n", .{});
+    try std.testing.expect(saw_on);
+    try std.testing.expect(window.isFullscreen());
+
+    try window.setFullscreen(false);
+    var saw_off = false;
+    attempts = 0;
+    while (attempts < 400) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |event| {
+            if (event == .fullscreen and
+                event.fullscreen.window.eql(id) and
+                !event.fullscreen.fullscreen)
+            {
+                saw_off = true;
+            }
+        }
+        if (saw_off and !window.isFullscreen()) break;
+        sleepMs(10);
+    }
+    if (!saw_off) std.debug.print("\n[x11-live] fullscreen OFF nao confirmado\n", .{});
+    try std.testing.expect(saw_off);
+    try std.testing.expect(!window.isFullscreen());
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —

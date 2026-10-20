@@ -36,6 +36,7 @@ try platform.destroyWindow(id);
 platform.isWindowAlive(id) bool
 platform.windowSize(id) WindowSize       // inválido -> {0,0}
 platform.windowPosition(id) WindowPosition // origem da área de cliente; inválido -> {0,0}
+platform.isWindowFullscreen(id) bool // inválido -> false
 platform.isWindowVisible(id) bool
 platform.isWindowFocused(id) bool
 platform.windowShouldClose(id) bool      // inválido -> true
@@ -45,6 +46,7 @@ platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
                                  // nativo confirma via evento; null aplica na hora
 platform.setWindowPosition(id, x, y) !void // origem da área de cliente;
                                  // X11 confirma via evento `move`
+platform.setWindowFullscreen(id, on) !void // X11/EWMH confirma via evento
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
 platform.setWindowCursor(id, cursor) !void
@@ -67,6 +69,8 @@ window.releasePointer() void     // idempotente; seguro em defer
 window.size() WindowSize
 window.position() WindowPosition
 window.setPosition(x, y) !void
+window.setFullscreen(on) !void
+window.isFullscreen() bool
 ```
 
 ## Displays
@@ -113,6 +117,26 @@ em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. Win32 posiciona
 a janela externa preservando o delta até a área de cliente. Null aplica
 na hora e emite `move`.
 
+## Fullscreen
+
+`setFullscreen(true)` solicita fullscreen e `setFullscreen(false)` o
+remove; `isFullscreen()` consulta o estado atual. Em caso de id inválido,
+`isFullscreen` retorna `false` (falha segura). A operação pode falhar com
+`WindowStateFailed`.
+
+No X11, quando o WM anuncia `_NET_WM_STATE` e
+`_NET_WM_STATE_FULLSCREEN` em `_NET_SUPPORTED`, o pedido usa EWMH e é
+**assíncrono**: o estado confirmado chega no evento `fullscreen` e
+`isFullscreen()` consulta `_NET_WM_STATE`. Sem WM/EWMH, o backend aplica
+geometria direta sobre a tela X padrão (não o monitor individual) e
+restaura a geometria anterior ao sair; nesse caminho o estado é
+síncrono. O WM pode ajustar ou ignorar a requisição EWMH.
+
+No Win32, fullscreen remove a moldura (`WS_POPUP`) e cobre o monitor mais
+próximo da janela, salvando estilo e retângulo para restaurar ao sair.
+O estado é síncrono e controlado pela API. No backend null o estado é
+apenas lógico. `FullscreenEvent` tem `{ window, fullscreen }`.
+
 ## Eventos
 
 ```zig
@@ -121,6 +145,7 @@ pub const Event = union(enum) {
     resize: ResizeEvent,            // { window, width, height }
     move: MoveEvent,                // { window, x, y } origem do cliente
     display_change: DisplayChangeEvent, // sem payload; reconsultar displays()
+    fullscreen: FullscreenEvent,     // { window, fullscreen }
     focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
@@ -186,11 +211,13 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
-`MoveEvent`, `DisplayChangeEvent`, `version.string` (`"0.1.0-alpha.2"`).
+`MoveEvent`, `DisplayChangeEvent`, `FullscreenEvent`, `version.string`
+(`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
-`WindowCreationFailed`, `WindowMoveFailed`, `CursorCreationFailed`,
+`WindowCreationFailed`, `WindowMoveFailed`, `WindowStateFailed`,
+`CursorCreationFailed`,
 `PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`.
 
 ## Lifecycle

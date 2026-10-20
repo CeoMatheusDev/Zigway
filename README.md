@@ -42,6 +42,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Monitor enumeration:** Query active display outputs and their geometry through one allocator-aware API, with native backends and a headless empty result.
 - **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
+- **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
 - **Headless operation:** Use the null backend to exercise platform logic without a desktop session.
 - **Rendering freedom:** Integrate your preferred graphics API or UI toolkit without a bundled renderer.
 
@@ -190,7 +191,7 @@ A published release archive is not yet available; use a local dependency until a
 
 ## Examples
 
-The repository includes five example programs:
+The repository includes six example programs:
 
 | Example | Purpose |
 | --- | --- |
@@ -199,6 +200,7 @@ The repository includes five example programs:
 | [`keyboard_input.zig`](examples/keyboard_input.zig) | Handle keyboard events |
 | [`displays.zig`](examples/displays.zig) | List monitors and their geometry |
 | [`display_change.zig`](examples/display_change.zig) | React to display configuration changes |
+| [`fullscreen.zig`](examples/fullscreen.zig) | Toggle fullscreen with F11 |
 
 Build all examples with `zig build examples`.
 
