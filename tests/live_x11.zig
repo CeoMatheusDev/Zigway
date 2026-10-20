@@ -135,6 +135,42 @@ extern "X11" fn XGrabPointer(
     time: c_ulong,
 ) c_int;
 extern "X11" fn XUngrabPointer(display: *anyopaque, time: c_ulong) c_int;
+extern "X11" fn XInternAtom(display: *anyopaque, name: [*:0]const u8, only_if_exists: c_int) c_ulong;
+extern "X11" fn XConvertSelection(
+    display: *anyopaque,
+    selection: c_ulong,
+    target: c_ulong,
+    property: c_ulong,
+    requestor: c_ulong,
+    time: c_ulong,
+) c_int;
+extern "X11" fn XDeleteProperty(display: *anyopaque, window: c_ulong, property: c_ulong) c_int;
+extern "X11" fn XGetWindowProperty(
+    display: *anyopaque,
+    window: c_ulong,
+    property: c_ulong,
+    long_offset: c_long,
+    long_length: c_long,
+    delete: c_int,
+    req_type: c_ulong,
+    actual_type_return: *c_ulong,
+    actual_format_return: *c_int,
+    nitems_return: *c_ulong,
+    bytes_after_return: *c_ulong,
+    prop_return: *?[*]u8,
+) c_int;
+extern "X11" fn XCheckTypedEvent(display: *anyopaque, event_type: c_int, event_return: *anyopaque) c_int;
+extern "X11" fn XCreateSimpleWindow(
+    display: *anyopaque,
+    parent: c_ulong,
+    x: c_int,
+    y: c_int,
+    width: c_uint,
+    height: c_uint,
+    border_width: c_uint,
+    border: c_ulong,
+    background: c_ulong,
+) c_ulong;
 
 /// XKeyEvent/XButtonEvent/XMotionEvent (Xlib.h) tem o mesmo layout: os
 /// tres terminam em um campo de 4 bytes (keycode, button, is_hint) na
@@ -163,6 +199,47 @@ const XEventBuf = extern struct {
     ev: XDeviceEvent,
     pad: [96]u8,
 };
+
+/// `XSelectionEvent` (Xlib.h): SelectionNotify.
+const XSelectionEventT = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: ?*anyopaque,
+    requestor: c_ulong,
+    selection: c_ulong,
+    target: c_ulong,
+    property: c_ulong,
+    time: c_ulong,
+};
+
+const XSelectionBuf = extern struct {
+    ev: XSelectionEventT,
+    pad: [128]u8,
+};
+
+/// `XSelectionRequestEvent` (Xlib.h).
+const XSelectionRequestEventT = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: ?*anyopaque,
+    owner: c_ulong,
+    requestor: c_ulong,
+    selection: c_ulong,
+    target: c_ulong,
+    property: c_ulong,
+    time: c_ulong,
+};
+
+const XSelectionRequestBuf = extern struct {
+    ev: XSelectionRequestEventT,
+    pad: [128]u8,
+};
+
+const SelectionNotifyType: c_int = 31;
+const SelectionRequestType: c_int = 30;
+const XA_STRING: c_ulong = 31;
 
 const KeyPress: c_int = 2;
 const KeyRelease: c_int = 3;
@@ -269,6 +346,22 @@ extern "X11" fn XGetWMProtocols(
     count_return: *c_int,
 ) c_int;
 extern "X11" fn XFree(data: ?*anyopaque) c_int;
+extern "X11" fn XSetSelectionOwner(
+    display: *anyopaque,
+    selection: c_ulong,
+    owner: c_ulong,
+    time: c_ulong,
+) c_int;
+extern "X11" fn XChangeProperty(
+    display: *anyopaque,
+    window: c_ulong,
+    property: c_ulong,
+    property_type: c_ulong,
+    format: c_int,
+    mode: c_int,
+    data: ?*const anyopaque,
+    nelements: c_int,
+) c_int;
 
 /// Localiza recursivamente (WM pode reparentar) a JANELA CLIENTE pelo
 /// titulo, exigindo tambem WM_PROTOCOLS — o frame criado por um WM pode
@@ -809,6 +902,62 @@ fn pollRawKey(
     return null;
 }
 
+/// Cliente X independente: pede a selecao `CLIPBOARD` para um alvo e
+/// devolve o conteudo recebido (null se o owner recusou). A resposta
+/// exige que a plataforma (dona da selecao) bombeie eventos.
+fn requestClipboardTarget(
+    plat: *zigway.Platform,
+    display: *anyopaque,
+    requestor: c_ulong,
+    target_name: [*:0]const u8,
+) ?[]u8 {
+    const selection = XInternAtom(display, "CLIPBOARD", 0);
+    const target = XInternAtom(display, target_name, 0);
+    const property = XInternAtom(display, "ZIGWAY_LIVE_PROP", 0);
+    _ = XDeleteProperty(display, requestor, property);
+    _ = XConvertSelection(display, selection, target, property, requestor, 0);
+    _ = XSync(display, 0);
+
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        var buf: XSelectionBuf = std.mem.zeroes(XSelectionBuf);
+        if (XCheckTypedEvent(display, SelectionNotifyType, &buf) != 0) {
+            if (buf.ev.requestor != requestor) continue;
+            if (buf.ev.target != target) continue;
+            if (buf.ev.property == 0) return null; // recusado
+            var actual_type: c_ulong = 0;
+            var actual_format: c_int = 0;
+            var nitems: c_ulong = 0;
+            var bytes_after: c_ulong = 0;
+            var data: ?[*]u8 = null;
+            _ = XGetWindowProperty(
+                display,
+                requestor,
+                property,
+                0,
+                4096,
+                1,
+                0,
+                &actual_type,
+                &actual_format,
+                &nitems,
+                &bytes_after,
+                &data,
+            );
+            // `XGetWindowProperty` devolve 0 em sucesso; a existencia da
+            // propriedade e indicada pelo tipo devolvido.
+            if (actual_type == 0) return null;
+            const ptr = data orelse return null;
+            defer _ = XFree(@ptrCast(ptr));
+            const bytes: usize = @intCast(nitems);
+            return std.testing.allocator.dupe(u8, ptr[0..bytes]) catch null;
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
 /// Descarta todos os eventos pendentes da fila.
 fn drainEvents(plat: *zigway.Platform) void {
     plat.pollEvents();
@@ -862,6 +1011,164 @@ test "live x11: raw key event carries the physical keycode" {
     const up = pollRawKey(&plat, id, false) orelse return error.MissingRawKeyEvent;
     try std.testing.expectEqual(@as(u32, keycode), up.scancode);
     try std.testing.expect(!up.pressed);
+}
+
+test "live x11: clipboard serves utf8 and legacy targets to external clients" {
+    // Cliente X independente (conexao propria) pedindo alvos: valida a
+    // interoperabilidade real da selecao CLIPBOARD.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+    // Janela de request: o owner escreve a propriedade nela.
+    const requestor = XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0);
+    defer _ = XDestroyWindow(display, requestor);
+
+    // Preserva o conteudo atual (melhor esforco).
+    const previous = try plat.clipboardText(std.testing.allocator);
+    defer if (previous) |text| {
+        std.testing.allocator.free(text);
+        plat.setClipboardText(text) catch {};
+    };
+
+    // "cafe" com e-acute: cabe no Latin-1.
+    const text = "caf\xc3\xa9";
+    try plat.setClipboardText(text);
+
+    // UTF8_STRING e os alvos "text/plain" respondem em UTF-8.
+    const utf8 = requestClipboardTarget(&plat, display, requestor, "UTF8_STRING") orelse
+        return error.TestExpectedClipboardData;
+    defer std.testing.allocator.free(utf8);
+    try std.testing.expectEqualStrings(text, utf8);
+
+    const plain_utf8 = requestClipboardTarget(
+        &plat,
+        display,
+        requestor,
+        "text/plain;charset=utf-8",
+    ) orelse return error.TestExpectedClipboardData;
+    defer std.testing.allocator.free(plain_utf8);
+    try std.testing.expectEqualStrings(text, plain_utf8);
+
+    const plain = requestClipboardTarget(&plat, display, requestor, "text/plain") orelse
+        return error.TestExpectedClipboardData;
+    defer std.testing.allocator.free(plain);
+    try std.testing.expectEqualStrings(text, plain);
+
+    // `STRING` responde em Latin-1 (ICCCM).
+    const latin1 = requestClipboardTarget(&plat, display, requestor, "STRING") orelse
+        return error.TestExpectedClipboardData;
+    defer std.testing.allocator.free(latin1);
+    try std.testing.expectEqualStrings("caf\xe9", latin1);
+
+    // Alvo desconhecido: recusado.
+    const unknown = requestClipboardTarget(
+        &plat,
+        display,
+        requestor,
+        "application/x-zigway-inexistente",
+    );
+    try std.testing.expect(unknown == null);
+}
+
+/// Dono sintetico que so oferece o alvo `STRING` (Latin-1), como
+/// aplicativos legados. Roda em outra thread porque o leitor bloqueia
+/// enquanto espera a resposta.
+const LegacyClipboardOwner = struct {
+    /// Texto em Latin-1.
+    text: []const u8,
+    stop: std.atomic.Value(bool) = .init(false),
+    ready: std.atomic.Value(bool) = .init(false),
+
+    fn run(self: *LegacyClipboardOwner) void {
+        const display = XOpenDisplay(null) orelse return;
+        defer _ = XCloseDisplay(display);
+        const root = XDefaultRootWindow(display);
+        const owner = XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0);
+        defer _ = XDestroyWindow(display, owner);
+
+        const selection = XInternAtom(display, "CLIPBOARD", 0);
+        const string_atom = XInternAtom(display, "STRING", 0);
+        _ = XSetSelectionOwner(display, selection, owner, 0);
+        _ = XSync(display, 0);
+        self.ready.store(true, .release);
+
+        while (!self.stop.load(.acquire)) {
+            var buf: XSelectionRequestBuf = std.mem.zeroes(XSelectionRequestBuf);
+            if (XCheckTypedEvent(display, SelectionRequestType, &buf) != 0) {
+                const req = buf.ev;
+                const property = if (req.property == 0) req.target else req.property;
+                var granted = false;
+                if (req.target == string_atom) {
+                    _ = XChangeProperty(
+                        display,
+                        req.requestor,
+                        property,
+                        XA_STRING,
+                        8,
+                        0, // PropModeReplace
+                        @ptrCast(self.text.ptr),
+                        @intCast(self.text.len),
+                    );
+                    granted = true;
+                }
+                var notify: XSelectionBuf = std.mem.zeroes(XSelectionBuf);
+                notify.ev = .{
+                    .type = SelectionNotifyType,
+                    .serial = 0,
+                    .send_event = 1,
+                    .display = display,
+                    .requestor = req.requestor,
+                    .selection = req.selection,
+                    .target = req.target,
+                    .property = if (granted) property else 0,
+                    .time = req.time,
+                };
+                _ = XSendEvent(display, req.requestor, 0, 0, &notify);
+                _ = XSync(display, 0);
+            }
+            sleepMs(2);
+        }
+    }
+};
+
+test "live x11: clipboard falls back to legacy STRING target when reading" {
+    // Dono legado so oferece `STRING` (Latin-1): a plataforma deve
+    // recusar UTF8_STRING/text/plain, cair para STRING e converter o
+    // resultado para UTF-8.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var owner = LegacyClipboardOwner{ .text = "caf\xe9" };
+    const thread = try std.Thread.spawn(.{}, LegacyClipboardOwner.run, .{&owner});
+    defer {
+        owner.stop.store(true, .release);
+        thread.join();
+    }
+    while (!owner.ready.load(.acquire)) sleepMs(5);
+
+    const text = (try plat.clipboardText(std.testing.allocator)) orelse
+        return error.TestExpectedClipboardText;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("caf\xc3\xa9", text);
 }
 
 test "live x11: pointer move, buttons and wheel update input state" {

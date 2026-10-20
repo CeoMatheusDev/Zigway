@@ -79,9 +79,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 - Área de transferência: `Platform.setClipboardText`/`clipboardText`
   (UTF-8; o chamador libera a slice lida). No X11, a plataforma mantém
   uma janela oculta como dona da seleção `CLIPBOARD` e responde a
-  `SelectionRequest` com `TARGETS`/`UTF8_STRING`; a leitura é síncrona
-  (até 500 ms, bombearando a conexão) e a propriedade é lida em blocos
-  de 64 KB. No Win32, `CF_UNICODETEXT` via `OpenClipboard`/
+  `SelectionRequest` com `TARGETS`, `UTF8_STRING`,
+  `text/plain;charset=utf-8`, `text/plain` (UTF-8) e `STRING`
+  (Latin-1); a leitura é síncrona (até 500 ms, bombearando a conexão),
+  tenta os alvos em ordem e converte a resposta Latin-1 para UTF-8, e
+  a propriedade é lida em blocos de 64 KB. No Win32, `CF_UNICODETEXT` via `OpenClipboard`/
   `SetClipboardData`/`GetClipboardData`. No null, estado em memória.
   Limite de 1 MiB por texto.
 - Correção no backend X11: a detecção de suporte EWMH

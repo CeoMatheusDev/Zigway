@@ -52,13 +52,18 @@ falha), então esse suporte fica pendente.
 
 Área de transferência: a plataforma cria uma janela oculta (1x1, nunca
 mapeada) que possui a seleção `CLIPBOARD`; `setClipboardText` publica o
-texto (UTF-8) e responde a `SelectionRequest` com `TARGETS` e
-`UTF8_STRING` (o `SelectionRequest` é atendido no loop de eventos, ou
-seja, o aplicativo precisa bombear eventos). A leitura é síncrona:
-`XConvertSelection` + espera pelo `SelectionNotify` (até 500 ms),
-bombearando a conexão no intervalo (eventos do app vão para a fila
-normal). A propriedade é lida em blocos de 64 KB. `SelectionClear`
-(perda da posse) libera o texto guardado.
+texto (UTF-8) e responde a `SelectionRequest` com `TARGETS`,
+`UTF8_STRING`, `text/plain;charset=utf-8`, `text/plain` (em UTF-8) e
+`STRING` (em Latin-1, caracteres fora do Latin-1 viram `?`) — assim
+aplicativos legados conseguem ler o conteúdo (o `SelectionRequest` é
+atendido no loop de eventos, ou seja, o aplicativo precisa bombear
+eventos). A leitura é síncrona: `XConvertSelection` + espera pelo
+`SelectionNotify` (até 500 ms), bombearando a conexão no intervalo
+(eventos do app vão para a fila normal); os alvos são tentados em ordem
+(`UTF8_STRING` → `text/plain;charset=utf-8` → `text/plain` → `STRING`) e
+a resposta Latin-1 é convertida para UTF-8. A propriedade é lida em
+blocos de 64 KB. `SelectionClear` (perda da posse) libera o texto
+guardado.
 
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
@@ -107,12 +112,13 @@ Limitações conhecidas:
 - Maximização é uma requisição EWMH; sem suporte, o fallback cobre a
   tela X padrão inteira (não o monitor individual). Fullscreen e
   maximizado são mutuamente exclusivos.
-- Área de transferência: apenas `UTF8_STRING` e `TARGETS` são
-  oferecidos; clientes que peçam outros alvos (ex.: `STRING`,
-  `text/plain`) recebem recusa (`property = None`). A leitura bloqueia
-  até 500 ms esperando o dono da seleção responder. O texto publicado
-  só é servido a outros aplicativos enquanto o evento
-  `SelectionRequest` for atendido no loop de eventos.
+- Área de transferência: alvos oferecidos = `TARGETS`, `UTF8_STRING`,
+  `text/plain;charset=utf-8`, `text/plain` (UTF-8) e `STRING` (Latin-1,
+  com `?` para o que não cabe). Alvos desconhecidos recebem recusa
+  (`property = None`). A leitura bloqueia até 500 ms por alvo
+  esperando o dono da seleção responder e cai para o próximo alvo se
+  ele recusar. O texto publicado só é servido a outros aplicativos
+  enquanto o evento `SelectionRequest` for atendido no loop de eventos.
 - `setCursor` é validado por ausência de erro de protocolo; o efeito
   visual não é inspecionado pelo teste.
 - Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);

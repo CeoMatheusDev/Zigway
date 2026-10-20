@@ -45,7 +45,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
 - **Raw input:** Hardware-level key events (`raw_key`) exposing the physical scancode — the X11 keycode or the Windows scan code — so apps can tell left/right modifiers apart and stay layout independent.
 - **Text input:** Unicode text input separated from the raw key events (`text_input` carries one codepoint per event); on X11 it comes from the keysym, on Windows from `WM_CHAR` (the IME commit path).
-- **Clipboard:** Read and write UTF-8 text on the system clipboard; on X11 the platform owns the `CLIPBOARD` selection and serves `SelectionRequest` (`TARGETS`/`UTF8_STRING`), on Windows it uses `CF_UNICODETEXT`.
+- **Clipboard:** Read and write UTF-8 text on the system clipboard; on X11 the platform owns the `CLIPBOARD` selection and serves `SelectionRequest` (`UTF8_STRING`, `text/plain`, `STRING`/Latin-1) with target fallback on read, on Windows it uses `CF_UNICODETEXT`.
 - **Video modes:** List the modes of a display and switch resolution on X11 via RandR (`XRRSetCrtcConfig`, with native readback) and on Windows via `EnumDisplaySettingsW`/`ChangeDisplaySettingsExW`; the null backend reports no modes.
 - **Maximize:** Maximize and restore windows with normalized events; X11 uses EWMH with a geometry fallback, Win32 uses `ShowWindow`/`IsZoomed`, and fullscreen/maximize are mutually exclusive.
 - **Size limits:** Set client-area minimum and maximum dimensions; X11 publishes `WM_NORMAL_HINTS`, Win32 handles `WM_GETMINMAXINFO`, and the null backend keeps the state logical.

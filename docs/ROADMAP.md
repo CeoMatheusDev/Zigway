@@ -45,8 +45,9 @@ vazia / `DisplayModeUnsupported`).
 ## v0.3.x — Text Input e Clipboard
 
 Área de transferência implementada (`Platform.setClipboardText`/
-`clipboardText`, UTF-8; no X11 com janela dona da seleção `CLIPBOARD` e
-resposta a `SelectionRequest`; no Win32 com `CF_UNICODETEXT`) e entrada
+`clipboardText`, UTF-8; no X11 com janela dona da seleção `CLIPBOARD`,
+resposta a `SelectionRequest` em UTF-8 e `STRING`/Latin-1, e leitura
+com fallback de alvos; no Win32 com `CF_UNICODETEXT`) e entrada
 de texto Unicode separada de `Key` (evento `text_input` com um codepoint
 por evento; no X11 via keysym, no Win32 via `WM_CHAR`/IME) e input
 bruto de teclado (evento `raw_key` com a tecla física: keycode do X11

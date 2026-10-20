@@ -147,6 +147,10 @@ pub const Backend = struct {
     clipboard_atom: api.Atom = 0,
     utf8_string_atom: api.Atom = 0,
     targets_atom: api.Atom = 0,
+    /// Alvos de texto legados/compatos (`text/plain`,
+    /// `text/plain;charset=utf-8`).
+    text_plain_atom: api.Atom = 0,
+    text_plain_utf8_atom: api.Atom = 0,
     /// Propriedade usada nas leituras (resposta do owner).
     clipboard_property: api.Atom = 0,
     /// Texto (UTF-8) da area de transferencia; propriedade do backend.
@@ -216,6 +220,12 @@ pub const Backend = struct {
         const clipboard_atom = api.XInternAtom(display, "CLIPBOARD", 0);
         const utf8_string_atom = api.XInternAtom(display, "UTF8_STRING", 0);
         const targets_atom = api.XInternAtom(display, "TARGETS", 0);
+        const text_plain_atom = api.XInternAtom(display, "text/plain", 0);
+        const text_plain_utf8_atom = api.XInternAtom(
+            display,
+            "text/plain;charset=utf-8",
+            0,
+        );
         const clipboard_property = api.XInternAtom(display, "ZIGWAY_CLIPBOARD", 0);
         var clipboard_window: api.Window = 0;
         if (clipboard_atom != 0 and utf8_string_atom != 0 and clipboard_property != 0) {
@@ -253,6 +263,8 @@ pub const Backend = struct {
             .clipboard_atom = clipboard_atom,
             .utf8_string_atom = utf8_string_atom,
             .targets_atom = targets_atom,
+            .text_plain_atom = text_plain_atom,
+            .text_plain_utf8_atom = text_plain_utf8_atom,
             .clipboard_property = clipboard_property,
         };
     }
@@ -418,11 +430,55 @@ pub const Backend = struct {
 
         const requestor = self.clipboard_window;
         const property = self.clipboard_property;
+        // Alvos tentados em ordem: UTF-8 e, se o owner recusar, os
+        // alvos legados (o `STRING` responde em Latin-1).
+        const targets = [_]api.Atom{
+            self.utf8_string_atom,
+            self.text_plain_utf8_atom,
+            self.text_plain_atom,
+            api.XA_STRING,
+        };
+        for (targets) |target| {
+            const data = try self.requestSelectionTarget(
+                reg,
+                queue,
+                state,
+                allocator,
+                requestor,
+                property,
+                target,
+            ) orelse continue;
+            if (target == api.XA_STRING) {
+                // Resposta em Latin-1: converte para UTF-8.
+                const converted = latin1ToUtf8(allocator, data) catch |err| {
+                    allocator.free(data);
+                    return err;
+                };
+                allocator.free(data);
+                return converted;
+            }
+            return data;
+        }
+        return null;
+    }
+
+    /// Pede a selecao para um alvo e espera a resposta do owner.
+    /// Retorna null quando o owner recusa o alvo ou nao responde.
+    fn requestSelectionTarget(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        allocator: std.mem.Allocator,
+        requestor: api.Window,
+        property: api.Atom,
+        target: api.Atom,
+    ) !?[]u8 {
         _ = api.XDeleteProperty(self.display, requestor, property);
         _ = api.XConvertSelection(
             self.display,
             self.clipboard_atom,
-            self.utf8_string_atom,
+            target,
             property,
             requestor,
             api.CurrentTime,
@@ -441,8 +497,9 @@ pub const Backend = struct {
                     const notify = ev.selection;
                     if (notify.requestor == requestor and
                         notify.selection == self.clipboard_atom and
-                        notify.target == self.utf8_string_atom)
+                        notify.target == target)
                     {
+                        // `property == 0`: o owner recusou o alvo.
                         if (notify.property == 0) return null;
                         return try self.readClipboardProperty(allocator, requestor, property);
                     }
@@ -517,10 +574,14 @@ pub const Backend = struct {
         const property = if (req.property == 0) req.target else req.property;
         var granted = false;
         if (req.target == self.targets_atom) {
-            // Lista de alvos suportados (atoms de 32 bits).
+            // Alvos suportados: os de texto (UTF-8 e Latin-1) e o
+            // proprio TARGETS.
             const targets = [_]u32{
                 @intCast(self.targets_atom),
                 @intCast(self.utf8_string_atom),
+                @intCast(self.text_plain_utf8_atom),
+                @intCast(self.text_plain_atom),
+                @intCast(api.XA_STRING),
             };
             _ = api.XChangeProperty(
                 self.display,
@@ -533,19 +594,43 @@ pub const Backend = struct {
                 @intCast(targets.len),
             );
             granted = true;
-        } else if (req.target == self.utf8_string_atom) {
+        } else if (req.target == self.utf8_string_atom or
+            req.target == self.text_plain_utf8_atom or
+            req.target == self.text_plain_atom)
+        {
+            // UTF-8 (comportamento moderno de "text/plain").
             const text = self.clipboard_text orelse "";
             _ = api.XChangeProperty(
                 self.display,
                 req.requestor,
                 property,
-                self.utf8_string_atom,
+                req.target,
                 8,
                 api.PropModeReplace,
                 if (text.len == 0) null else @ptrCast(text.ptr),
                 @intCast(text.len),
             );
             granted = true;
+        } else if (req.target == api.XA_STRING) {
+            // `STRING` e Latin-1 (ICCCM): caracteres fora do Latin-1 viram
+            // '?'.
+            const text = self.clipboard_text orelse "";
+            if (utf8ToLatin1(self.allocator, text)) |latin1| {
+                defer self.allocator.free(latin1);
+                _ = api.XChangeProperty(
+                    self.display,
+                    req.requestor,
+                    property,
+                    api.XA_STRING,
+                    8,
+                    api.PropModeReplace,
+                    if (latin1.len == 0) null else @ptrCast(latin1.ptr),
+                    @intCast(latin1.len),
+                );
+                granted = true;
+            } else |_| {
+                // Sem memoria: recusa o alvo.
+            }
         }
         var notify = api.XEvent{
             .selection = .{
@@ -1470,6 +1555,54 @@ pub fn fromState(state: c_uint) types.Modifiers {
     };
 }
 
+/// Converte UTF-8 em Latin-1 (alvo `STRING` do ICCCM): caracteres fora
+/// do Latin-1 viram '?'.
+pub fn utf8ToLatin1(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    var i: usize = 0;
+    while (i < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[i]) catch {
+            // Byte invalido: substitui e avanca um byte.
+            try out.append(allocator, '?');
+            i += 1;
+            continue;
+        };
+        if (i + len > text.len) {
+            try out.append(allocator, '?');
+            i += 1;
+            continue;
+        }
+        const codepoint = std.unicode.utf8Decode(text[i .. i + len]) catch {
+            try out.append(allocator, '?');
+            i += 1;
+            continue;
+        };
+        if (codepoint < 0x100) {
+            try out.append(allocator, @intCast(codepoint));
+        } else {
+            try out.append(allocator, '?');
+        }
+        i += len;
+    }
+    return try out.toOwnedSlice(allocator);
+}
+
+/// Converte bytes Latin-1 em UTF-8.
+pub fn latin1ToUtf8(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    for (bytes) |byte| {
+        if (byte < 0x80) {
+            try out.append(allocator, byte);
+        } else {
+            try out.append(allocator, 0xC0 | (byte >> 6));
+            try out.append(allocator, 0x80 | (byte & 0x3F));
+        }
+    }
+    return try out.toOwnedSlice(allocator);
+}
+
 /// Converte um keysym X11 em codepoint Unicode.
 ///
 /// Faixas do keysym (X11): 0x20-0x7E (ASCII), 0xA0-0xFF (Latin-1) e
@@ -1655,6 +1788,36 @@ test "keysym to codepoint covers ascii, latin1 and unicode" {
     // Unicode direto (bit 24).
     try std.testing.expectEqual(@as(?u32, 0x4E2D), keysymToCodepoint(0x0100_0000 | 0x4E2D));
     try std.testing.expectEqual(@as(?u32, 0x10FFFF), keysymToCodepoint(0x0110_FFFF));
+}
+
+test "utf8 to latin1 replaces unrepresentable characters" {
+    const alloc = std.testing.allocator;
+
+    const ascii = try utf8ToLatin1(alloc, "abc");
+    defer alloc.free(ascii);
+    try std.testing.expectEqualStrings("abc", ascii);
+
+    // "cafe" com acento (e-acute) cabe no Latin-1.
+    const accented = try utf8ToLatin1(alloc, "caf\xc3\xa9");
+    defer alloc.free(accented);
+    try std.testing.expectEqualStrings("caf\xe9", accented);
+
+    // CJK nao cabe: vira '?'.
+    const cjk = try utf8ToLatin1(alloc, "\xe4\xbd\xa0");
+    defer alloc.free(cjk);
+    try std.testing.expectEqualStrings("?", cjk);
+}
+
+test "latin1 to utf8 encodes high bytes as two bytes" {
+    const alloc = std.testing.allocator;
+
+    const utf8 = try latin1ToUtf8(alloc, "caf\xe9");
+    defer alloc.free(utf8);
+    try std.testing.expectEqualStrings("caf\xc3\xa9", utf8);
+
+    const ascii = try latin1ToUtf8(alloc, "abc");
+    defer alloc.free(ascii);
+    try std.testing.expectEqualStrings("abc", ascii);
 }
 
 test "cursor shapes map to cursorfont constants" {

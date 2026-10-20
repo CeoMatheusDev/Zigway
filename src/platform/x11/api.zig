@@ -23,6 +23,8 @@ pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
 pub const XA_ATOM: Atom = 4;
+/// `XA_STRING` (Xlib.h): atom predefinido para texto Latin-1.
+pub const XA_STRING: Atom = 31;
 /// `PropModeReplace` (Xlib.h): substitui o valor da propriedade.
 pub const PropModeReplace: c_int = 0;
 

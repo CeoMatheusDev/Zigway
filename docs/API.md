@@ -189,8 +189,11 @@ responsabilidade do chamador (liberar com o mesmo alocador). Limite de
 1 MiB por texto; textos maiores retornam `InvalidConfig`.
 
 No X11 a plataforma mantém uma janela oculta como dona da seleção
-`CLIPBOARD` e responde a `SelectionRequest` com `TARGETS` e
-`UTF8_STRING`. A **leitura é síncrona**: a conexão é bombada até o
+`CLIPBOARD` e responde a `SelectionRequest` com `TARGETS`, `UTF8_STRING`,
+`text/plain;charset=utf-8`, `text/plain` (UTF-8) e `STRING` (Latin-1,
+conforme o ICCCM; caracteres fora do Latin-1 viram `?`). Na leitura, os
+alvos são tentados nessa ordem e, se o dono recusar, cai para
+`STRING` — o conteúdo Latin-1 é convertido para UTF-8. A **leitura é síncrona**: a conexão é bombada até o
 `SelectionNotify` do dono (até 500 ms); eventos do app nesse intervalo
 vão para a fila normal (nenhum evento é perdido), mas a chamada
 bloqueia. Para que o conteúdo publicado por Zigway seja servido a
