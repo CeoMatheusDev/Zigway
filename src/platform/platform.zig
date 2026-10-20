@@ -263,6 +263,13 @@ pub const Platform = struct {
         return &self.input_state;
     }
 
+    /// Total de eventos descartados por overflow desde o init
+    /// (diagnostico; ver politica de descarte em events.zig). Consumir
+    /// a fila normalmente nao altera o contador.
+    pub fn droppedEvents(self: *const Platform) u64 {
+        return self.events.dropped;
+    }
+
     fn pruneEvents(self: *Platform, id: types.WindowId) void {
         var kept: usize = 0;
         for (self.events.events.items) |ev| {
@@ -355,6 +362,27 @@ test "input state follows injected events" {
     const ev = plat.nextEvent().?;
     try std.testing.expect(ev == .key_down);
     try std.testing.expect(plat.nextEvent() == null);
+}
+
+test "droppedEvents exposes overflow diagnostics" {
+    var plat = try Platform.init(std.testing.allocator, .{
+        .backend = .null_backend,
+        .event_queue_capacity = 1,
+    });
+    defer plat.deinit();
+    const id: types.WindowId = .{ .index = 0, .generation = 0 };
+
+    plat.injectEvent(.{ .close = .{ .window = id } });
+    try std.testing.expectEqual(@as(u64, 0), plat.droppedEvents());
+
+    // Fila (capacidade 1) cheia de um critico: o segundo close e
+    // descartado e contabilizado.
+    plat.injectEvent(.{ .close = .{ .window = id } });
+    try std.testing.expectEqual(@as(u64, 1), plat.droppedEvents());
+
+    // Consumir a fila nao zera o diagnostico.
+    try std.testing.expect(plat.nextEvent() != null);
+    try std.testing.expectEqual(@as(u64, 1), plat.droppedEvents());
 }
 
 test "resize via backend updates slot and queues event" {

@@ -15,8 +15,11 @@ const types = @import("../core/types.zig");
 pub const WindowId = types.WindowId;
 
 pub const Slot = struct {
-    // A geracao incrementa a cada reutilizacao do indice (wrapping em
-    // 2^32 usos; ids antigos invalidam e nunca atingem outra janela).
+    // A geracao incrementa a cada reutilizacao do indice, saturando em
+    // maxInt(u32) apos ~2^32 reusos. Antes da saturacao, ids antigos
+    // sempre invalidam; apos ela, a geracao permanece estavel (o slot
+    // nao volta a geracao 0), entao apenas ids da geracao saturada
+    // coincidem — limite teorico documentado, nao silencioso.
     generation: u32 = 0,
     occupied: bool = false,
     should_close: bool = false,

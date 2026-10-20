@@ -77,6 +77,11 @@ Limitações conhecidas:
   `left_shift`, e o mesmo para Ctrl/Alt/Super. O X11 distingue
   esquerda/direita. Distinguir no Win32 exigiria o scancode
   (`lparam` bits 16–23) — fora do escopo desta fase.
+  Consequência adicional: com Shift (ou Ctrl/Alt) esquerdo e direito
+  pressionados ao mesmo tempo, soltar um deles zera o modificador,
+  pois o estado é incremental por VK genérico. Corrigir exige consultar
+  o estado real (`GetKeyState`) ou separar os lados pelo scancode;
+  pendente de validação em Windows real.
 - `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` entregam coordenadas de tela, mas
   `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
   (`ScreenToClient`).

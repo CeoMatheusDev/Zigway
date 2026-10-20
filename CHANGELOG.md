@@ -49,6 +49,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 - `Event.window()`: janela associada ao evento, quando houver
   (usado pela poda de eventos de janelas destruídas).
+- `Platform.droppedEvents()`: total de eventos descartados por
+  overflow desde o init, exposto como diagnóstico público (antes
+  acessível apenas pelo campo interno `events.dropped`).
 - Cobertura de regressão: reuso de slot/geração no nível Platform,
   destroy durante o consumo, poda mista, deinit com janelas vivas,
   cópia + double-deinit, falha de alocação em `createWindow`, stress

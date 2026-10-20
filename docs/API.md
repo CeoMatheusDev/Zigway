@@ -20,6 +20,7 @@ platform.pollEvents() void               // drena o SO para a fila
 platform.nextEvent() ?Event              // consome a fila
 platform.injectEvent(Event) void         // evento sintético (testes)
 platform.inputState() *const InputState
+platform.droppedEvents() u64             // descartes por overflow (diagnóstico)
 ```
 
 Janelas via Platform:
