@@ -211,6 +211,39 @@ pub const DisplayMode = struct {
     preferred: bool = false,
 };
 
+/// Capacidades do backend, para que a aplicacao adapte o
+/// comportamento sem identificar manualmente o backend.
+///
+/// Tudo que e `false` deve ser tratado como "nao disponivel": a API
+/// correspondente retorna `error.NotImplemented`/`Unsupported` ou um
+/// resultado vazio (ver a documentacao de cada funcao).
+pub const Capabilities = struct {
+    /// `setPosition` posiciona a janela em coordenadas de tela.
+    absolute_positioning: bool = false,
+    /// A aplicacao escolhe o tamanho da janela (`setSize`).
+    resize_request: bool = false,
+    /// A aplicacao pede foco (`focus`).
+    focus_request: bool = false,
+    /// Area de transferencia (texto) disponivel.
+    clipboard: bool = false,
+    /// Entrada de texto Unicode/IME (composicao, dead keys).
+    text_input_ime: bool = false,
+    /// Cursor do sistema por janela.
+    system_cursor: bool = false,
+    /// Captura exclusiva do ponteiro.
+    pointer_capture: bool = false,
+    /// Movimento relativo do ponteiro (pointer lock).
+    pointer_relative: bool = false,
+    /// Confinamento do ponteiro a uma janela.
+    pointer_confinement: bool = false,
+    /// Escala fracionaria por monitor.
+    fractional_scale: bool = false,
+    /// Modos de video (resolucao) por display.
+    video_modes: bool = false,
+    /// O backend modela um "seat" (dispositivos de entrada).
+    seat: bool = false,
+};
+
 /// Capacidades de entrada do "seat" (dispositivos de entrada) do
 /// compositor. `null` quando o backend nao modela um seat.
 pub const SeatCapabilities = struct {

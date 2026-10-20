@@ -30,6 +30,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const wakeup_mod = @import("../wakeup.zig");
 const linux = std.os.linux;
 
 comptime {
@@ -240,6 +241,16 @@ const DataSourceListener = extern struct {
     action: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
 };
 
+/// Callbacks do `zwp_text_input_v3` (text-input-unstable-v3.xml).
+const TextInputListener = extern struct {
+    enter: *const fn (?*anyopaque, ?*api.wl_proxy, ?*api.wl_proxy) callconv(.c) void,
+    leave: *const fn (?*anyopaque, ?*api.wl_proxy, ?*api.wl_proxy) callconv(.c) void,
+    preedit_string: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8, c_int, c_int) callconv(.c) void,
+    commit_string: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8) callconv(.c) void,
+    delete_surrounding_text: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32) callconv(.c) void,
+    done: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+};
+
 /// Listeners do protocolo (endereco estavel: a libwayland guarda o
 /// ponteiro).
 const Listeners = struct {
@@ -256,6 +267,7 @@ const Listeners = struct {
     data_device: DataDeviceListener,
     data_offer: DataOfferListener,
     data_source: DataSourceListener,
+    text_input: TextInputListener,
 };
 
 /// Estado mutavel do backend (heap, endereco estavel para os callbacks).
@@ -267,6 +279,14 @@ const State = struct {
     seat_version: u32 = 0,
     /// Capacidades do seat (bits de `wl_seat_capability_*`).
     seat_capabilities: u32 = 0,
+    /// Tema de cursor carregado (libwayland-cursor). null se indisponivel.
+    cursor_theme: ?*api.wl_cursor_theme = null,
+    /// Biblioteca de cursors carregada (dono do DynLib).
+    cursor_lib: ?api.CursorLib = null,
+    /// Superficie usada para o cursor.
+    cursor_surface: ?*api.wl_proxy = null,
+    /// Serial do ultimo wl_pointer.enter (necessario para set_cursor).
+    last_pointer_serial: u32 = 0,
     /// A conexao foi encerrada por erro de protocolo.
     failed: bool = false,
     /// Simbolos da libwayland (copia estavel: os callbacks usam esta
@@ -343,6 +363,20 @@ const State = struct {
     selection_mimes: std.ArrayList([64]u8) = .empty,
     /// Pipe de escrita pendente (o compositor pediu os dados).
     pending_send_fd: ?c_int = null,
+    /// Gerenciador de entrada de texto (zwp_text_input_manager_v3).
+    text_input_manager: ?*api.wl_proxy = null,
+    text_input_manager_version: u32 = 0,
+    /// Contexto de entrada de texto do seat.
+    text_input: ?*api.wl_proxy = null,
+    /// Superficie que tem o foco de entrada de texto.
+    text_input_surface: ?*api.wl_proxy = null,
+    /// Texto em composicao (preedit) e uma composicao em andamento.
+    composition_text: []u8 = &.{},
+    composition_active: bool = false,
+    /// Contexto do despacho corrente (valido apenas durante o poll).
+    poll_reg: ?*registry.Registry = null,
+    poll_queue: ?*events.EventQueue = null,
+    poll_input: ?*input.InputState = null,
     /// Listeners: a libwayland guarda o ponteiro, entao precisam de
     /// endereco estavel.
     listeners: Listeners = .{
@@ -382,6 +416,14 @@ const State = struct {
             .dnd_drop_performed = onSourceDndDropPerformed,
             .dnd_finished = onSourceDndFinished,
             .action = onSourceAction,
+        },
+        .text_input = .{
+            .enter = onTextInputEnter,
+            .leave = onTextInputLeave,
+            .preedit_string = onTextInputPreedit,
+            .commit_string = onTextInputCommit,
+            .delete_surrounding_text = onTextInputDeleteSurrounding,
+            .done = onTextInputDone,
         },
         .pointer = .{
             .enter = onPointerEnter,
@@ -461,11 +503,18 @@ const State = struct {
             self.seat = proxy;
             self.seat_version = bind_version;
             self.ensureDataDevice();
+            self.ensureTextInput();
         } else if (std.mem.eql(u8, iface, api.interface_wl_compositor)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.compositor_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.compositor_interface) orelse return;
             self.compositor = proxy;
             self.compositor_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_zwp_text_input_manager_v3)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.text_input_manager_v3_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.text_input_manager_v3_interface) orelse return;
+            self.text_input_manager = proxy;
+            self.text_input_manager_version = bind_version;
+            self.ensureTextInput();
         } else if (std.mem.eql(u8, iface, api.interface_wl_data_device_manager)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.data_device_manager_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.data_device_manager_interface) orelse return;
@@ -495,6 +544,46 @@ const State = struct {
             self.wm_base = proxy;
             self.wm_base_version = bind_version;
         }
+    }
+
+    /// Slot da janela associada a uma superficie.
+    fn windowSlotBySurface(self: *const State, surface: *api.wl_proxy) ?u32 {
+        for (self.windows.items) |entry| {
+            if (entry.surface == surface) return entry.slot;
+        }
+        return null;
+    }
+
+    /// Janela que tem o foco de entrada de texto (null se nenhuma).
+    fn textInputWindowId(self: *const State) ?types.WindowId {
+        const surface = self.text_input_surface orelse return null;
+        const reg = self.poll_reg orelse return null;
+        const slot = self.windowSlotBySurface(surface) orelse return null;
+        if (slot >= reg.slots.items.len) return null;
+        if (!reg.slots.items[slot].occupied) return null;
+        return reg.idOf(slot);
+    }
+
+    /// Cria o `zwp_text_input_v3` (precisa do gerenciador e do seat).
+    fn ensureTextInput(self: *State) void {
+        if (self.text_input != null) return;
+        const manager = self.text_input_manager orelse return;
+        const seat = self.seat orelse return;
+        const proxy = self.symbols.proxy_marshal_flags(
+            manager,
+            api.zwp_text_input_manager_v3_get_text_input,
+            &protocol.text_input_v3_interface,
+            self.text_input_manager_version,
+            0,
+            @as(?*anyopaque, null),
+            @as(?*anyopaque, @ptrCast(seat)),
+        ) orelse return;
+        self.symbols.proxy_add_listener(
+            proxy,
+            @ptrCast(&self.listeners.text_input),
+            @ptrCast(self),
+        );
+        self.text_input = proxy;
     }
 
     /// Cria o `wl_data_device` (precisa do gerenciador e do seat).
@@ -821,16 +910,20 @@ pub const Backend = struct {
     registry: *api.wl_proxy,
     /// Estado (heap): endereco estavel exigido pelos callbacks.
     state: *State,
+    /// Descritor de wakeup: outra thread pode acordar o loop de eventos.
+    wakeup_pipe: wakeup_mod.Wakeup = .{},
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         var lib = api.Lib.load() orelse return error.UnsupportedBackend;
         errdefer lib.deinit();
+        var cursor_lib = api.CursorLib.load();
+        errdefer if (cursor_lib) |*cl| cl.deinit();
         const display = lib.symbols.display_connect(null) orelse return error.NoDisplay;
         errdefer lib.symbols.display_disconnect(display);
 
         const state = try allocator.create(State);
         errdefer allocator.destroy(state);
-        state.* = .{ .allocator = allocator, .symbols = lib.symbols };
+        state.* = .{ .allocator = allocator, .symbols = lib.symbols, .cursor_lib = cursor_lib };
 
         // Keymap XKB: a libxkbcommon e opcional (sem ela o backend
         // funciona, mas o teclado nao entrega teclas).
@@ -866,19 +959,33 @@ pub const Backend = struct {
         // As propriedades iniciais nao contam como mudanca de display.
         state.pending_display_change = false;
 
+        var wake = wakeup_mod.Wakeup.init() catch wakeup_mod.Wakeup{};
+        errdefer wake.deinit();
+
         return .{
             .allocator = allocator,
             .lib = lib,
             .display = display,
             .registry = registry_proxy,
             .state = state,
+            .wakeup_pipe = wake,
         };
     }
 
+    /// Destruicao do backend.
+    ///
+    /// A ordem importa: tudo que ainda fala com o servidor precisa ser
+    /// destruido ANTES de `wl_display_disconnect` (destruir objetos
+    /// depois do disconnect usa proxies mortos e a libwayland-cursor
+    /// chega a segfaultar). Dentro do teardown, a dependencia tambem
+    /// importa: a superficie do cursor antes do tema (o tema destroi os
+    /// buffers que a superficie usa) e o tema antes do `wl_shm` (o tema
+    /// cria os pools a partir dele).
     pub fn deinit(self: *Backend) void {
         const state = self.state;
-        // Janelas antes dos globals: o xdg_wm_base nao pode ser
-        // destruido com superficies vivas.
+        const lib = &self.lib.symbols;
+
+        // 1) Janelas (superficies/xdg) antes de qualquer global.
         while (state.windows.items.len > 0) {
             self.destroyWindowEntry(0);
         }
@@ -886,22 +993,57 @@ pub const Backend = struct {
         state.closePendingFds();
         state.pending_fds.deinit(self.allocator);
         if (state.keymap) |*keymap| keymap.deinit();
-        for (state.outputs.items) |out| self.lib.symbols.proxy_destroy(out.proxy);
+
+        // 2) Cursor: superficie (libera o buffer) e depois o tema (que
+        //    destroi os pools do `wl_shm`).
+        if (state.cursor_surface) |surface| {
+            lib.proxy_destroy(surface);
+            state.cursor_surface = null;
+        }
+        if (state.cursor_theme) |theme| {
+            if (state.cursor_lib) |*cl| cl.theme_destroy(theme);
+            state.cursor_theme = null;
+        }
+
+        // 3) Demais objetos do protocolo.
+        for (state.outputs.items) |out| lib.proxy_destroy(out.proxy);
         state.outputs.deinit(self.allocator);
         state.selection_mimes.deinit(self.allocator);
         if (state.clipboard_text) |text| self.allocator.free(text);
         state.clipboard_text = null;
-        if (state.selection_offer) |offer| self.lib.symbols.proxy_destroy(offer);
+        if (state.selection_offer) |offer| lib.proxy_destroy(offer);
         state.selection_offer = null;
-        if (state.clipboard_source) |source| self.lib.symbols.proxy_destroy(source);
+        if (state.clipboard_source) |source| lib.proxy_destroy(source);
         state.clipboard_source = null;
-        if (state.data_device) |device| self.lib.symbols.proxy_destroy(device);
+        if (state.data_device) |device| lib.proxy_destroy(device);
         state.data_device = null;
-        if (state.data_device_manager) |manager| self.lib.symbols.proxy_destroy(manager);
+        if (state.data_device_manager) |manager| lib.proxy_destroy(manager);
         state.data_device_manager = null;
-        if (state.seat) |seat| self.lib.symbols.proxy_destroy(seat);
-        self.lib.symbols.proxy_destroy(self.registry);
-        self.lib.symbols.display_disconnect(self.display);
+        if (state.text_input) |text_input| lib.proxy_destroy(text_input);
+        state.text_input = null;
+        if (state.text_input_manager) |manager| lib.proxy_destroy(manager);
+        state.text_input_manager = null;
+        if (state.pointer) |pointer| lib.proxy_destroy(pointer);
+        state.pointer = null;
+        if (state.keyboard) |keyboard| lib.proxy_destroy(keyboard);
+        state.keyboard = null;
+        if (state.seat) |seat| lib.proxy_destroy(seat);
+        state.seat = null;
+        if (state.shm) |shm| lib.proxy_destroy(shm);
+        state.shm = null;
+        if (state.wm_base) |wm_base| lib.proxy_destroy(wm_base);
+        state.wm_base = null;
+        if (state.compositor) |compositor| lib.proxy_destroy(compositor);
+        state.compositor = null;
+
+        // 4) Registry e, por ultimo, a conexao.
+        lib.proxy_destroy(self.registry);
+        lib.display_disconnect(self.display);
+
+        // 5) Bibliotecas dlopen (apos a conexao: as libs nao podem
+        //    receber callbacks de um display morto).
+        if (state.cursor_lib) |*cl| cl.deinit();
+        state.cursor_lib = null;
         self.allocator.destroy(state);
         self.lib.deinit();
     }
@@ -970,6 +1112,38 @@ pub const Backend = struct {
 
     /// Publica texto (UTF-8) na selecao do clipboard do protocolo
     /// Wayland (`wl_data_device.set_selection`).
+    /// O Wayland suporta clipboard, cursor do sistema e entrada de texto
+    /// (via `zwp_text_input_v3`); nao suporta posicionamento absoluto,
+    /// resize pedido, foco pedido, captura de ponteiro nem modos de
+    /// video (o compositor decide).
+    pub fn capabilities(self: *const Backend) types.Capabilities {
+        const st = self.state;
+        return .{
+            .absolute_positioning = false,
+            .resize_request = false,
+            .focus_request = false,
+            .clipboard = st.data_device != null,
+            .text_input_ime = st.text_input != null,
+            .system_cursor = st.cursor_lib != null,
+            .pointer_capture = false,
+            .pointer_relative = false,
+            .pointer_confinement = false,
+            .fractional_scale = false,
+            .video_modes = false,
+            .seat = st.seat != null,
+        };
+    }
+
+    /// Texto em composicao (preedit) da janela.
+    pub fn compositionText(self: *const Backend, reg: *registry.Registry, id: types.WindowId) ?[]const u8 {
+        _ = reg;
+        const st = self.state;
+        if (!st.composition_active) return null;
+        if (st.composition_text.len == 0) return null;
+        _ = id;
+        return st.composition_text;
+    }
+
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
         const st = self.state;
         if (st.data_device == null) return error.ClipboardFailed;
@@ -1353,12 +1527,93 @@ pub const Backend = struct {
 
     /// O cursor do sistema exige `wl_pointer` e o tema do compositor
     /// (fase de input).
+    /// Carrega (sob demanda) o tema de cursor e a superficie que o
+    /// compositor usa como cursor.
+    fn ensureCursorTheme(self: *Backend) void {
+        const st = self.state;
+        if (st.cursor_theme != null) return;
+        const cl = st.cursor_lib orelse return;
+        const shm = self.state.shm orelse return;
+        const shm_proxy: *api.wl_shm = @ptrCast(shm);
+        const theme = cl.theme_load(null, 24, shm_proxy);
+        if (theme) |t| st.cursor_theme = t;
+    }
+
+    /// Nome do cursor do tema correspondente a `types.Cursor`.
+    fn cursorName(cursor: types.Cursor) [*:0]const u8 {
+        return switch (cursor) {
+            .default => "left_ptr",
+            .text => "text",
+            .crosshair => "crosshair",
+            .hand => "hand2",
+            .resize_horizontal => "size_hor",
+            .resize_vertical => "size_ver",
+            .resize_all => "size_all",
+            .not_allowed => "not-allowed",
+            .wait => "wait",
+        };
+    }
+
     pub fn setCursor(self: *Backend, reg: *registry.Registry, slot: u32, cursor: types.Cursor) !void {
-        _ = self;
         _ = reg;
         _ = slot;
-        _ = cursor;
-        return error.NotImplemented;
+        const st = self.state;
+        const pointer = st.pointer orelse return error.NotImplemented;
+        const serial = st.last_pointer_serial;
+        if (serial == 0) return error.CursorCreationFailed;
+        self.ensureCursorTheme();
+        const theme = st.cursor_theme orelse return error.CursorCreationFailed;
+        const cl = st.cursor_lib orelse return error.CursorCreationFailed;
+        const cursor_name = cursorName(cursor);
+        const wl_cursor = cl.theme_get_cursor(theme, cursor_name) orelse
+            return error.CursorCreationFailed;
+        if (wl_cursor.image_count == 0) return error.CursorCreationFailed;
+        const image = wl_cursor.images.?[0];
+        const buffer = cl.image_get_buffer(image) orelse return error.CursorCreationFailed;
+
+        // Superficie dedicada ao cursor (reaproveitada).
+        const surface = st.cursor_surface orelse blk: {
+            const surface = self.lib.symbols.proxy_marshal_flags(
+                self.state.compositor.?,
+                api.wl_compositor_create_surface,
+                &protocol.surface_interface,
+                self.state.compositor_version,
+                0,
+                @as(?*anyopaque, null),
+            ) orelse return error.CursorCreationFailed;
+            st.cursor_surface = surface;
+            break :blk surface;
+        };
+        // Anexa o buffer e confirma.
+        _ = self.lib.symbols.proxy_marshal_flags(
+            surface,
+            api.wl_surface_attach,
+            null,
+            0,
+            0,
+            @as(?*anyopaque, @ptrCast(buffer)),
+            @as(i32, 0),
+            @as(i32, 0),
+        );
+        _ = self.lib.symbols.proxy_marshal_flags(
+            surface,
+            api.wl_surface_commit,
+            null,
+            0,
+            0,
+        );
+        _ = self.lib.symbols.proxy_marshal_flags(
+            pointer,
+            api.wl_pointer_set_cursor,
+            null,
+            0,
+            0,
+            serial,
+            @as(?*anyopaque, @ptrCast(surface)),
+            @as(i32, @intCast(image.hotspot_x)),
+            @as(i32, @intCast(image.hotspot_y)),
+        );
+        _ = self.lib.symbols.display_flush(self.display);
     }
 
     /// O Wayland nao expoe captura exclusiva de ponteiro no protocolo
@@ -1377,12 +1632,61 @@ pub const Backend = struct {
     }
 
     /// Despacha os eventos do compositor (sem bloquear).
+    /// Espera eventos na conexao do compositor (ou no wakeup) ate o
+    /// timeout. O compositor pode acordar antes (evento) ou depois.
+    pub fn waitEvents(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        timeout_ms: i32,
+    ) u32 {
+        if (timeout_ms == 0) {
+            self.poll(reg, queue, state);
+            return 0;
+        }
+        const fd = self.lib.symbols.display_get_fd(self.display);
+        if (fd < 0) {
+            self.poll(reg, queue, state);
+            return 0;
+        }
+        var fds = [_]std.posix.pollfd{
+            .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.wakeup_pipe.read_fd, .events = std.posix.POLL.IN, .revents = 0 },
+        };
+        const ready = std.posix.poll(&fds, timeout_ms) catch 0;
+        if (ready != 0 and (fds[1].revents & std.posix.POLL.IN) != 0) {
+            self.wakeup_pipe.drain();
+            return 0;
+        }
+        if (ready != 0 and (fds[0].revents & std.posix.POLL.IN) != 0) {
+            self.poll(reg, queue, state);
+            return 1;
+        }
+        return 0;
+    }
+
+    /// Acorda uma thread bloqueada em `waitEvents`.
+    pub fn wakeup(self: *Backend) void {
+        self.wakeup_pipe.signal();
+    }
+
     pub fn poll(
         self: *Backend,
         reg: *registry.Registry,
         queue: *events.EventQueue,
         state: *input.InputState,
     ) void {
+        // Contexto do despacho: os callbacks do protocolo publicam
+        // eventos na fila durante o poll.
+        self.state.poll_reg = reg;
+        self.state.poll_queue = queue;
+        self.state.poll_input = state;
+        defer {
+            self.state.poll_reg = null;
+            self.state.poll_queue = null;
+            self.state.poll_input = null;
+        }
         if (!self.state.failed) {
             // 1) Despacha o que ja foi lido do socket.
             if (self.lib.symbols.display_dispatch_pending(self.display) < 0) {
@@ -1808,6 +2112,189 @@ fn onOutputName(data: ?*anyopaque, proxy: ?*api.wl_proxy, name: ?[*:0]const u8) 
     if (name) |n| copyString(&out.name, n);
 }
 
+// --- Entrada de texto (zwp_text_input_v3) ---
+
+/// Converte UTF-8 em codepoints e emite um `text_input` por codepoint.
+fn emitText(
+    state: *State,
+    reg: *registry.Registry,
+    queue: *events.EventQueue,
+    input_state: *input.InputState,
+    window_id: ?types.WindowId,
+    text: []const u8,
+) void {
+    var i: usize = 0;
+    while (i < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[i]) catch {
+            i += 1;
+            continue;
+        };
+        if (i + len > text.len) break;
+        const codepoint = std.unicode.utf8Decode(text[i .. i + len]) catch {
+            i += 1;
+            continue;
+        };
+        i += len;
+        if (window_id) |wid| {
+            events.dispatch(queue, input_state, .{ .text_input = .{
+                .window = wid,
+                .codepoint = @intCast(codepoint),
+            } });
+        }
+    }
+    _ = state;
+    _ = reg;
+}
+
+/// Guarda o preedit (texto em composicao) e sinaliza o inicio/ fim da
+/// composicao.
+fn setComposition(
+    state: *State,
+    reg: *registry.Registry,
+    queue: *events.EventQueue,
+    input_state: *input.InputState,
+    window_id: ?types.WindowId,
+    text: []const u8,
+) void {
+    const allocator = state.allocator;
+    if (state.composition_text.len > 0) allocator.free(state.composition_text);
+    state.composition_text = allocator.dupe(u8, text) catch &.{};
+
+    if (text.len == 0) {
+        if (state.composition_active) {
+            state.composition_active = false;
+            if (window_id) |wid| {
+                events.dispatch(queue, input_state, .{ .composition_end = .{ .window = wid } });
+            }
+        }
+        return;
+    }
+    if (!state.composition_active) {
+        state.composition_active = true;
+        if (window_id) |wid| {
+            events.dispatch(queue, input_state, .{ .composition_start = .{ .window = wid } });
+        }
+    }
+    _ = reg;
+}
+
+fn onTextInputEnter(
+    data: ?*anyopaque,
+    text_input: ?*api.wl_proxy,
+    surface: ?*api.wl_proxy,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    state.text_input_surface = surface;
+    // Habilita a entrada de texto para a superficie com foco.
+    const proxy = text_input orelse return;
+    _ = state.symbols.proxy_marshal_flags(
+        proxy,
+        api.zwp_text_input_v3_enable,
+        null,
+        0,
+        0,
+    );
+    _ = state.symbols.proxy_marshal_flags(
+        proxy,
+        api.zwp_text_input_v3_commit,
+        null,
+        0,
+        0,
+    );
+}
+
+fn onTextInputLeave(
+    data: ?*anyopaque,
+    text_input: ?*api.wl_proxy,
+    surface: ?*api.wl_proxy,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = surface;
+    state.text_input_surface = null;
+    const proxy = text_input orelse return;
+    _ = state.symbols.proxy_marshal_flags(
+        proxy,
+        api.zwp_text_input_v3_disable,
+        null,
+        0,
+        0,
+    );
+    _ = state.symbols.proxy_marshal_flags(
+        proxy,
+        api.zwp_text_input_v3_commit,
+        null,
+        0,
+        0,
+    );
+}
+
+fn onTextInputPreedit(
+    data: ?*anyopaque,
+    text_input: ?*api.wl_proxy,
+    text: ?[*:0]const u8,
+    cursor_pos: c_int,
+    cursor_anchor: c_int,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = text_input;
+    _ = cursor_pos;
+    _ = cursor_anchor;
+    const window_id = state.textInputWindowId();
+    setComposition(
+        state,
+        state.poll_reg.?,
+        state.poll_queue.?,
+        state.poll_input.?,
+        window_id,
+        if (text) |t| std.mem.span(t) else "",
+    );
+}
+
+fn onTextInputCommit(
+    data: ?*anyopaque,
+    text_input: ?*api.wl_proxy,
+    text: ?[*:0]const u8,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = text_input;
+    const window_id = state.textInputWindowId();
+    const content: []const u8 = if (text) |t| std.mem.span(t) else "";
+    emitText(state, state.poll_reg.?, state.poll_queue.?, state.poll_input.?, window_id, content);
+    // O texto confirmado encerra a composicao.
+    if (state.composition_active) {
+        state.composition_active = false;
+        if (state.composition_text.len > 0) {
+            state.allocator.free(state.composition_text);
+            state.composition_text = &.{};
+        }
+        if (window_id) |wid| {
+            events.dispatch(state.poll_queue.?, state.poll_input.?, .{ .composition_end = .{ .window = wid } });
+        }
+    }
+}
+
+fn onTextInputDeleteSurrounding(
+    data: ?*anyopaque,
+    text_input: ?*api.wl_proxy,
+    before: u32,
+    after: u32,
+) callconv(.c) void {
+    _ = data;
+    _ = text_input;
+    _ = before;
+    _ = after;
+    // Delecao ao redor do cursor: depende do texto de contextoo que a
+    // aplicacao envia (set_surrounding_text), que o Zigway ainda nao
+    // envia. Nao ha evento proprio para isso.
+}
+
+fn onTextInputDone(data: ?*anyopaque, text_input: ?*api.wl_proxy, serial: u32) callconv(.c) void {
+    _ = data;
+    _ = text_input;
+    _ = serial;
+    // Fim do lote: os eventos anteriores ja foram publicados.
+}
+
 // --- Clipboard (wl_data_device) ---
 
 fn onDeviceDataOffer(data: ?*anyopaque, device: ?*api.wl_proxy, offer: ?*api.wl_proxy) callconv(.c) void {
@@ -2107,7 +2594,7 @@ fn onPointerEnter(
 ) callconv(.c) void {
     const state = stateFrom(data) orelse return;
     _ = pointer;
-    _ = serial;
+    state.last_pointer_serial = serial;
     state.pointer_surface = @ptrCast(surface);
     state.pointer_x = fixedToPixels(x);
     state.pointer_y = fixedToPixels(y);
@@ -2455,6 +2942,71 @@ fn copyString(dest: []u8, src: [*:0]const u8) void {
     while (i + 1 < dest.len and src[i] != 0) : (i += 1) {
         dest[i] = src[i];
     }
+}
+
+test "text input composition emits start, update and end" {
+    var reg = registry.Registry{};
+    defer reg.deinit(std.testing.allocator);
+    var queue = try events.EventQueue.init(std.testing.allocator, 32);
+    defer queue.deinit();
+    var input_state = input.InputState{};
+
+    const reserved = try reg.allocSlot(std.testing.allocator);
+    const wid = reserved.id;
+
+    var state = State{ .allocator = std.testing.allocator };
+    state.poll_reg = &reg;
+    state.poll_queue = &queue;
+    state.poll_input = &input_state;
+
+    // Preedit com texto: inicia a composicao.
+    setComposition(&state, &reg, &queue, &input_state, wid, "abc");
+    var ev = queue.next() orelse return error.TestExpectedCompositionEvent;
+    try std.testing.expect(ev == .composition_start);
+    try std.testing.expect(ev.composition_start.window.eql(wid));
+    try std.testing.expect(state.composition_active);
+    try std.testing.expectEqualStrings("abc", state.composition_text);
+
+    // Preedit vazio: encerra a composicao.
+    setComposition(&state, &reg, &queue, &input_state, wid, "");
+    ev = queue.next() orelse return error.TestExpectedCompositionEvent;
+    try std.testing.expect(ev == .composition_end);
+    try std.testing.expect(!state.composition_active);
+    try std.testing.expectEqual(@as(usize, 0), state.composition_text.len);
+    try std.testing.expect(queue.next() == null);
+}
+
+test "text input commit emits one event per unicode codepoint" {
+    var reg = registry.Registry{};
+    defer reg.deinit(std.testing.allocator);
+    var queue = try events.EventQueue.init(std.testing.allocator, 32);
+    defer queue.deinit();
+    var input_state = input.InputState{};
+
+    const reserved = try reg.allocSlot(std.testing.allocator);
+    const wid = reserved.id;
+
+    var state = State{ .allocator = std.testing.allocator };
+    state.poll_reg = &reg;
+    state.poll_queue = &queue;
+    state.poll_input = &input_state;
+
+    // "olá" = 3 codepoints (o, l, á com acento).
+    emitText(&state, &reg, &queue, &input_state, wid, "ol\xc3\xa1");
+    const expected = [_]u32{ 'o', 'l', 0x00E1 };
+    for (expected) |cp| {
+        const ev = queue.next() orelse return error.TestExpectedTextInputEvent;
+        try std.testing.expect(ev == .text_input);
+        try std.testing.expect(ev.text_input.window.eql(wid));
+        try std.testing.expectEqual(cp, ev.text_input.codepoint);
+    }
+    try std.testing.expect(queue.next() == null);
+
+    // Caractere fora do BMP (emoji) em UTF-8: 1 codepoint.
+    emitText(&state, &reg, &queue, &input_state, wid, "\xf0\x9f\x98\x80");
+    const ev = queue.next() orelse return error.TestExpectedTextInputEvent;
+    try std.testing.expect(ev == .text_input);
+    try std.testing.expectEqual(@as(u32, 0x1F600), ev.text_input.codepoint);
 }
 
 test "fixed point converts to pixels" {

@@ -75,6 +75,19 @@ pub const TextInputEvent = struct {
     codepoint: u32,
 };
 
+/// Inicio de uma composicao de texto (IME): o texto que o usuario esta
+/// escrevendo aparece em `composition_update` ate a confirmacao.
+pub const CompositionStartEvent = struct {
+    window: WindowId,
+};
+
+/// Fim de uma composicao: o texto foi confirmado (`text_input`) ou
+/// cancelado. O texto em composicao e consultado com
+/// `Platform.compositionText`.
+pub const CompositionEndEvent = struct {
+    window: WindowId,
+};
+
 /// Tecla em nivel de hardware ("input bruto"), separada de `Key`.
 ///
 /// Permite distinguir teclas fisicas que o `Key` agrupa (Shift
@@ -125,6 +138,8 @@ pub const Event = union(enum) {
     fullscreen: FullscreenEvent,
     maximized: MaximizedEvent,
     text_input: TextInputEvent,
+    composition_start: CompositionStartEvent,
+    composition_end: CompositionEndEvent,
     raw_key: RawKeyEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
@@ -152,6 +167,8 @@ pub const Event = union(enum) {
             .fullscreen => |e| e.window,
             .maximized => |e| e.window,
             .text_input => |e| e.window,
+            .composition_start => |e| e.window,
+            .composition_end => |e| e.window,
             .raw_key => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
@@ -346,6 +363,8 @@ test "event window accessor covers all variants" {
         .{ .fullscreen = .{ .window = id, .fullscreen = true } },
         .{ .maximized = .{ .window = id, .maximized = true } },
         .{ .text_input = .{ .window = id, .codepoint = 'a' } },
+        .{ .composition_start = .{ .window = id } },
+        .{ .composition_end = .{ .window = id } },
         .{ .raw_key = .{ .window = id, .scancode = 30, .pressed = true, .modifiers = .{} } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

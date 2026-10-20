@@ -379,6 +379,36 @@ pub extern "user32" fn ChangeDisplaySettingsExW(
     visible: ?[*:0]const u16,
 ) LONG;
 
+// --- Espera de eventos (loop) ---
+/// `CreateEventW` (kernel32): evento manual usado para acordar o loop.
+pub extern "kernel32" fn CreateEventW(
+    attributes: ?*anyopaque,
+    manual_reset: BOOL,
+    initial_state: BOOL,
+    name: LPCWSTR,
+) ?*anyopaque;
+/// `CloseHandle` (kernel32).
+pub extern "kernel32" fn CloseHandle(handle: ?*anyopaque) BOOL;
+/// `SetEvent`/`ResetEvent` (kernel32).
+pub extern "kernel32" fn SetEvent(event: ?*anyopaque) BOOL;
+pub extern "kernel32" fn ResetEvent(event: ?*anyopaque) BOOL;
+/// `MsgWaitForMultipleObjects` (user32): espera por mensagens da fila
+/// ou por um evento do kernel.
+pub extern "user32" fn MsgWaitForMultipleObjects(
+    count: DWORD,
+    handles: ?[*]?*anyopaque,
+    wait_all: BOOL,
+    timeout: DWORD,
+    wake_mask: DWORD,
+) DWORD;
+
+/// `WAIT_OBJECT_0` (winbase.h).
+pub const WAIT_OBJECT_0: DWORD = 0x00000000;
+/// `WAIT_TIMEOUT` (winbase.h).
+pub const WAIT_TIMEOUT: DWORD = 0x00000102;
+/// `QS_ALLINPUT` (winuser.h): todas as mensagens de entrada.
+pub const QS_ALLINPUT: DWORD = 0x00FF0000;
+
 // --- Area de transferencia (clipboard) ---
 pub extern "user32" fn OpenClipboard(hwnd: HWND) BOOL;
 pub extern "user32" fn CloseClipboard() BOOL;

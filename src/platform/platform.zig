@@ -176,6 +176,26 @@ pub const Platform = struct {
         }
     }
 
+    /// Capacidades do backend ativo. Permite a aplicacao decidir o que
+    /// usar sem identificar o backend (e sem tentar uma operacao que o
+    /// protocolo nao suporta).
+    pub fn capabilities(self: *const Platform) types.Capabilities {
+        if (self.closed) return .{};
+        return switch (self.backend) {
+            inline else => |*b| b.capabilities(),
+        };
+    }
+
+    /// Texto em composicao (IME) da janela: o preedit atual, em UTF-8.
+    /// O buffer pertence a plataforma e vale ate o proximo evento de
+    /// composicao. `null` quando nao ha composicao em andamento.
+    pub fn compositionText(self: *const Platform, id: types.WindowId) ?[]const u8 {
+        if (self.closed) return null;
+        return switch (self.backend) {
+            inline else => |*b| b.compositionText(&self.reg, id),
+        };
+    }
+
     /// Capacidades do seat (dispositivos de entrada) do compositor.
     /// `null` quando o backend nao modela um seat (X11/Win32/null) ou
     /// quando o compositor nao expoe seat.
@@ -260,6 +280,41 @@ pub const Platform = struct {
         if (self.closed) return;
         switch (self.backend) {
             inline else => |*b| b.poll(&self.reg, &self.events, &self.input_state),
+        }
+    }
+
+    /// Espera por eventos ate `timeout_ms` (ms) e os despacha.
+    ///
+    /// - `timeout_ms < 0`: espera indefinida (ate `wakeup` ou evento).
+    /// - `timeout_ms == 0`: nao bloqueia (equivale a `pollEvents`).
+    ///
+    /// Devolve quantos eventos foram despachados nesta chamada. O
+    /// timeout e um piso: o backend pode acordar antes (evento) ou
+    /// depois (arredondamento do SO). Nao ha busy-wait: o backend
+    /// dorme no descritor da conexao nativa.
+    ///
+    /// Esta chamada bloqueia a thread: use a mesma thread que criou a
+    /// plataforma (as conexoes X11/Wayland/Win32 tem afinidade de
+    /// thread).
+    pub fn waitEvents(self: *Platform, timeout_ms: i32) u32 {
+        if (self.closed) return 0;
+        return switch (self.backend) {
+            inline else => |*b| b.waitEvents(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                timeout_ms,
+            ),
+        };
+    }
+
+    /// Acorda uma thread bloqueada em `waitEvents` (de outra thread).
+    /// Seguro para chamar a qualquer momento; sem efeito se ninguem
+    /// espera.
+    pub fn wakeup(self: *Platform) void {
+        if (self.closed) return;
+        switch (self.backend) {
+            inline else => |*b| b.wakeup(),
         }
     }
 

@@ -11,6 +11,8 @@ const Timespec = extern struct {
 };
 
 extern "c" fn nanosleep(req: *const Timespec, rem: ?*Timespec) c_int;
+/// `clock_gettime` com CLOCK_MONOTONIC (0).
+extern "c" fn clock_gettime(clk_id: c_int, ts: *Timespec) c_int;
 
 const XErrorHandler = *const fn (display: ?*anyopaque, event: *anyopaque) callconv(.c) c_int;
 extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
@@ -32,6 +34,13 @@ fn countCursorProtocolError(display: ?*anyopaque, event: *anyopaque) callconv(.c
     _ = event;
     cursor_protocol_errors += 1;
     return 0;
+}
+
+/// Relogio monotonico em milissegundos (para medir esperas).
+fn monoMs() i64 {
+    var ts: Timespec = undefined;
+    _ = clock_gettime(0, &ts);
+    return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
 }
 
 fn sleepMs(ms: u64) void {
@@ -1908,6 +1917,45 @@ test "live x11: clipboard transfers between two connections" {
         return error.TestExpectedClipboardText;
     defer std.testing.allocator.free(text);
     try std.testing.expectEqualStrings("zigway cross connection", text);
+}
+
+test "live x11: waitEvents respects the timeout and can be woken up" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    // Sem eventos pendentes: a espera respeita o timeout.
+    const before = monoMs();
+    _ = plat.waitEvents(120);
+    const elapsed = monoMs() - before;
+    try std.testing.expect(elapsed >= 100);
+    try std.testing.expect(elapsed < 2000);
+
+    // Wakeup de outra thread: a espera volta imediatamente.
+    const Waker = struct {
+        plat: *zigway.Platform,
+        fn run(self: *@This()) void {
+            sleepMs(50);
+            self.plat.wakeup();
+        }
+    };
+    var waker = Waker{ .plat = &plat };
+    const thread = try std.Thread.spawn(.{}, Waker.run, .{&waker});
+    defer thread.join();
+
+    const before_wake = monoMs();
+    _ = plat.waitEvents(5000);
+    const elapsed_wake = monoMs() - before_wake;
+    // Acordou antes do timeout de 5s.
+    try std.testing.expect(elapsed_wake < 4000);
+    try std.testing.expect(elapsed_wake >= 30);
 }
 
 test "live x11: protocol error does not abort the process" {

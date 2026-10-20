@@ -291,12 +291,29 @@ usando o código gerado pelo `wayland-scanner`), então o caminho de
 leitura não é exercitado no teste live; o caminho de publicação é
 verificado (o compositor aceita o source: não vem `cancelled`).
 
+**Entrada de texto (IME)**: o `zwp_text_input_manager_v3` é ligado
+quando o compositor o anuncia; o `zwp_text_input_v3` recebe `enter`/
+`leave` (habilita/desabilita a entrada), `preedit_string` (texto em
+composição) e `commit_string` (texto confirmado, publicado como
+`text_input`, um codepoint por evento). O texto em composição é
+consultado com `Platform.compositionText`.
+
+**Cursor do sistema**: o tema de cursor vem da `libwayland-cursor`
+(carregada em runtime); a imagem é anexada a uma superfície dedicada e
+aplicada com `wl_pointer.set_cursor` (exige o serial do último
+`wl_pointer.enter`).
+
 Ainda não implementado (retornam `NotImplemented`): modos de vídeo.
 Também não há equivalente Wayland para `setSize` (o compositor decide
 o tamanho), `setPosition` (a posição não é exposta ao cliente), `focus`
 (o foco é do compositor) e cursor do sistema (exige `wl_pointer` e o
 tema do compositor). A captura exclusiva de ponteiro também não existe
 no protocolo base.
+
+Ciclo de eventos: `waitEvents` espera no descritor da conexão do
+compositor junto com um self-pipe de wakeup (o `wl_display` do protocolo
+não tem "esperar por evento"); outra thread acorda o laço com
+`Platform.wakeup()`.
 
 Ponteiro: o `wl_pointer` é criado quando o compositor anuncia a
 capacidade no seat. `enter`/`leave`/`motion` viram `pointer_move`

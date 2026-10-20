@@ -65,6 +65,20 @@ pub const Backend = struct {
         return null;
     }
 
+    /// Backend headless: nada e suportado natively.
+    pub fn capabilities(self: *const Backend) types.Capabilities {
+        _ = self;
+        return .{};
+    }
+
+    /// Sem composicao (nao ha teclado nativo).
+    pub fn compositionText(self: *const Backend, reg: *registry.Registry, id: types.WindowId) ?[]const u8 {
+        _ = self;
+        _ = reg;
+        _ = id;
+        return null;
+    }
+
     /// Guarda o texto da area de transferencia (estado em memoria).
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
         if (self.clipboard_text) |old| self.allocator.free(old);
@@ -105,6 +119,24 @@ pub const Backend = struct {
     pub fn destroyWindow(self: *Backend, reg: *registry.Registry, slot: u32) void {
         _ = reg;
         if (self.captured == slot) self.captured = null;
+    }
+
+    /// Sem eventos nativos: nao ha o que esperar.
+    pub fn waitEvents(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        timeout_ms: i32,
+    ) u32 {
+        _ = timeout_ms;
+        self.poll(reg, queue, state);
+        return 0;
+    }
+
+    /// Sem espera: nada a acordar.
+    pub fn wakeup(self: *Backend) void {
+        _ = self;
     }
 
     pub fn poll(

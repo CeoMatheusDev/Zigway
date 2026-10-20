@@ -216,6 +216,8 @@ pub fn formatClassName(counter: u32, out: *[max_class_name:0]u16) void {
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
+    /// Evento manual de wakeup (acorda `waitEvents`).
+    wake_event: ?*anyopaque = null,
     instance: api.HINSTANCE,
     class_atom: api.ATOM,
     class_name: [max_class_name:0]u16 = undefined,
@@ -257,6 +259,10 @@ pub const Backend = struct {
             if (self.findEntry(slot)) |i| {
                 if (api.GetCapture() == self.entries.items[i].hwnd) _ = api.ReleaseCapture();
             }
+        }
+        if (self.wake_event) |event| {
+            _ = api.CloseHandle(event);
+            self.wake_event = null;
         }
         self.entries.deinit(self.allocator);
         _ = api.UnregisterClassW(@ptrCast(&self.class_name), self.instance);
@@ -367,6 +373,35 @@ pub const Backend = struct {
         }
         const result = api.ChangeDisplaySettingsExW(device_ptr, &dm, null, null, null);
         if (result != api.DISP_CHANGE_SUCCESSFUL) return error.DisplayModeFailed;
+    }
+
+    /// O Win32 suporta posicionamento, clipboard, IME (via `WM_CHAR`),
+    /// cursor do sistema, captura de ponteiro e modos de video.
+    pub fn capabilities(self: *const Backend) types.Capabilities {
+        _ = self;
+        return .{
+            .absolute_positioning = true,
+            .resize_request = true,
+            .focus_request = true,
+            .clipboard = true,
+            .text_input_ime = true,
+            .system_cursor = true,
+            .pointer_capture = true,
+            .pointer_relative = false,
+            .pointer_confinement = false,
+            .fractional_scale = false,
+            .video_modes = true,
+            .seat = false,
+        };
+    }
+
+    /// O Win32 nao expoe a composicao do IME (apenas o texto
+    /// confirmado, via `WM_CHAR`).
+    pub fn compositionText(self: *const Backend, reg: *registry.Registry, id: types.WindowId) ?[]const u8 {
+        _ = self;
+        _ = reg;
+        _ = id;
+        return null;
     }
 
     /// O Win32 nao modela um seat (o input e por janela).
@@ -966,6 +1001,61 @@ pub const Backend = struct {
         while (api.PeekMessageW(&msg, null, 0, 0, api.PM_REMOVE) != 0) {
             _ = api.DispatchMessageW(&msg);
         }
+    }
+
+    /// Espera ate haver mensagem na fila ou o timeout expirar.
+    ///
+    /// O evento de wakeup permite que outra thread acorde o loop
+    /// (`MsgWaitForMultipleObjects`), sem busy-wait.
+    pub fn waitEvents(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        timeout_ms: i32,
+    ) u32 {
+        if (timeout_ms == 0) {
+            self.poll(reg, queue, state);
+            return 0;
+        }
+        self.ensureWakeEvent();
+        const event = self.wake_event orelse {
+            self.poll(reg, queue, state);
+            return 0;
+        };
+        var handles = [_]?*anyopaque{event};
+        const timeout: api.DWORD = if (timeout_ms < 0)
+            0xFFFFFFFF // INFINITE
+        else
+            @intCast(timeout_ms);
+        const result = api.MsgWaitForMultipleObjects(
+            1,
+            &handles,
+            0, // nao espera todos
+            timeout,
+            api.QS_ALLINPUT,
+        );
+        if (result == api.WAIT_TIMEOUT) return 0;
+        if (result == api.WAIT_OBJECT_0) {
+            // Wakeup: consome o evento e nao despacha mensagens.
+            _ = api.ResetEvent(event);
+            return 0;
+        }
+        // Ha mensagens: despacha tudo.
+        self.poll(reg, queue, state);
+        return 1;
+    }
+
+    /// Acorda uma thread bloqueada em `waitEvents`.
+    pub fn wakeup(self: *Backend) void {
+        self.ensureWakeEvent();
+        if (self.wake_event) |event| _ = api.SetEvent(event);
+    }
+
+    /// Cria (sob demanda) o evento manual de wakeup.
+    fn ensureWakeEvent(self: *Backend) void {
+        if (self.wake_event != null) return;
+        self.wake_event = api.CreateEventW(null, 0, 0, null);
     }
 };
 

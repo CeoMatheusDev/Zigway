@@ -17,6 +17,8 @@ defer platform.deinit();
 platform.backendKind() -> ActiveBackend   // win32 | x11 | null_backend
 platform.runtimeCaps() -> RuntimeCaps
 platform.pollEvents() void               // drena o SO para a fila
+platform.waitEvents(timeout_ms) u32      // espera ate o timeout (ms); -1 = infinito
+platform.wakeup() void                   // acorda waitEvents de outra thread
 platform.nextEvent() ?Event              // consome a fila
 platform.injectEvent(Event) void         // evento sintético (testes)
 platform.inputState() *const InputState
@@ -27,6 +29,8 @@ platform.setDisplayMode(display, mode) !void // troca de modo de video
 platform.setClipboardText(text) !void        // texto UTF-8 na area de transferencia
 platform.clipboardText(allocator) !?[]u8      // texto UTF-8; null quando vazia
 platform.seatCapabilities() ?SeatCapabilities // capacidades do seat (Wayland)
+platform.capabilities() Capabilities     // o que o backend suporta
+platform.compositionText(id) ?[]const u8   // texto em composicao (IME)
 ```
 
 Janelas via Platform:
@@ -240,6 +244,40 @@ base). `position` devolve `{0,0}`.
 O buffer anexado à superfície é provisório (cor sólida): o ciclo de vida
 da janela funciona, mas a renderização real entra na fase de gráficos
 (v0.4).
+
+## Ciclo de eventos
+
+`pollEvents()` drena o sistema nativo para a fila **sem bloquear**.
+`waitEvents(timeout_ms)` espera até haver evento: `timeout_ms < 0` espera
+indefinida, `0` equivale a `pollEvents()` e um valor positivo é o prazo
+(máximo; o SO pode acordar antes). Devolve quantos eventos foram
+despachados.
+
+`wakeup()` (de outra thread) acorda uma espera em andamento — é o que
+permite a um laço de eventos dormir sem busy-wait. No X11 e no Wayland o
+mecanismo é um self-pipe; no Win32, um evento do kernel.
+
+Todas as chamadas devem ocorrer na **thread que criou a plataforma**:
+as conexões X11/Wayland/Win32 têm afinidade de thread.
+
+## Capacidades
+
+`Platform.capabilities()` devolve o que o backend ativo suporta
+(posicionamento absoluto, resize pedido, foco pedido, clipboard, IME,
+cursor do sistema, captura de ponteiro, escala fracionária, modos de
+vídeo, seat). A aplicação deve consultar isso em vez de assumir
+comportamento idêntico entre plataformas: o Wayland, por exemplo, não
+oferece posicionamento absoluto nem resize pedido, e o protocolo
+proíbe simular esses recursos.
+
+## Composição de texto (IME)
+
+O texto confirmado chega em `text_input` (um codepoint por evento). A
+composição em andamento (preedit) é sinalizada por `composition_start` e
+`composition_end`; o texto atual é consultado com
+`Platform.compositionText(id)` (o buffer pertence à plataforma e vale até
+o próximo evento de composição). No Wayland vem do
+`zwp_text_input_v3`; no Win32 só existe o texto confirmado (`WM_CHAR`).
 
 ## Posição de janela
 

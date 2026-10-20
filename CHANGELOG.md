@@ -5,6 +5,38 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Entrada de texto/IME no Wayland** (`zwp_text_input_v3`): o
+  compositor anuncia `zwp_text_input_manager_v3`; o `zwp_text_input_v3`
+  habilita a entrada na superfície focada, publica o texto em composição
+  (preedit) e o texto confirmado. Eventos novos na API: `composition_start`
+  e `composition_end`; o preedit é consultado com
+  `Platform.compositionText(id)` (buffer da plataforma, sem alocação por
+  evento).
+- **Ciclo de eventos com espera e wakeup**: `Platform.waitEvents(timeout_ms)`
+  (negativo = espera indefinida) e `Platform.wakeup()` para acordar de
+  outra thread. No X11 e no Wayland a espera usa o descritor nativo
+  junto com um self-pipe; no Win32, `MsgWaitForMultipleObjects` com um
+  evento do kernel. Sem busy-wait.
+- **API de capacidades**: `Platform.capabilities()` informa o que o
+  backend suporta (posicionamento absoluto, resize/foco pedidos,
+  clipboard, IME, cursor do sistema, captura de ponteiro, escala
+  fracionária, modos de vídeo, seat) para a aplicação não precisar
+  identificar o backend.
+
+### Corrigido
+
+- **Wayland: ordem de destruição**: `wl_display_disconnect` acontecia
+  antes de destruir a superfície e o tema do cursor (e de outros
+  objetos do protocolo), o que usava proxies depois da conexão morta e
+  causava *segfault* no `wl_cursor_theme_destroy`. O teardown agora
+  segue a ordem de dependência (janelas → cursor → globals → registry →
+  conexão) e libera proxies que eram vazados (`wl_shm`, `wl_compositor`,
+  `xdg_wm_base`, `wl_pointer`, `wl_keyboard`).
+- **Wayland: cursor do sistema**: `setCursor` passou a usar o tema real
+  do compositor (`libwayland-cursor`) com uma superfície dedicada.
+
 ## [0.1.0-alpha.3] — 2026-10-20
 
 Terceira etapa: display (monitores, modos de vídeo), texto/clipboard

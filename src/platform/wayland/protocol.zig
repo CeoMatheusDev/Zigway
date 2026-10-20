@@ -610,6 +610,53 @@ pub const data_offer_interface = Interface{
     .events = &offer_events,
 };
 
+// --- zwp_text_input_manager_v3 (v1) ---
+const text_input_manager_input_types = [_]?*const Interface{ null, &seat_interface };
+const text_input_manager_methods: [2]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "get_text_input", .signature = "no", .types = &text_input_manager_input_types },
+};
+
+pub const text_input_manager_v3_interface = Interface{
+    .name = "zwp_text_input_manager_v3",
+    .version = 1,
+    .method_count = 2,
+    .methods = &text_input_manager_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- zwp_text_input_v3 (v1) ---
+const text_input_enter_types = [_]?*const Interface{&surface_interface};
+const text_input_leave_types = [_]?*const Interface{&surface_interface};
+const text_input_methods: [8]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "enable", .signature = "", .types = null },
+    .{ .name = "disable", .signature = "", .types = null },
+    .{ .name = "set_surrounding_text", .signature = "sii", .types = null },
+    .{ .name = "set_text_change_cause", .signature = "u", .types = null },
+    .{ .name = "set_content_type", .signature = "uu", .types = null },
+    .{ .name = "set_cursor_rectangle", .signature = "iiii", .types = null },
+    .{ .name = "commit", .signature = "", .types = null },
+};
+const text_input_events: [6]Message = .{
+    .{ .name = "enter", .signature = "o", .types = &text_input_enter_types },
+    .{ .name = "leave", .signature = "o", .types = &text_input_leave_types },
+    .{ .name = "preedit_string", .signature = "?sii", .types = null },
+    .{ .name = "commit_string", .signature = "?s", .types = null },
+    .{ .name = "delete_surrounding_text", .signature = "uu", .types = null },
+    .{ .name = "done", .signature = "u", .types = null },
+};
+
+pub const text_input_v3_interface = Interface{
+    .name = "zwp_text_input_v3",
+    .version = 1,
+    .method_count = 8,
+    .methods = &text_input_methods,
+    .event_count = 6,
+    .events = &text_input_events,
+};
+
 test "interface layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(Interface));
@@ -642,6 +689,12 @@ test "protocol tables match the generated reference" {
     try std.testing.expectEqualStrings("sh", std.mem.span(source_events[1].signature));
     try std.testing.expectEqualStrings("u?s", std.mem.span(offer_methods[0].signature));
     try std.testing.expectEqualStrings("sh", std.mem.span(offer_methods[1].signature));
+    // Entrada de texto (zwp_text_input_v3).
+    try std.testing.expectEqualStrings("no", std.mem.span(text_input_manager_methods[1].signature));
+    try std.testing.expectEqualStrings("?sii", std.mem.span(text_input_events[2].signature));
+    try std.testing.expectEqualStrings("?s", std.mem.span(text_input_events[3].signature));
+    try std.testing.expectEqualStrings("uu", std.mem.span(text_input_events[4].signature));
+    try std.testing.expectEqual(@as(c_int, 6), text_input_v3_interface.event_count);
 }
 
 test "xdg-shell tables match the generated reference" {

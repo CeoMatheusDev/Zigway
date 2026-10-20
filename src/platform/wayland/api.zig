@@ -177,6 +177,84 @@ pub const wl_data_offer_receive: u32 = 1;
 // --- Pipes (transferencia de dados do clipboard) ---
 /// `pipe2` (glibc): cria um pipe; `fds[0]` le, `fds[1]` escreve.
 pub extern "c" fn pipe2(fds: *[2]c_int, flags: c_uint) c_int;
+
+// --- Cursors (libwayland-cursor, carregada em runtime) ---
+pub const wl_cursor_theme = opaque {};
+pub const wl_shm = opaque {};
+pub const wl_buffer = opaque {};
+pub const wl_cursor = extern struct {
+    image_count: c_uint,
+    images: ?[*]*wl_cursor_image,
+    name: ?[*:0]const u8,
+};
+pub const wl_cursor_image = extern struct {
+    width: u32,
+    height: u32,
+    hotspot_x: u32,
+    hotspot_y: u32,
+    delay: u32,
+};
+
+const CursorThemeLoadFn = *const fn (?[*:0]const u8, c_int, *wl_shm) callconv(.c) ?*wl_cursor_theme;
+const CursorThemeDestroyFn = *const fn (*wl_cursor_theme) callconv(.c) void;
+const CursorThemeGetCursorFn = *const fn (*wl_cursor_theme, [*:0]const u8) callconv(.c) ?*wl_cursor;
+const CursorImageGetBufferFn = *const fn (*wl_cursor_image) callconv(.c) ?*wl_buffer;
+const CursorFrameFn = *const fn (*wl_cursor, u32) callconv(.c) c_int;
+const CursorFrameAndDurationFn = *const fn (*wl_cursor, u32, *u32) callconv(.c) c_int;
+
+/// Simbolos da libwayland-cursor usados pelo backend.
+pub const CursorLib = struct {
+    dyn: std.DynLib,
+    theme_load: CursorThemeLoadFn,
+    theme_destroy: CursorThemeDestroyFn,
+    theme_get_cursor: CursorThemeGetCursorFn,
+    image_get_buffer: CursorImageGetBufferFn,
+    frame: CursorFrameFn,
+    frame_and_duration: CursorFrameAndDurationFn,
+
+    pub fn load() ?CursorLib {
+        var dyn = std.DynLib.open("libwayland-cursor.so.0") catch blk: {
+            break :blk std.DynLib.open("libwayland-cursor.so") catch return null;
+        };
+        const theme_load = dyn.lookup(CursorThemeLoadFn, "wl_cursor_theme_load") orelse {
+            dyn.close();
+            return null;
+        };
+        const theme_destroy = dyn.lookup(CursorThemeDestroyFn, "wl_cursor_theme_destroy") orelse {
+            dyn.close();
+            return null;
+        };
+        const theme_get_cursor = dyn.lookup(CursorThemeGetCursorFn, "wl_cursor_theme_get_cursor") orelse {
+            dyn.close();
+            return null;
+        };
+        const image_get_buffer = dyn.lookup(CursorImageGetBufferFn, "wl_cursor_image_get_buffer") orelse {
+            dyn.close();
+            return null;
+        };
+        const frame = dyn.lookup(CursorFrameFn, "wl_cursor_frame") orelse {
+            dyn.close();
+            return null;
+        };
+        const frame_and_duration = dyn.lookup(CursorFrameAndDurationFn, "wl_cursor_frame_and_duration") orelse {
+            dyn.close();
+            return null;
+        };
+        return .{
+            .dyn = dyn,
+            .theme_load = theme_load,
+            .theme_destroy = theme_destroy,
+            .theme_get_cursor = theme_get_cursor,
+            .image_get_buffer = image_get_buffer,
+            .frame = frame,
+            .frame_and_duration = frame_and_duration,
+        };
+    }
+
+    pub fn deinit(self: *CursorLib) void {
+        self.dyn.close();
+    }
+};
 /// `write`/`close` (glibc): a camada `std.posix` do Zig 0.17 nao expoe
 /// `write`/`close`.
 pub extern "c" fn write(fd: c_int, buf: [*]const u8, count: usize) isize;
@@ -224,6 +302,17 @@ pub const wl_output_description: u32 = 5;
 pub const wl_output_mode_current: u32 = 0x1;
 pub const wl_output_mode_preferred: u32 = 0x2;
 
+// --- Requests: zwp_text_input_manager_v3 ---
+pub const zwp_text_input_manager_v3_get_text_input: u32 = 1;
+
+// --- Requests: zwp_text_input_v3 ---
+pub const zwp_text_input_v3_enable: u32 = 1;
+pub const zwp_text_input_v3_disable: u32 = 2;
+pub const zwp_text_input_v3_commit: u32 = 7;
+
+// --- Requests: wl_pointer ---
+pub const wl_pointer_set_cursor: u32 = 1;
+
 // --- Requests: wl_seat ---
 pub const wl_seat_get_pointer: u32 = 0;
 pub const wl_seat_get_keyboard: u32 = 1;
@@ -262,6 +351,7 @@ pub const interface_wl_seat = "wl_seat";
 pub const interface_wl_surface = "wl_surface";
 pub const interface_wl_shm = "wl_shm";
 pub const interface_wl_data_device_manager = "wl_data_device_manager";
+pub const interface_zwp_text_input_manager_v3 = "zwp_text_input_manager_v3";
 pub const interface_xdg_wm_base = "xdg_wm_base";
 
 /// Interfaces do protocolo estavel (para binds futuros).

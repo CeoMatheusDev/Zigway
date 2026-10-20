@@ -14,6 +14,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const wakeup_mod = @import("../wakeup.zig");
 const keysym = @import("../keysym.zig");
 
 const SavedGeometry = struct {
@@ -156,6 +157,8 @@ pub const Backend = struct {
     clipboard_property: api.Atom = 0,
     /// Texto (UTF-8) da area de transferencia; propriedade do backend.
     clipboard_text: ?[]u8 = null,
+    /// Descritor de wakeup: outra thread pode acordar o loop de eventos.
+    wakeup_pipe: wakeup_mod.Wakeup = .{},
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -243,10 +246,14 @@ pub const Backend = struct {
                 0,
             );
         }
+        var wake = wakeup_mod.Wakeup.init() catch wakeup_mod.Wakeup{};
+        errdefer wake.deinit();
+
         return .{
             .allocator = allocator,
             .display = display,
             .root = root,
+            .wakeup_pipe = wake,
             .wm_delete = wm_delete,
             .wm_protocols = wm_protocols,
             .net_moveresize_window = net_moveresize_window,
@@ -272,6 +279,7 @@ pub const Backend = struct {
 
     pub fn deinit(self: *Backend) void {
         if (self.captured != null) _ = api.XUngrabPointer(self.display, api.CurrentTime);
+        self.wakeup_pipe.deinit();
         for (self.cursors) |handle| {
             if (handle != 0) _ = api.XFreeCursor(self.display, handle);
         }
@@ -367,6 +375,33 @@ pub const Backend = struct {
             return;
         }
         return error.DisplayModeUnsupported;
+    }
+
+    /// O X11 suporta posicionamento, clipboard, cursor do sistema e
+    /// captura de ponteiro; nao ha IME (XIM) nem escala fracionaria.
+    pub fn capabilities(self: *const Backend) types.Capabilities {
+        return .{
+            .absolute_positioning = true,
+            .resize_request = true,
+            .focus_request = true,
+            .clipboard = true,
+            .text_input_ime = false,
+            .system_cursor = true,
+            .pointer_capture = true,
+            .pointer_relative = false,
+            .pointer_confinement = false,
+            .fractional_scale = false,
+            .video_modes = self.xrandr_monitors,
+            .seat = false,
+        };
+    }
+
+    /// Sem IME no X11 por enquanto: nao ha composicao.
+    pub fn compositionText(self: *const Backend, reg: *registry.Registry, id: types.WindowId) ?[]const u8 {
+        _ = self;
+        _ = reg;
+        _ = id;
+        return null;
     }
 
     /// O X11 nao modela um seat (o input e por janela).
@@ -1263,6 +1298,46 @@ pub const Backend = struct {
         _ = api.XUngrabPointer(self.display, api.CurrentTime);
         self.captured = null;
         _ = api.XFlush(self.display);
+    }
+
+    /// Espera eventos na conexao X (ou no wakeup) ate o timeout.
+    pub fn waitEvents(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        timeout_ms: i32,
+    ) u32 {
+        if (timeout_ms == 0) {
+            self.poll(reg, queue, state);
+            return 0;
+        }
+        const fd = api.XConnectionNumber(self.display);
+        if (fd < 0) {
+            self.poll(reg, queue, state);
+            return 0;
+        }
+        var fds = [_]std.posix.pollfd{
+            .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.wakeup_pipe.read_fd, .events = std.posix.POLL.IN, .revents = 0 },
+        };
+        const ready = std.posix.poll(&fds, timeout_ms) catch 0;
+        if (ready != 0 and (fds[1].revents & std.posix.POLL.IN) != 0) {
+            // Acordado por `wakeup`: consome o pipe e nao despacha.
+            self.wakeup_pipe.drain();
+            return 0;
+        }
+        if (ready != 0 and (fds[0].revents & std.posix.POLL.IN) != 0) {
+            self.poll(reg, queue, state);
+            return 1;
+        }
+        // Timeout (ou erro): nao ha eventos.
+        return 0;
+    }
+
+    /// Acorda uma thread bloqueada em `waitEvents`.
+    pub fn wakeup(self: *Backend) void {
+        self.wakeup_pipe.signal();
     }
 
     pub fn poll(
