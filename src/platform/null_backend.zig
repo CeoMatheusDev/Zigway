@@ -143,11 +143,40 @@ pub const Backend = struct {
         _ = self;
         const entry = &reg.slots.items[slot];
         if (entry.fullscreen == fullscreen) return;
+        if (fullscreen and entry.maximized) return error.WindowStateFailed;
         entry.fullscreen = fullscreen;
         events.dispatch(queue, state, .{ .fullscreen = .{
             .window = reg.idOf(slot),
             .fullscreen = fullscreen,
         } });
+    }
+
+    pub fn setMaximized(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        maximized: bool,
+    ) !void {
+        _ = self;
+        const entry = &reg.slots.items[slot];
+        if (entry.maximized == maximized) return;
+        if (maximized and entry.fullscreen) return error.WindowStateFailed;
+        entry.maximized = maximized;
+        events.dispatch(queue, state, .{ .maximized = .{
+            .window = reg.idOf(slot),
+            .maximized = maximized,
+        } });
+    }
+
+    pub fn isMaximized(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = self;
+        return reg.slots.items[slot].maximized;
     }
 
     pub fn isFullscreen(

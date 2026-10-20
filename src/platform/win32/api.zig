@@ -121,6 +121,8 @@ pub const WS_POPUP: DWORD = 0x80000000;
 
 pub const SW_HIDE: c_int = 0;
 pub const SW_SHOW: c_int = 5;
+pub const SW_MAXIMIZE: c_int = 3;
+pub const SW_RESTORE: c_int = 9;
 
 pub const PM_REMOVE: UINT = 0x0001;
 pub const GWLP_USERDATA: c_int = -21;
@@ -133,7 +135,9 @@ pub const SWP_NOZORDER: UINT = 0x0004;
 pub const SWP_NOACTIVATE: UINT = 0x0010;
 pub const SWP_FRAMECHANGED: UINT = 0x0020;
 
+pub const SIZE_RESTORED: WPARAM = 0;
 pub const SIZE_MINIMIZED: WPARAM = 1;
+pub const SIZE_MAXIMIZED: WPARAM = 2;
 
 /// LOWORD(lParam) de WM_SETCURSOR quando o ponteiro esta na area de cliente.
 pub const HTCLIENT: usize = 1;
@@ -261,6 +265,7 @@ pub extern "user32" fn SetWindowPos(
 pub extern "user32" fn GetWindowRect(hwnd: HWND, rect: *RECT) BOOL;
 pub extern "user32" fn GetClientRect(hwnd: HWND, rect: *RECT) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, cmd: c_int) BOOL;
+pub extern "user32" fn IsZoomed(hwnd: HWND) BOOL;
 pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
 pub extern "user32" fn SetCapture(hwnd: HWND) HWND;
 pub extern "user32" fn ReleaseCapture() BOOL;

@@ -94,6 +94,18 @@ pub const Window = struct {
         return self.platform.isWindowFullscreen(self.id);
     }
 
+    /// Solicita/remove maximizacao. X11/EWMH confirma via evento; sem
+    /// WM/EWMH usa geometria de fallback. Fullscreen e maximizado sao
+    /// mutuamente exclusivos.
+    pub fn setMaximized(self: Window, maximized: bool) !void {
+        try self.platform.setWindowMaximized(self.id, maximized);
+    }
+
+    /// Estado de maximizacao atual (falha segura: false para id invalido).
+    pub fn isMaximized(self: Window) bool {
+        return self.platform.isWindowMaximized(self.id);
+    }
+
     pub fn setVisible(self: Window, visible: bool) !void {
         try self.platform.setWindowVisible(self.id, visible);
     }

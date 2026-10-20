@@ -54,6 +54,15 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   estado lógico. Min/max inválidos retornam `InvalidConfig`. Cobertura
   unitária e live X11 valida o round-trip nativo; Win32 apenas
   compilação cruzada.
+- Maximização de janela: `Window.setMaximized`/`isMaximized`,
+  `Platform.setWindowMaximized`/`isWindowMaximized` e
+  `MaximizedEvent` (`{ window, maximized }`). X11 usa EWMH
+  (`_NET_WM_STATE_MAXIMIZED_HORZ`/`_VERT`) com confirmação por
+  `PropertyNotify` e fallback de geometria; Win32 usa
+  `ShowWindow(SW_MAXIMIZE/SW_RESTORE)`/`IsZoomed` e também reage a
+  `WM_SIZE`; null mantém estado lógico. Fullscreen e maximizado são
+  mutuamente exclusivos (`WindowStateFailed`). Cobertura unitária e live
+  X11 (EWMH e fallback sem WM); Win32 apenas compilação cruzada.
 - Fullscreen de janela: `Window.setFullscreen`/`isFullscreen`,
   `Platform.setWindowFullscreen`/`isWindowFullscreen` e evento
   `FullscreenEvent` (`{ window, fullscreen }`). X11 usa

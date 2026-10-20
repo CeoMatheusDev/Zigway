@@ -15,7 +15,7 @@ const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 
-const SavedFullscreenGeometry = struct {
+const SavedGeometry = struct {
     x: i32,
     y: i32,
     width: u32,
@@ -25,10 +25,12 @@ const SavedFullscreenGeometry = struct {
 const Entry = struct {
     slot: u32,
     win: api.Window,
-    /// Geometria anterior quando fullscreen foi aplicado sem EWMH.
-    saved_fullscreen: ?SavedFullscreenGeometry = null,
+    /// Geometria anterior quando fullscreen/maximized foi aplicado sem EWMH.
+    saved_fullscreen: ?SavedGeometry = null,
+    saved_maximized: ?SavedGeometry = null,
     /// true quando o estado atual e controlado pelo fallback de geometria.
     fullscreen_fallback: bool = false,
+    maximize_fallback: bool = false,
 };
 
 /// Handler de erro de protocolo X. Por padrao a Xlib encerra o processo em
@@ -98,10 +100,14 @@ pub const Backend = struct {
     net_moveresize_window: api.Atom,
     /// O WM anunciou `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`.
     net_moveresize_supported: bool = false,
-    /// Atoms EWMH para fullscreen e se o WM os anuncia em `_NET_SUPPORTED`.
+    /// Atoms EWMH para fullscreen/maximize e se o WM os anuncia em
+    /// `_NET_SUPPORTED`.
     net_wm_state: api.Atom,
     net_wm_state_fullscreen: api.Atom,
+    net_wm_state_maximized_horz: api.Atom,
+    net_wm_state_maximized_vert: api.Atom,
     net_fullscreen_supported: bool = false,
+    net_maximize_supported: bool = false,
     entries: std.ArrayList(Entry) = .empty,
     /// Cache de cursores por variante, criado sob demanda e liberado no
     /// deinit. Handles sao globais ao backend (compartilhados por janelas).
@@ -154,6 +160,20 @@ pub const Backend = struct {
         const net_fullscreen_supported =
             propertyHasAtom(display, root, net_supported, net_wm_state) and
             propertyHasAtom(display, root, net_supported, net_wm_state_fullscreen);
+        const net_wm_state_maximized_horz = api.XInternAtom(
+            display,
+            "_NET_WM_STATE_MAXIMIZED_HORZ",
+            0,
+        );
+        const net_wm_state_maximized_vert = api.XInternAtom(
+            display,
+            "_NET_WM_STATE_MAXIMIZED_VERT",
+            0,
+        );
+        const net_maximize_supported =
+            propertyHasAtom(display, root, net_supported, net_wm_state) and
+            propertyHasAtom(display, root, net_supported, net_wm_state_maximized_horz) and
+            propertyHasAtom(display, root, net_supported, net_wm_state_maximized_vert);
         // Opcional e sem dependencia de link. Carregado por ultimo: nao ha
         // mais operacoes faliveis no init, entao o errdefer do display
         // continua correto em qualquer falha anterior.
@@ -174,7 +194,10 @@ pub const Backend = struct {
             .net_moveresize_supported = net_moveresize_supported,
             .net_wm_state = net_wm_state,
             .net_wm_state_fullscreen = net_wm_state_fullscreen,
+            .net_wm_state_maximized_horz = net_wm_state_maximized_horz,
+            .net_wm_state_maximized_vert = net_wm_state_maximized_vert,
             .net_fullscreen_supported = net_fullscreen_supported,
+            .net_maximize_supported = net_maximize_supported,
             .xrandr = xrandr_lib,
             .xrandr_monitors = xrandr_monitors,
             .xrandr_event_base = xrandr_event_base,
@@ -500,6 +523,9 @@ pub const Backend = struct {
         const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
         const entry = &self.entries.items[entry_idx];
         const win = entry.win;
+        if (fullscreen and self.isMaximized(reg, slot)) {
+            return error.WindowStateFailed;
+        }
 
         if (self.net_fullscreen_supported and
             self.net_wm_state != 0 and
@@ -603,6 +629,138 @@ pub const Backend = struct {
             entry.win,
             self.net_wm_state,
             self.net_wm_state_fullscreen,
+        );
+    }
+
+    /// Solicita maximize via EWMH (ambos os eixos); sem suporte, cobre a
+    /// tela X padrao e restaura a geometria anterior. A confirmacao EWMH
+    /// chega por `PropertyNotify`.
+    pub fn setMaximized(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        maximized: bool,
+    ) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const entry = &self.entries.items[entry_idx];
+        const win = entry.win;
+        if (maximized and self.isFullscreen(reg, slot)) {
+            return error.WindowStateFailed;
+        }
+
+        if (self.net_maximize_supported and
+            self.net_wm_state != 0 and
+            self.net_wm_state_maximized_horz != 0 and
+            self.net_wm_state_maximized_vert != 0 and
+            !entry.maximize_fallback)
+        {
+            var event = api.XEvent{
+                .client = .{
+                    .type = api.ClientMessage,
+                    .serial = 0,
+                    .send_event = 1,
+                    .display = self.display,
+                    .window = win,
+                    .message_type = self.net_wm_state,
+                    .format = 32,
+                    .data = .{
+                        .l = .{
+                            if (maximized) 1 else 0,
+                            @intCast(self.net_wm_state_maximized_horz),
+                            @intCast(self.net_wm_state_maximized_vert),
+                            1, // source: aplicacao
+                            0,
+                        },
+                    },
+                },
+            };
+            if (api.XSendEvent(
+                self.display,
+                self.root,
+                0,
+                api.SubstructureRedirectMask | api.SubstructureNotifyMask,
+                &event,
+            ) == 0) return error.WindowStateFailed;
+            _ = api.XFlush(self.display);
+            return;
+        }
+
+        const slot_state = &reg.slots.items[slot];
+        if (maximized) {
+            if (entry.maximize_fallback) return;
+            const pos = self.clientPosition(win) orelse return error.WindowStateFailed;
+            if (slot_state.width == 0 or slot_state.height == 0) {
+                return error.WindowStateFailed;
+            }
+            const screen = api.XDefaultScreen(self.display);
+            const screen_w = api.XDisplayWidth(self.display, screen);
+            const screen_h = api.XDisplayHeight(self.display, screen);
+            if (screen_w <= 0 or screen_h <= 0) return error.WindowStateFailed;
+            const width = std.math.cast(c_uint, screen_w) orelse
+                return error.WindowStateFailed;
+            const height = std.math.cast(c_uint, screen_h) orelse
+                return error.WindowStateFailed;
+            if (api.XMoveResizeWindow(self.display, win, 0, 0, width, height) == 0) {
+                return error.WindowStateFailed;
+            }
+            entry.saved_maximized = .{
+                .x = pos.x,
+                .y = pos.y,
+                .width = slot_state.width,
+                .height = slot_state.height,
+            };
+            entry.maximize_fallback = true;
+            slot_state.maximized = true;
+            _ = api.XFlush(self.display);
+            events.dispatch(queue, state, .{ .maximized = .{
+                .window = reg.idOf(slot),
+                .maximized = true,
+            } });
+            return;
+        }
+
+        if (!entry.maximize_fallback) return;
+        const saved = entry.saved_maximized orelse return error.WindowStateFailed;
+        const width = std.math.cast(c_uint, saved.width) orelse
+            return error.WindowStateFailed;
+        const height = std.math.cast(c_uint, saved.height) orelse
+            return error.WindowStateFailed;
+        if (api.XMoveResizeWindow(self.display, win, saved.x, saved.y, width, height) == 0) {
+            return error.WindowStateFailed;
+        }
+        entry.saved_maximized = null;
+        entry.maximize_fallback = false;
+        slot_state.maximized = false;
+        _ = api.XFlush(self.display);
+        events.dispatch(queue, state, .{ .maximized = .{
+            .window = reg.idOf(slot),
+            .maximized = false,
+        } });
+    }
+
+    /// Estado atual: fallback e sincrono; EWMH exige os dois eixos.
+    pub fn isMaximized(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return false;
+        const entry = self.entries.items[entry_idx];
+        if (entry.maximize_fallback) return true;
+        if (!self.net_maximize_supported or self.net_wm_state == 0) return false;
+        return propertyHasAtom(
+            self.display,
+            entry.win,
+            self.net_wm_state,
+            self.net_wm_state_maximized_horz,
+        ) and propertyHasAtom(
+            self.display,
+            entry.win,
+            self.net_wm_state,
+            self.net_wm_state_maximized_vert,
         );
     }
 
@@ -821,15 +979,28 @@ pub const Backend = struct {
                 if (ev.property.atom != self.net_wm_state) return;
                 const slot = self.slotOfNative(reg, ev.property.window) orelse return;
                 const entry_idx = self.findEntry(slot) orelse return;
-                if (self.entries.items[entry_idx].fullscreen_fallback) return;
-                const now = self.isFullscreen(reg, slot);
+                const native = self.entries.items[entry_idx];
                 const entry = &reg.slots.items[slot];
-                if (entry.fullscreen == now) return;
-                entry.fullscreen = now;
-                events.dispatch(queue, state, .{ .fullscreen = .{
-                    .window = reg.idOf(slot),
-                    .fullscreen = now,
-                } });
+                if (!native.fullscreen_fallback) {
+                    const now_fullscreen = self.isFullscreen(reg, slot);
+                    if (entry.fullscreen != now_fullscreen) {
+                        entry.fullscreen = now_fullscreen;
+                        events.dispatch(queue, state, .{ .fullscreen = .{
+                            .window = reg.idOf(slot),
+                            .fullscreen = now_fullscreen,
+                        } });
+                    }
+                }
+                if (!native.maximize_fallback) {
+                    const now_maximized = self.isMaximized(reg, slot);
+                    if (entry.maximized != now_maximized) {
+                        entry.maximized = now_maximized;
+                        events.dispatch(queue, state, .{ .maximized = .{
+                            .window = reg.idOf(slot),
+                            .maximized = now_maximized,
+                        } });
+                    }
+                }
             },
             api.ConfigureNotify => {
                 const slot = self.slotOfNative(reg, ev.configure.window) orelse return;

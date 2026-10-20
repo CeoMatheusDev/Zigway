@@ -59,6 +59,12 @@ pub const FullscreenEvent = struct {
     fullscreen: bool,
 };
 
+/// Estado de maximizacao confirmado para a janela.
+pub const MaximizedEvent = struct {
+    window: WindowId,
+    maximized: bool,
+};
+
 pub const KeyEvent = struct {
     window: ?WindowId,
     key: Key,
@@ -95,6 +101,7 @@ pub const Event = union(enum) {
     move: MoveEvent,
     display_change: DisplayChangeEvent,
     fullscreen: FullscreenEvent,
+    maximized: MaximizedEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
     key_up: KeyEvent,
@@ -119,6 +126,7 @@ pub const Event = union(enum) {
             .move => |e| e.window,
             .display_change => null,
             .fullscreen => |e| e.window,
+            .maximized => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
             .key_up => |e| e.window,
@@ -310,6 +318,7 @@ test "event window accessor covers all variants" {
         .{ .move = .{ .window = id, .x = 1, .y = 2 } },
         .{ .display_change = .{} },
         .{ .fullscreen = .{ .window = id, .fullscreen = true } },
+        .{ .maximized = .{ .window = id, .maximized = true } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
         .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

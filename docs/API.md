@@ -47,6 +47,8 @@ platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
 platform.setWindowPosition(id, x, y) !void // origem da área de cliente;
                                  // X11 confirma via evento `move`
 platform.setWindowFullscreen(id, on) !void // X11/EWMH confirma via evento
+platform.setWindowMaximized(id, on) !void // X11/EWMH confirma via evento
+platform.isWindowMaximized(id) bool // inválido -> false
 platform.setWindowSizeLimits(id, limits) !void
 platform.windowSizeLimits(id) WindowSizeLimits // inválido -> zeros
 platform.setWindowVisible(id, v) !void
@@ -73,6 +75,8 @@ window.position() WindowPosition
 window.setPosition(x, y) !void
 window.setFullscreen(on) !void
 window.isFullscreen() bool
+window.setMaximized(on) !void
+window.isMaximized() bool
 window.setSizeLimits(limits) !void
 window.sizeLimits() WindowSizeLimits
 ```
@@ -141,6 +145,26 @@ próximo da janela, salvando estilo e retângulo para restaurar ao sair.
 O estado é síncrono e controlado pela API. No backend null o estado é
 apenas lógico. `FullscreenEvent` tem `{ window, fullscreen }`.
 
+## Maximização
+
+`setMaximized(true)` maximiza e `setMaximized(false)` restaura;
+`isMaximized()` consulta o estado atual. Id inválido em `isMaximized`
+retorna `false`. Fullscreen e maximizado são **mutuamente exclusivos**:
+tentar entrar em um enquanto o outro está ativo retorna
+`WindowStateFailed` sem alterar o estado.
+
+No X11, quando o WM anuncia `_NET_WM_STATE`,
+`_NET_WM_STATE_MAXIMIZED_HORZ` e `_NET_WM_STATE_MAXIMIZED_VERT` em
+`_NET_SUPPORTED`, o pedido usa EWMH e é assíncrono; o evento `maximized`
+confirma o estado e `isMaximized()` exige os dois eixos. Sem esse suporte,
+o backend cobre a tela X padrão e restaura a geometria anterior, de forma
+síncrona. O WM pode ajustar ou ignorar a requisição EWMH.
+
+No Win32, o estado usa `ShowWindow(SW_MAXIMIZE/SW_RESTORE)` e é
+confirmado por `IsZoomed`; mudanças externas via `WM_SIZE` também geram
+`maximized`. No backend null o estado é apenas lógico. `MaximizedEvent`
+tem `{ window, maximized }`.
+
 ## Limites de tamanho
 
 `WindowSizeLimits` define mínimos e máximos da **área de cliente** em
@@ -182,6 +206,7 @@ pub const Event = union(enum) {
     move: MoveEvent,                // { window, x, y } origem do cliente
     display_change: DisplayChangeEvent, // sem payload; reconsultar displays()
     fullscreen: FullscreenEvent,     // { window, fullscreen }
+    maximized: MaximizedEvent,       // { window, maximized }
     focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
@@ -248,7 +273,8 @@ botões são estado global e não são associados a janela.
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
-`FullscreenEvent`, `version.string` (`"0.1.0-alpha.2"`).
+`FullscreenEvent`, `MaximizedEvent`, `version.string`
+(`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,

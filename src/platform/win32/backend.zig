@@ -408,6 +408,7 @@ pub const Backend = struct {
         const hwnd = self.entries.items[entry_idx].hwnd;
         const slot_state = &reg.slots.items[slot];
         if (slot_state.fullscreen == fullscreen) return;
+        if (fullscreen and slot_state.maximized) return error.WindowStateFailed;
 
         if (fullscreen) {
             var saved: api.RECT = undefined;
@@ -505,6 +506,58 @@ pub const Backend = struct {
         _ = self;
         if (slot >= reg.slots.items.len or !reg.slots.items[slot].occupied) return false;
         return reg.slots.items[slot].fullscreen;
+    }
+
+    /// Maximiza/restaura via `ShowWindow`; o estado nativo e confirmado por
+    /// `IsZoomed`. Fullscreen e maximizado sao mutuamente exclusivos.
+    pub fn setMaximized(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        maximized: bool,
+    ) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+        const slot_state = &reg.slots.items[slot];
+        if (maximized and slot_state.fullscreen) return error.WindowStateFailed;
+
+        const native_now = api.IsZoomed(hwnd) != 0;
+        if (native_now == maximized) {
+            if (slot_state.maximized != maximized) {
+                slot_state.maximized = maximized;
+                self.syncClientGeometry(reg, queue, state, slot, hwnd);
+                events.dispatch(queue, state, .{ .maximized = .{
+                    .window = reg.idOf(slot),
+                    .maximized = maximized,
+                } });
+            }
+            return;
+        }
+
+        _ = api.ShowWindow(hwnd, if (maximized) api.SW_MAXIMIZE else api.SW_RESTORE);
+        const now = api.IsZoomed(hwnd) != 0;
+        if (now != maximized) return error.WindowStateFailed;
+        const changed = slot_state.maximized != now;
+        slot_state.maximized = now;
+        self.syncClientGeometry(reg, queue, state, slot, hwnd);
+        if (changed) {
+            events.dispatch(queue, state, .{ .maximized = .{
+                .window = reg.idOf(slot),
+                .maximized = now,
+            } });
+        }
+    }
+
+    pub fn isMaximized(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) bool {
+        _ = self;
+        if (slot >= reg.slots.items.len or !reg.slots.items[slot].occupied) return false;
+        return reg.slots.items[slot].maximized;
     }
 
     /// Atualiza posicao/tamanho do cliente e emite move/resize quando
@@ -792,6 +845,17 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                 return 0;
             }
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
+                if (wparam == api.SIZE_MAXIMIZED or wparam == api.SIZE_RESTORED) {
+                    const now_maximized = wparam == api.SIZE_MAXIMIZED;
+                    const slot_state = &pending.reg.slots.items[slot];
+                    if (slot_state.maximized != now_maximized) {
+                        slot_state.maximized = now_maximized;
+                        events.dispatch(queue, state, .{ .maximized = .{
+                            .window = pending.reg.idOf(slot),
+                            .maximized = now_maximized,
+                        } });
+                    }
+                }
                 const bits: usize = @bitCast(lparam);
                 const w: u32 = @as(u16, @truncate(bits));
                 const h: u32 = @as(u16, @truncate(bits >> 16));

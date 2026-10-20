@@ -1200,6 +1200,80 @@ test "live x11: fullscreen toggles state and emits fullscreen events" {
     try std.testing.expect(!window.isFullscreen());
 }
 
+test "live x11: maximize toggles state and rejects fullscreen" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var window = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-maximize-live",
+    });
+    defer window.deinit();
+    const id = window.windowId();
+
+    // Deixa o WM mapear/gerenciar antes de enviar _NET_WM_STATE.
+    var warmup: usize = 0;
+    while (warmup < 100) : (warmup += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        sleepMs(10);
+    }
+
+    try window.setMaximized(true);
+    var saw_on = false;
+    var attempts: u32 = 0;
+    while (attempts < 400) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |event| {
+            if (event == .maximized and
+                event.maximized.window.eql(id) and
+                event.maximized.maximized)
+            {
+                saw_on = true;
+            }
+        }
+        if (saw_on and window.isMaximized()) break;
+        sleepMs(10);
+    }
+    if (!saw_on) std.debug.print("\n[x11-live] maximize ON nao confirmado\n", .{});
+    try std.testing.expect(saw_on);
+    try std.testing.expect(window.isMaximized());
+
+    // Enquanto maximizada, fullscreen deve ser recusado sem mudar estado.
+    try std.testing.expectError(error.WindowStateFailed, window.setFullscreen(true));
+    try std.testing.expect(!window.isFullscreen());
+    try std.testing.expect(window.isMaximized());
+
+    try window.setMaximized(false);
+    var saw_off = false;
+    attempts = 0;
+    while (attempts < 400) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |event| {
+            if (event == .maximized and
+                event.maximized.window.eql(id) and
+                !event.maximized.maximized)
+            {
+                saw_off = true;
+            }
+        }
+        if (saw_off and !window.isMaximized()) break;
+        sleepMs(10);
+    }
+    if (!saw_off) std.debug.print("\n[x11-live] maximize OFF nao confirmado\n", .{});
+    try std.testing.expect(saw_off);
+    try std.testing.expect(!window.isMaximized());
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —

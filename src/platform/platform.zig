@@ -348,6 +348,32 @@ pub const Platform = struct {
         };
     }
 
+    /// Solicita/remove maximizacao. X11/EWMH confirma via evento nativo;
+    /// Win32/null aplicam de forma sincrona. Fullscreen e maximizado sao
+    /// mutuamente exclusivos (`WindowStateFailed` se o outro estiver ativo).
+    pub fn setWindowMaximized(self: *Platform, id: types.WindowId, maximized: bool) !void {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.setMaximized(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                index,
+                maximized,
+            ),
+        }
+    }
+
+    /// Estado de maximizacao atual. Id invalido/plataforma fechada -> false.
+    pub fn isWindowMaximized(self: *Platform, id: types.WindowId) bool {
+        if (self.closed) return false;
+        const index = self.reg.indexOf(id) orelse return false;
+        return switch (self.backend) {
+            inline else => |*b| b.isMaximized(&self.reg, index),
+        };
+    }
+
     pub fn setWindowVisible(self: *Platform, id: types.WindowId, visible: bool) !void {
         if (self.closed) return error.PlatformClosed;
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
@@ -592,6 +618,7 @@ test "mixed prune keeps other windows events" {
         .repeat = false,
     } });
     plat.injectEvent(.{ .fullscreen = .{ .window = id1, .fullscreen = true } });
+    plat.injectEvent(.{ .maximized = .{ .window = id1, .maximized = true } });
 
     try plat.destroyWindow(id1);
     w1.id = types.WindowId.invalid;
@@ -676,6 +703,7 @@ test "invalid ops on dead id return InvalidWindow" {
     try std.testing.expectError(error.InvalidWindow, plat.setWindowPosition(id, 10, 10));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowSizeLimits(id, .{}));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowFullscreen(id, true));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowMaximized(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowCursor(id, .text));
@@ -796,6 +824,50 @@ test "fullscreen on null backend updates state and emits fullscreen events" {
     try std.testing.expect(!plat.isWindowFullscreen(.{ .index = 99, .generation = 0 }));
 }
 
+test "maximize on null backend updates state and enforces exclusivity" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+    const id = w.windowId();
+
+    try std.testing.expect(!w.isMaximized());
+    try w.setMaximized(true);
+    try std.testing.expect(w.isMaximized());
+
+    const on = plat.nextEvent() orelse return error.TestExpectedMaximizedEvent;
+    try std.testing.expect(on == .maximized);
+    try std.testing.expect(on.maximized.window.eql(id));
+    try std.testing.expect(on.window().?.eql(id));
+    try std.testing.expect(on.maximized.maximized);
+
+    // Idempotente: sem evento duplicado.
+    try w.setMaximized(true);
+    try std.testing.expect(plat.nextEvent() == null);
+
+    // Fullscreen e maximizado sao mutuamente exclusivos.
+    try std.testing.expectError(error.WindowStateFailed, w.setFullscreen(true));
+    try std.testing.expect(!w.isFullscreen());
+    try std.testing.expect(w.isMaximized());
+
+    try w.setMaximized(false);
+    try std.testing.expect(!w.isMaximized());
+    const off = plat.nextEvent() orelse return error.TestExpectedMaximizedEvent;
+    try std.testing.expect(off == .maximized);
+    try std.testing.expect(!off.maximized.maximized);
+
+    try w.setFullscreen(true);
+    try std.testing.expect(w.isFullscreen());
+    try std.testing.expectError(error.WindowStateFailed, w.setMaximized(true));
+    try std.testing.expect(w.isFullscreen());
+    try std.testing.expect(!w.isMaximized());
+
+    // Descarta os eventos restantes (fullscreen).
+    while (plat.nextEvent()) |_| {}
+    try std.testing.expect(!plat.isWindowMaximized(.{ .index = 99, .generation = 0 }));
+}
+
 test "size limits on null backend validate and persist" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     defer plat.deinit();
@@ -860,6 +932,7 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.setWindowPosition(id, 10, 10));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowSizeLimits(id, .{}));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowFullscreen(id, true));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowMaximized(id, true));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
     try std.testing.expectError(error.PlatformClosed, plat.captureWindowPointer(id));
     plat.releaseWindowPointer(id); // no-op apos deinit
@@ -869,6 +942,7 @@ test "operations after deinit fail safe" {
     try std.testing.expect(plat.windowShouldClose(id));
     try std.testing.expect(!plat.isWindowAlive(id));
     try std.testing.expect(!plat.isWindowFullscreen(id));
+    try std.testing.expect(!plat.isWindowMaximized(id));
     const closed_limits = plat.windowSizeLimits(id);
     try std.testing.expectEqual(@as(u32, 0), closed_limits.min_width);
     const closed_pos = plat.windowPosition(id);
