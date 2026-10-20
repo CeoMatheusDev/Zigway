@@ -43,6 +43,7 @@ platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
                                  // nativo confirma via evento; null aplica na hora
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
+platform.setWindowCursor(id, cursor) !void
 ```
 
 ## Window (handle `{id, *Platform}`)
@@ -54,6 +55,7 @@ window.isValid() bool
 window.shouldClose() bool
 window.requestClose() void
 window.setTitle/setSize/setVisible/focus  // !void
+window.setCursor(Cursor) !void   // cursor do sistema, por janela
 window.size() WindowSize
 ```
 
@@ -102,6 +104,11 @@ delete/insert/home/end/page_up/page_down, setas, shifts/controls/alts/
 supers, caps_lock, num_lock, pontuação comum. `MouseButton`:
 left/right/middle/back/forward (roda chega como `scroll`).
 
+`Cursor`: `default`, `text`, `crosshair`, `hand`, `resize_horizontal`,
+`resize_vertical`, `resize_all`, `not_allowed`, `wait`. O mapeamento é
+por backend; `.default` é a seta padrão do SO e `.not_allowed` usa
+`XC_X_cursor` no X11 (o cursorfont não tem forma "proibido" dedicada).
+
 `pointer_window` é limpo quando a janela correspondente é destruída
 (`InputState.forgetWindow`), evitando referência a id morto. Teclas e
 botões são estado global e não são associados a janela.
@@ -115,7 +122,8 @@ botões são estado global e não são associados a janela.
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
-`WindowCreationFailed`, `InvalidWindow`, `PlatformClosed`.
+`WindowCreationFailed`, `CursorCreationFailed`, `InvalidWindow`,
+`PlatformClosed`.
 
 ## Lifecycle
 

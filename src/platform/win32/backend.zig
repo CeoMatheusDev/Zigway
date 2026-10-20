@@ -19,6 +19,7 @@ const types = @import("../../core/types.zig");
 const Entry = struct {
     slot: u32,
     hwnd: api.HWND,
+    cursor: types.Cursor = .default,
 };
 
 const Pending = struct {
@@ -112,6 +113,13 @@ pub const Backend = struct {
     fn findEntry(self: *const Backend, slot: u32) ?usize {
         for (self.entries.items, 0..) |entry, i| {
             if (entry.slot == slot) return i;
+        }
+        return null;
+    }
+
+    fn findEntryByHwnd(self: *const Backend, hwnd: api.HWND) ?usize {
+        for (self.entries.items, 0..) |entry, i| {
+            if (entry.hwnd == hwnd) return i;
         }
         return null;
     }
@@ -257,6 +265,20 @@ pub const Backend = struct {
         _ = api.SetFocus(self.entries.items[entry_idx].hwnd);
     }
 
+    pub fn setCursor(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        cursor: types.Cursor,
+    ) !void {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const handle = loadCursor(cursor);
+        if (handle == null) return error.CursorCreationFailed;
+        self.entries.items[entry_idx].cursor = cursor;
+        _ = api.SetCursor(handle);
+    }
+
     pub fn poll(
         self: *Backend,
         reg: *registry.Registry,
@@ -291,6 +313,23 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
 
     const backend = backendFromHwnd(hwnd) orelse
         return api.DefWindowProcW(hwnd, msg, wparam, lparam);
+
+    // WM_SETCURSOR nao gera evento publico: trata antes do contexto de
+    // despacho (pending), que pode estar nulo durante create/destroy.
+    // LOWORD(lParam) == HTCLIENT: ponteiro sobre a area de cliente.
+    if (msg == api.WM_SETCURSOR) {
+        const hit: usize = @as(usize, @bitCast(lparam)) & 0xFFFF;
+        if (hit == api.HTCLIENT) {
+            if (backend.findEntryByHwnd(hwnd)) |idx| {
+                if (loadCursor(backend.entries.items[idx].cursor)) |handle| {
+                    _ = api.SetCursor(handle);
+                    return 1; // TRUE: impede o DefWindowProc de usar a classe.
+                }
+            }
+        }
+        return api.DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
     const pending = backend.pending orelse
         return api.DefWindowProcW(hwnd, msg, wparam, lparam);
     // Despacho de eventos exige fila+estado (nulos durante create/destroy,
@@ -523,6 +562,30 @@ fn currentMods() types.Modifiers {
     };
 }
 
+/// Recurso IDC_* de cada variante logica (winuser.h). Pura e testavel.
+pub fn cursorResource(cursor: types.Cursor) usize {
+    return switch (cursor) {
+        .default => api.IDC_ARROW,
+        .text => api.IDC_IBEAM,
+        .crosshair => api.IDC_CROSS,
+        .hand => api.IDC_HAND,
+        .resize_horizontal => api.IDC_SIZEWE,
+        .resize_vertical => api.IDC_SIZENS,
+        .resize_all => api.IDC_SIZEALL,
+        .not_allowed => api.IDC_NO,
+        .wait => api.IDC_WAIT,
+    };
+}
+
+/// Carrega o cursor do sistema. Recursos IDC_* sao compartilhados pelo
+/// sistema: nao devem ser liberados. Fallback para a seta se o recurso
+/// pedido nao existir.
+fn loadCursor(cursor: types.Cursor) api.HCURSOR {
+    const handle = api.LoadCursorW(null, cursorResource(cursor));
+    if (handle != null) return handle;
+    return api.LoadCursorW(null, api.IDC_ARROW);
+}
+
 pub fn fromVk(vk: u16) types.Key {
     if (vk >= 0x41 and vk <= 0x5a) {
         return switch (vk) {
@@ -644,6 +707,18 @@ pub fn fromVk(vk: u16) types.Key {
 }
 
 // Os testes abaixo compilam em qualquer SO (nao tocam na API nativa).
+test "cursor resources map to win32 IDC constants" {
+    try std.testing.expectEqual(api.IDC_ARROW, cursorResource(.default));
+    try std.testing.expectEqual(api.IDC_IBEAM, cursorResource(.text));
+    try std.testing.expectEqual(api.IDC_CROSS, cursorResource(.crosshair));
+    try std.testing.expectEqual(api.IDC_HAND, cursorResource(.hand));
+    try std.testing.expectEqual(api.IDC_SIZEWE, cursorResource(.resize_horizontal));
+    try std.testing.expectEqual(api.IDC_SIZENS, cursorResource(.resize_vertical));
+    try std.testing.expectEqual(api.IDC_SIZEALL, cursorResource(.resize_all));
+    try std.testing.expectEqual(api.IDC_NO, cursorResource(.not_allowed));
+    try std.testing.expectEqual(api.IDC_WAIT, cursorResource(.wait));
+}
+
 test "vk mapping covers basics" {
     try std.testing.expectEqual(types.Key.escape, fromVk(0x1B));
     try std.testing.expectEqual(types.Key.a, fromVk(0x41));

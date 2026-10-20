@@ -9,6 +9,7 @@ const registry = @import("registry.zig");
 const events = @import("../events.zig");
 const input = @import("../input.zig");
 const window = @import("../window.zig");
+const types = @import("../core/types.zig");
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
@@ -92,5 +93,17 @@ pub const Backend = struct {
         _ = self;
         _ = reg;
         _ = slot;
+    }
+
+    pub fn setCursor(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        cursor: types.Cursor,
+    ) !void {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        _ = cursor;
     }
 };

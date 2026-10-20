@@ -99,7 +99,18 @@ pub const SWP_NOZORDER: UINT = 0x0004;
 
 pub const SIZE_MINIMIZED: WPARAM = 1;
 
+/// LOWORD(lParam) de WM_SETCURSOR quando o ponteiro esta na area de cliente.
+pub const HTCLIENT: usize = 1;
+
 pub const IDC_ARROW: usize = 32512;
+pub const IDC_IBEAM: usize = 32513;
+pub const IDC_WAIT: usize = 32514;
+pub const IDC_CROSS: usize = 32515;
+pub const IDC_SIZEWE: usize = 32644;
+pub const IDC_SIZENS: usize = 32645;
+pub const IDC_SIZEALL: usize = 32646;
+pub const IDC_NO: usize = 32648;
+pub const IDC_HAND: usize = 32649;
 
 // --- Mensagens ---
 pub const WM_DESTROY: UINT = 0x0002;
@@ -107,6 +118,7 @@ pub const WM_SIZE: UINT = 0x0005;
 pub const WM_SETFOCUS: UINT = 0x0007;
 pub const WM_KILLFOCUS: UINT = 0x0008;
 pub const WM_CLOSE: UINT = 0x0010;
+pub const WM_SETCURSOR: UINT = 0x0020;
 pub const WM_NCCREATE: UINT = 0x0081;
 pub const WM_KEYDOWN: UINT = 0x0100;
 pub const WM_KEYUP: UINT = 0x0101;
@@ -213,6 +225,7 @@ pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
 /// no momento em que a mensagem atual foi retirada da fila.
 pub extern "user32" fn GetKeyState(vk: c_int) i16;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
+pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;
 pub extern "user32" fn ScreenToClient(hwnd: HWND, pt: *POINT) BOOL;
 

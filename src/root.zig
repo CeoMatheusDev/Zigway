@@ -24,6 +24,7 @@ pub const BackendKind = types.BackendKind;
 pub const ActiveBackend = types.ActiveBackend;
 pub const Key = types.Key;
 pub const MouseButton = types.MouseButton;
+pub const Cursor = types.Cursor;
 pub const Modifiers = types.Modifiers;
 pub const WindowSize = types.WindowSize;
 pub const WindowPosition = types.WindowPosition;

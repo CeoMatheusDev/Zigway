@@ -126,6 +126,23 @@ pub const MouseButton = enum(u8) {
     pub const count: usize = @typeInfo(MouseButton).@"enum".field_names.len;
 };
 
+/// Cursores do sistema. Os backends mapeiam para formas nativas;
+/// `.default` e a seta padrao do SO. `.not_allowed` usa a forma mais
+/// proxima disponivel no X11 (XC_X_cursor).
+pub const Cursor = enum(u8) {
+    default,
+    text,
+    crosshair,
+    hand,
+    resize_horizontal,
+    resize_vertical,
+    resize_all,
+    not_allowed,
+    wait,
+
+    pub const count: usize = @typeInfo(Cursor).@"enum".field_names.len;
+};
+
 /// Modificadores ativos no momento do evento.
 pub const Modifiers = packed struct(u8) {
     shift: bool = false,
@@ -158,4 +175,9 @@ test "Key ordinals are dense from zero" {
 
 test "Modifiers is one byte" {
     try std.testing.expectEqual(@as(usize, 1), @sizeOf(Modifiers));
+}
+
+test "Cursor ordinals are dense from zero" {
+    try std.testing.expectEqual(@as(u8, 0), @backingInt(Cursor.default));
+    try std.testing.expectEqual(@as(u8, @intCast(Cursor.count - 1)), @backingInt(Cursor.wait));
 }

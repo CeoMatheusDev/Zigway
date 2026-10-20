@@ -15,6 +15,7 @@ const platform_mod = @import("platform/platform.zig");
 
 pub const WindowId = types.WindowId;
 pub const WindowSize = types.WindowSize;
+pub const Cursor = types.Cursor;
 pub const Platform = platform_mod.Platform;
 
 pub const WindowConfig = struct {
@@ -69,6 +70,10 @@ pub const Window = struct {
 
     pub fn focus(self: Window) !void {
         try self.platform.focusWindow(self.id);
+    }
+
+    pub fn setCursor(self: Window, cursor: Cursor) !void {
+        try self.platform.setWindowCursor(self.id, cursor);
     }
 
     pub fn size(self: Window) WindowSize {

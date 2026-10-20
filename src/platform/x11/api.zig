@@ -11,12 +11,24 @@ pub const Window = c_ulong;
 pub const Atom = c_ulong;
 pub const Time = c_ulong;
 pub const KeySym = c_ulong;
+pub const Cursor = c_ulong;
 pub const XBool = c_int;
 pub const Status = c_int;
 
 pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
+
+// --- Formas de cursor (cursorfont.h) ---
+pub const XC_X_cursor: c_uint = 0;
+pub const XC_crosshair: c_uint = 34;
+pub const XC_fleur: c_uint = 52;
+pub const XC_hand2: c_uint = 60;
+pub const XC_left_ptr: c_uint = 68;
+pub const XC_sb_h_double_arrow: c_uint = 108;
+pub const XC_sb_v_double_arrow: c_uint = 116;
+pub const XC_watch: c_uint = 150;
+pub const XC_xterm: c_uint = 152;
 
 // --- Tipos de evento (X.h) ---
 pub const KeyPress: c_int = 2;
@@ -301,6 +313,9 @@ pub extern "X11" fn XInternAtom(display: *Display, name: [*:0]const u8, only_if_
 pub extern "X11" fn XSetWMProtocols(display: *Display, window: Window, protocols: [*]Atom, count: c_int) Status;
 pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_uint, height: c_uint) c_int;
 pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to: c_int, time: Time) c_int;
+pub extern "X11" fn XCreateFontCursor(display: *Display, shape: c_uint) Cursor;
+pub extern "X11" fn XDefineCursor(display: *Display, window: Window, cursor: Cursor) c_int;
+pub extern "X11" fn XFreeCursor(display: *Display, cursor: Cursor) c_int;
 pub extern "X11" fn XLookupKeysym(event: *const XKeyEvent, index: c_int) KeySym;
 pub extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
 /// Habilita "detectable autorepeat" (XKB, parte da Xlib): o servidor

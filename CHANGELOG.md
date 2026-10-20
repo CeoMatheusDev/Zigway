@@ -5,6 +5,18 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+### Adicionado
+
+- `Window.setCursor(Cursor)` / `Platform.setWindowCursor`: cursores do
+  sistema por janela (`default`, `text`, `crosshair`, `hand`,
+  `resize_horizontal`, `resize_vertical`, `resize_all`, `not_allowed`,
+  `wait`). X11 usa `XCreateFontCursor`/`XDefineCursor` com cache por
+  backend liberado no `deinit`; Win32 usa `LoadCursorW`/`SetCursor` e
+  trata `WM_SETCURSOR` por janela; null aceita como no-op. Falha de
+  criacao/aplicacao retorna `CursorCreationFailed`.
+- Cobertura live X11: todas as variantes sao criadas/aplicadas e
+  reaplicadas (cache), contando erros de protocolo da conexao.
+
 ## [0.1.0-alpha.2] — 2026-10-19
 
 Segunda etapa: endurecimento de lifecycle, CI e cobertura de regressão

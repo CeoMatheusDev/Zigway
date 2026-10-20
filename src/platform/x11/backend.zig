@@ -39,6 +39,9 @@ pub const Backend = struct {
     wm_delete: api.Atom,
     wm_protocols: api.Atom,
     entries: std.ArrayList(Entry) = .empty,
+    /// Cache de cursores por variante, criado sob demanda e liberado no
+    /// deinit. Handles sao globais ao backend (compartilhados por janelas).
+    cursors: [types.Cursor.count]api.Cursor = @splat(0),
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -68,6 +71,9 @@ pub const Backend = struct {
     }
 
     pub fn deinit(self: *Backend) void {
+        for (self.cursors) |handle| {
+            if (handle != 0) _ = api.XFreeCursor(self.display, handle);
+        }
         self.entries.deinit(self.allocator);
         _ = api.XCloseDisplay(self.display);
     }
@@ -196,6 +202,32 @@ pub const Backend = struct {
             api.CurrentTime,
         );
         _ = api.XFlush(self.display);
+    }
+
+    pub fn setCursor(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        cursor: types.Cursor,
+    ) !void {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const handle = try self.cursorHandle(cursor);
+        if (api.XDefineCursor(self.display, self.entries.items[entry_idx].win, handle) == 0) {
+            return error.CursorCreationFailed;
+        }
+        _ = api.XFlush(self.display);
+    }
+
+    /// Cria (uma vez) e devolve o handle nativo da variante. Falha de
+    /// criacao nao e cacheada: a proxima chamada tenta de novo.
+    fn cursorHandle(self: *Backend, cursor: types.Cursor) !api.Cursor {
+        const idx: usize = @backingInt(cursor);
+        if (self.cursors[idx] != 0) return self.cursors[idx];
+        const handle = api.XCreateFontCursor(self.display, cursorShape(cursor));
+        if (handle == 0) return error.CursorCreationFailed;
+        self.cursors[idx] = handle;
+        return handle;
     }
 
     pub fn poll(
@@ -375,6 +407,23 @@ pub fn isRepeat(state: *const input.InputState, key: types.Key) bool {
     return state.isKeyDown(key);
 }
 
+/// Forma nativa (cursorfont.h) de cada variante logica. Pura e testavel
+/// sem display. `.not_allowed` usa XC_X_cursor (o cursorfont nao tem uma
+/// forma "proibido" dedicada).
+pub fn cursorShape(cursor: types.Cursor) c_uint {
+    return switch (cursor) {
+        .default => api.XC_left_ptr,
+        .text => api.XC_xterm,
+        .crosshair => api.XC_crosshair,
+        .hand => api.XC_hand2,
+        .resize_horizontal => api.XC_sb_h_double_arrow,
+        .resize_vertical => api.XC_sb_v_double_arrow,
+        .resize_all => api.XC_fleur,
+        .not_allowed => api.XC_X_cursor,
+        .wait => api.XC_watch,
+    };
+}
+
 pub fn fromState(state: c_uint) types.Modifiers {
     return .{
         .shift = (state & api.ShiftMask) != 0,
@@ -535,6 +584,18 @@ test "keysym mapping covers basics" {
     try std.testing.expectEqual(types.Key.left_super, fromKeysym(api.XK_Super_L));
     try std.testing.expectEqual(types.Key.space, fromKeysym(0x20));
     try std.testing.expectEqual(types.Key.unknown, fromKeysym(0x1234));
+}
+
+test "cursor shapes map to cursorfont constants" {
+    try std.testing.expectEqual(api.XC_left_ptr, cursorShape(.default));
+    try std.testing.expectEqual(api.XC_xterm, cursorShape(.text));
+    try std.testing.expectEqual(api.XC_crosshair, cursorShape(.crosshair));
+    try std.testing.expectEqual(api.XC_hand2, cursorShape(.hand));
+    try std.testing.expectEqual(api.XC_sb_h_double_arrow, cursorShape(.resize_horizontal));
+    try std.testing.expectEqual(api.XC_sb_v_double_arrow, cursorShape(.resize_vertical));
+    try std.testing.expectEqual(api.XC_fleur, cursorShape(.resize_all));
+    try std.testing.expectEqual(api.XC_X_cursor, cursorShape(.not_allowed));
+    try std.testing.expectEqual(api.XC_watch, cursorShape(.wait));
 }
 
 test "numpad keysyms match win32 logical keys" {

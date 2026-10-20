@@ -10,7 +10,9 @@ Cobertura: abrir/fechar display, criar/destruir, mapear/desmapear,
 título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
 `WM_PROTOCOLS`), teclado via `XLookupKeysym`, mouse (movimento,
 5 botões, roda vertical/horizontal), modificadores
-(Shift/Ctrl/Alt/Super), multi-janelas.
+(Shift/Ctrl/Alt/Super), multi-janelas, cursores do sistema
+(`XCreateFontCursor` + `XDefineCursor`, cache por backend liberado no
+`deinit`).
 
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
@@ -46,6 +48,8 @@ Limitações conhecidas:
   `.unknown` (não falha).
 - `focus()` usa `XSetInputFocus` (melhor esforço; o WM pode recusar).
 - Posição absoluta da janela não é controlada (limite do protocolo).
+- `setCursor` é validado por ausência de erro de protocolo; o efeito
+  visual não é inspecionado pelo teste.
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
 Validado com display real: `zig build test-x11`.
@@ -62,7 +66,8 @@ teclado (VK→`Key`, flag `repeat` via bit 30), modificadores derivados do
 estado autoritativo via `GetKeyState` (mouse e teclado), mouse
 (movimento, 5 botões, wheel vertical/horizontal), `WM_SIZE` (inclui
 minimize como invisível), foco, `WM_CLOSE`→evento sem destruir,
-multi-janelas.
+cursores do sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por
+janela), multi-janelas.
 
 Destruição externa: como no X11, a entrada nativa é removida e
 operações seguintes retornam `InvalidWindow`; o slot segue ocupado
@@ -92,5 +97,6 @@ Não implementado. Ver `src/platform/wayland/README.md`.
 
 ## null
 
-Headless: sem recursos nativos; eventos via `injectEvent`. Usado pelos
-testes unitários e como fallback em SOs sem backend.
+Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
+é no-op (aceita todas as variantes). Usado pelos testes unitários e como
+fallback em SOs sem backend.

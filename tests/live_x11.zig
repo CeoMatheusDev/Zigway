@@ -12,6 +12,20 @@ const Timespec = extern struct {
 
 extern "c" fn nanosleep(req: *const Timespec, rem: ?*Timespec) c_int;
 
+const XErrorHandler = *const fn (display: ?*anyopaque, event: *anyopaque) callconv(.c) c_int;
+extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
+
+/// Contador de erros de protocolo durante o teste de cursores. O handler
+/// da Xlib nao recebe contexto do usuario, por isso o estado e de arquivo.
+var cursor_protocol_errors: usize = 0;
+
+fn countCursorProtocolError(display: ?*anyopaque, event: *anyopaque) callconv(.c) c_int {
+    _ = display;
+    _ = event;
+    cursor_protocol_errors += 1;
+    return 0;
+}
+
 fn sleepMs(ms: u64) void {
     var req = Timespec{ .sec = @intCast(ms / 1000), .nsec = @intCast((ms % 1000) * 1_000_000) };
     _ = nanosleep(&req, null);
@@ -822,6 +836,48 @@ test "live x11: modifiers come from the server event mask" {
         try std.testing.expect(!plat.inputState().isKeyDown(expected));
         try std.testing.expect(plat.inputState().modifiers.alt);
     }
+}
+
+test "live x11: all system cursors are created and applied without errors" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var window = try plat.createWindow(.{
+        .width = 200,
+        .height = 120,
+        .title = "zigway cursor live test",
+    });
+    defer window.deinit();
+
+    // Conta erros de protocolo (BadCursor/BadWindow) durante as chamadas.
+    // O handler do backend e restaurado no fim do escopo.
+    const previous = XSetErrorHandler(countCursorProtocolError);
+    defer _ = XSetErrorHandler(previous);
+    cursor_protocol_errors = 0;
+
+    // XCreateFontCursor retornando 0 vira CursorCreationFailed: cobre
+    // disponibilidade da cursor font e mapeamento de todas as formas.
+    for (std.meta.tags(zigway.Cursor)) |cursor| {
+        try window.setCursor(cursor);
+    }
+    // Reaplica variantes para exercitar o cache por backend.
+    try window.setCursor(.text);
+    try window.setCursor(.default);
+
+    // XPending processa erros assincronos da conexao do backend.
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
+
+    try std.testing.expectEqual(@as(usize, 0), cursor_protocol_errors);
+    try std.testing.expect(!window.shouldClose());
 }
 
 test "live x11: protocol error does not abort the process" {

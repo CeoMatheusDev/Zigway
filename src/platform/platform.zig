@@ -259,6 +259,14 @@ pub const Platform = struct {
         }
     }
 
+    pub fn setWindowCursor(self: *Platform, id: types.WindowId, cursor: types.Cursor) !void {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.setCursor(&self.reg, index, cursor),
+        }
+    }
+
     pub fn inputState(self: *const Platform) *const input.InputState {
         return &self.input_state;
     }
@@ -543,6 +551,20 @@ test "invalid ops on dead id return InvalidWindow" {
     try std.testing.expectError(error.InvalidWindow, plat.setWindowSize(id, 10, 10));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowCursor(id, .text));
+}
+
+test "set cursor on null backend succeeds" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+
+    // Delegacao Window -> Platform -> backend; null aceita como no-op.
+    try w.setCursor(.text);
+    try w.setCursor(.default);
+    try plat.setWindowCursor(w.windowId(), .wait);
 }
 
 test "double deinit is safe" {
@@ -561,6 +583,7 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.createWindow(.{}));
     try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
     plat.pollEvents(); // no-op
     plat.injectEvent(.{ .close = .{ .window = id } }); // no-op
     try std.testing.expect(plat.nextEvent() == null);
