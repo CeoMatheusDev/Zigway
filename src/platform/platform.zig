@@ -176,6 +176,40 @@ pub const Platform = struct {
         }
     }
 
+    /// Escala de exibicao de uma janela (1/1 = 100%).
+    pub fn windowScale(self: *const Platform, id: types.WindowId) types.Scale {
+        if (self.closed) return .identity;
+        return switch (self.backend) {
+            inline else => |*b| b.windowScale(&self.reg, id),
+        };
+    }
+
+    /// Escala de exibicao de uma janela, tambem registrada no slot (para
+    /// que o estado do registro reflita a escala corrente).
+    pub fn windowScaleAndSync(self: *Platform, id: types.WindowId) types.Scale {
+        const scale = self.windowScale(id);
+        if (self.reg.get(id)) |slot| slot.scale = scale;
+        return scale;
+    }
+
+    /// Tamanho fisico do buffer da janela (pixels da tela).
+    pub fn windowBufferSize(self: *const Platform, id: types.WindowId) types.WindowSize {
+        if (self.closed) return .{ .width = 0, .height = 0 };
+        return switch (self.backend) {
+            inline else => |*b| b.windowBufferSize(&self.reg, id),
+        };
+    }
+
+    /// Escala de exibicao de um display. No Wayland vem do output (inteira
+    /// ou fracionaria); no Win32 do DPI do monitor; no X11 e uma
+    /// aproximacao pelo DPI da tela (o X11 nao tem escala por monitor).
+    pub fn displayScale(self: *const Platform, id: types.DisplayId) types.Scale {
+        if (self.closed) return .identity;
+        return switch (self.backend) {
+            inline else => |*b| b.displayScale(id),
+        };
+    }
+
     /// Capacidades do backend ativo. Permite a aplicacao decidir o que
     /// usar sem identificar o backend (e sem tentar uma operacao que o
     /// protocolo nao suporta).
@@ -184,6 +218,25 @@ pub const Platform = struct {
         return switch (self.backend) {
             inline else => |*b| b.capabilities(),
         };
+    }
+
+    /// Informa ao IME o texto ao redor do cursor da janela.
+    ///
+    /// `text` e o contexto (UTF-8) e `cursor` o deslocamento do cursor
+    /// dentro dele (em bytes). A plataforma nao guarda o texto: apenas o
+    /// repassa ao compositor. Quem remove texto em resposta a um
+    /// `delete_surrounding_text` e a aplicacao (evento
+    /// `surrounding_delete`).
+    pub fn setWindowSurroundingText(
+        self: *Platform,
+        id: types.WindowId,
+        text: []const u8,
+        cursor: u32,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.setSurroundingText(&self.reg, id, text, cursor),
+        }
     }
 
     /// Texto em composicao (IME) da janela: o preedit atual, em UTF-8.

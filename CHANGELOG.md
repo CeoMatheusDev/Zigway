@@ -7,6 +7,22 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Escala e DPI (sistema generico)**: novo tipo `Scale` (fracao
+  `numerator/denominator`), `Window.scale()`, `Window.bufferSize()`
+  (tamanho fisico do buffer) e `Platform.displayScale()`, com o evento
+  `scale_changed`. As unidades ficam explicitas: tamanho logico
+  (unidades de superficie) x escala = tamanho fisico do buffer.
+  No Wayland: `wp_fractional_scale_manager_v1` + `wp_viewporter` (escala
+  fracionaria, buffer escalado e viewport com origem fisica e destino
+  logico); no Win32: `SetProcessDpiAwarenessContext` (per monitor aware
+  v2), `GetDpiForWindow`/`GetDpiForMonitor` e `WM_DPICHANGED` (muda a
+  escala e aplica o retangulo sugerido); no X11: aproximacao pelo DPI
+  da tela (o X11 nao tem escala por monitor).
+- **Contexto textual para o IME**: `Window.setSurroundingText(text,
+  cursor)` repassa o contexto ao compositor (a plataforma nao guarda o
+  texto) e o evento `surrounding_delete` (`{ window, before, after }`)
+  avisa o pedido de delecao do IME (a decisao de apagar e da
+  aplicacao).
 - **Entrada de texto/IME no Wayland** (`zwp_text_input_v3`): o
   compositor anuncia `zwp_text_input_manager_v3`; o `zwp_text_input_v3`
   habilita a entrada na superfície focada, publica o texto em composição
@@ -27,6 +43,12 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Corrigido
 
+- **Wayland: `wp_viewport.set_source` invalido**: usava (-1,-1) com
+  tamanho valido, o que o protocolo rejeita (`bad_value`); a origem do
+  viewport e (0,0) com o tamanho do buffer.
+- **`wakeup` apos o teardown**: o self-pipe e marcado como fechado antes
+  de fechar os descritores, para que um `signal` concorrente nao
+  escreva num descritor reciclado.
 - **Wayland: ordem de destruição**: `wl_display_disconnect` acontecia
   antes de destruir a superfície e o tema do cursor (e de outros
   objetos do protocolo), o que usava proxies depois da conexão morta e

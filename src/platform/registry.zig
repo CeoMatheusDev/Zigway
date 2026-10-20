@@ -27,6 +27,8 @@ pub const Slot = struct {
     visible: bool = false,
     fullscreen: bool = false,
     maximized: bool = false,
+    /// Escala de exibicao da janela (fracao). 1/1 = 100%.
+    scale: types.Scale = .identity,
     size_limits: types.WindowSizeLimits = .{},
     width: u32 = 0,
     height: u32 = 0,
@@ -57,6 +59,8 @@ pub const Registry = struct {
                 slot.visible = false;
                 slot.fullscreen = false;
                 slot.maximized = false;
+                slot.scale = .identity;
+                slot.scale = .identity;
                 slot.size_limits = .{};
                 slot.width = 0;
                 slot.height = 0;
@@ -80,6 +84,7 @@ pub const Registry = struct {
         slot.generation +|= 1;
         slot.fullscreen = false;
         slot.maximized = false;
+        slot.scale = .identity;
         slot.size_limits = .{};
         slot.native_ptr = null;
         slot.native_id = 0;
@@ -94,6 +99,14 @@ pub const Registry = struct {
 
     pub fn indexOf(self: *Registry, id: WindowId) ?u32 {
         if (self.get(id) == null) return null;
+        return id.index;
+    }
+
+    /// Indice do slot de um id (null se invalido/expirado).
+    pub fn slotOf(self: *const Registry, id: WindowId) ?u32 {
+        if (id.index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[id.index];
+        if (!slot.occupied or slot.generation != id.generation) return null;
         return id.index;
     }
 

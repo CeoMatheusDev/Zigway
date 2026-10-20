@@ -17,6 +17,7 @@ pub const WindowId = types.WindowId;
 pub const WindowSize = types.WindowSize;
 pub const WindowPosition = types.WindowPosition;
 pub const WindowSizeLimits = types.WindowSizeLimits;
+pub const Scale = types.Scale;
 pub const Cursor = types.Cursor;
 pub const Platform = platform_mod.Platform;
 
@@ -129,8 +130,29 @@ pub const Window = struct {
         self.platform.releaseWindowPointer(self.id);
     }
 
+    /// Tamanho logico da area de cliente (unidades de superficie).
     pub fn size(self: Window) WindowSize {
         return self.platform.windowSize(self.id);
+    }
+
+    /// Tamanho fisico do buffer da janela (pixels da tela): o tamanho
+    /// logico multiplied pela escala. No X11 e no Win32 coincide com
+    /// `size()` (escala 1:1 no cliente); no Wayland com escala
+    /// fracionaria o buffer e maior que o tamanho logico.
+    pub fn bufferSize(self: Window) WindowSize {
+        return self.platform.windowBufferSize(self.id);
+    }
+
+    /// Informa ao IME o texto ao redor do cursor (contexto textual).
+    /// `cursor` e o deslocamento (em bytes UTF-8) dentro de `text`.
+    pub fn setSurroundingText(self: Window, text: []const u8, cursor: u32) !void {
+        try self.platform.setWindowSurroundingText(self.id, text, cursor);
+    }
+
+    /// Escala de exibicao da janela (1/1 = 100%). No Wayland pode ser
+    /// fracionaria (ex.: 3/2 = 150%).
+    pub fn scale(self: Window) Scale {
+        return self.platform.windowScale(self.id);
     }
 
     pub fn position(self: Window) WindowPosition {

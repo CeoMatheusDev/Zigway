@@ -65,6 +65,47 @@ pub const Backend = struct {
         return null;
     }
 
+    /// Sem IME: nada a informar.
+    pub fn setSurroundingText(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+        text: []const u8,
+        cursor: u32,
+    ) !void {
+        _ = self;
+        _ = reg;
+        _ = id;
+        _ = text;
+        _ = cursor;
+        return error.NotImplemented;
+    }
+
+    /// Sem escala (1:1).
+    pub fn windowScale(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.Scale {
+        _ = self;
+        _ = reg;
+        _ = id;
+        return .identity;
+    }
+
+    /// Sem buffer proprio: o tamanho logico e o fisico.
+    pub fn windowBufferSize(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.WindowSize {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .{ .width = 0, .height = 0 };
+        return .{
+            .width = reg.slots.items[slot].width,
+            .height = reg.slots.items[slot].height,
+        };
+    }
+
+    /// Escala 1:1.
+    pub fn displayScale(self: *const Backend, id: types.DisplayId) types.Scale {
+        _ = self;
+        _ = id;
+        return .identity;
+    }
+
     /// Backend headless: nada e suportado natively.
     pub fn capabilities(self: *const Backend) types.Capabilities {
         _ = self;

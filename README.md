@@ -43,6 +43,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
 - **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
+- **Scale and DPI:** Backend-independent `Scale` (fractional on Wayland, per-monitor DPI on Windows), with `Window.scale()`, `Window.bufferSize()` and a `scale_changed` event; logical and physical units are never mixed.
 - **Event loop:** `waitEvents(timeout)` sleeps on the native connection (no busy-wait) and `wakeup()` lets another thread wake the loop.
 - **Capabilities:** `Platform.capabilities()` tells the app what the active backend supports (positioning, IME, clipboard, cursor, capture, scale) instead of hard-coding backend assumptions.
 - **Native Wayland:** A real Wayland backend (not XWayland): compositor connection, registry, outputs, seat capabilities, xdg-shell windows (title, size limits, maximize, fullscreen) and pointer/keyboard input; the Wayland clipboard and Unicode text input are still pending.

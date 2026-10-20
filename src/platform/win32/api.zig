@@ -379,6 +379,20 @@ pub extern "user32" fn ChangeDisplaySettingsExW(
     visible: ?[*:0]const u16,
 ) LONG;
 
+// --- DPI (Windows 10 1607+) ---
+/// `GetProcAddress` (kernel32): as funcoes de DPI sao resolvidas em
+/// runtime (nao existem em Windows antigos; resolver em runtime evita
+/// falhar no load do executavel).
+pub extern "kernel32" fn GetProcAddress(module: ?*anyopaque, name: [*:0]const u8) ?*anyopaque;
+/// `LoadLibraryW` (kernel32): usado para `shcore.dll` (DPI por monitor).
+pub extern "kernel32" fn LoadLibraryW(name: [*:0]const u16) ?*anyopaque;
+/// `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` (winuser.h).
+pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: usize = @bitCast(@as(isize, -4));
+/// `MDT_EFFECTIVE_DPI` (shellscalingapi.h).
+pub const MDT_EFFECTIVE_DPI: c_int = 0;
+/// `WM_DPICHANGED` (winuser.h): a janela mudou de monitor (DPI).
+pub const WM_DPICHANGED: UINT = 0x02E0;
+
 // --- Espera de eventos (loop) ---
 /// `CreateEventW` (kernel32): evento manual usado para acordar o loop.
 pub extern "kernel32" fn CreateEventW(

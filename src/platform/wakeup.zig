@@ -15,6 +15,8 @@ pub const Wakeup = struct {
     read_fd: c_int = -1,
     /// Descritor de escrita (o `signal` escreve aqui).
     write_fd: c_int = -1,
+    /// Fechado: impede `signal` de escrever num descritor reciclado.
+    closed: std.atomic.Value(bool) = .init(false),
 
     pub fn init() !Wakeup {
         var fds: [2]c_int = undefined;
@@ -31,6 +33,9 @@ pub const Wakeup = struct {
     }
 
     pub fn deinit(self: *Wakeup) void {
+        // Marca antes de fechar: um `signal` concorrente ve o flag e nao
+        // escreve (evita escrever num descritor reciclado).
+        self.closed.store(true, .release);
         if (self.read_fd >= 0) {
             _ = std.c.close(self.read_fd);
             self.read_fd = -1;
@@ -44,6 +49,7 @@ pub const Wakeup = struct {
     /// Acorda quem esta esperando.
     pub fn signal(self: *const Wakeup) void {
         if (self.write_fd < 0) return;
+        if (self.closed.load(.acquire)) return;
         const byte = [_]u8{0};
         // Um byte basta: o leitor drena tudo.
         _ = std.c.write(self.write_fd, &byte, 1);
@@ -59,6 +65,53 @@ pub const Wakeup = struct {
         }
     }
 };
+
+/// Sinalizador repetido (usado no teste de concorrencia).
+const Signaler = struct {
+    wake: *Wakeup,
+    fn run(self: *Signaler) void {
+        var i: u32 = 0;
+        while (i < 50) : (i += 1) {
+            self.wake.signal();
+        }
+    }
+};
+
+test "concurrent wakeups are coalesced and drained" {
+    var wake = try Wakeup.init();
+    defer wake.deinit();
+
+    // Varias threads sinalizam ao mesmo tempo: o pipe acumula bytes e o
+    // leitor drena tudo de uma vez.
+    var threads: [4]std.Thread = undefined;
+    for (&threads) |*t| {
+        var signaler = Signaler{ .wake = &wake };
+        t.* = try std.Thread.spawn(.{}, Signaler.run, .{&signaler});
+    }
+    for (threads) |t| t.join();
+
+    // Ha dados pendentes (o pipe nao transborda com 200 bytes).
+    var fds = [_]std.posix.pollfd{.{
+        .fd = wake.read_fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    const ready = try std.posix.poll(&fds, 100);
+    try std.testing.expectEqual(@as(usize, 1), ready);
+    wake.drain();
+
+    // Depois do drain nao ha mais dados.
+    const ready_after = try std.posix.poll(&fds, 0);
+    try std.testing.expectEqual(@as(usize, 0), ready_after);
+}
+
+test "wakeup after deinit does not write to a recycled descriptor" {
+    var wake = try Wakeup.init();
+    wake.deinit();
+    // Nao pode escrever (o descritor foi fechado).
+    wake.signal();
+    try std.testing.expect(wake.closed.load(.acquire));
+}
 
 test "wakeup signals and drains" {
     var wake = try Wakeup.init();

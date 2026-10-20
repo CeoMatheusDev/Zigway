@@ -16,6 +16,26 @@ const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 
+/// Escala (fracao) a partir de um DPI (96 = 100%).
+fn scaleFromDpi(dpi: u32) types.Scale {
+    if (dpi == 0) return .identity;
+    return .{ .numerator = dpi, .denominator = 96 };
+}
+
+/// `GetDpiForWindow` (user32, Windows 10 1607+).
+const GetDpiForWindowFn = *const fn (api.HWND) callconv(.winapi) api.UINT;
+/// `GetDpiForSystem` (user32).
+const GetDpiForSystemFn = *const fn () callconv(.winapi) api.UINT;
+/// `SetProcessDpiAwarenessContext` (user32).
+const SetProcessDpiAwarenessContextFn = *const fn (usize) callconv(.winapi) api.BOOL;
+/// `GetDpiForMonitor` (shcore.dll, Windows 8.1+).
+const GetDpiForMonitorFn = *const fn (
+    api.HMONITOR,
+    c_int,
+    *api.UINT,
+    *api.UINT,
+) callconv(.winapi) c_long;
+
 const Entry = struct {
     slot: u32,
     hwnd: api.HWND,
@@ -41,6 +61,8 @@ const Pending = struct {
 const DisplayCollector = struct {
     allocator: std.mem.Allocator,
     list: std.ArrayList(types.DisplayInfo) = .empty,
+    /// Handles de monitor (mesma ordem de `list`).
+    monitors: std.ArrayList(api.HMONITOR) = .empty,
     err: ?anyerror = null,
 };
 
@@ -72,6 +94,10 @@ fn collectMonitor(
         .primary = (info.dwFlags & api.MONITORINFOF_PRIMARY) != 0,
     };
     ctx.list.append(ctx.allocator, display) catch |err| {
+        ctx.err = err;
+        return 0;
+    };
+    ctx.monitors.append(ctx.allocator, monitor) catch |err| {
         ctx.err = err;
         return 0;
     };
@@ -216,6 +242,10 @@ pub fn formatClassName(counter: u32, out: *[max_class_name:0]u16) void {
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
+    /// Funcoes de DPI resolvidas em runtime (null em Windows antigos).
+    get_dpi_for_window: ?GetDpiForWindowFn = null,
+    get_dpi_for_system: ?GetDpiForSystemFn = null,
+    get_dpi_for_monitor: ?GetDpiForMonitorFn = null,
     /// Evento manual de wakeup (acorda `waitEvents`).
     wake_event: ?*anyopaque = null,
     instance: api.HINSTANCE,
@@ -232,6 +262,7 @@ pub const Backend = struct {
             .instance = api.GetModuleHandleW(null),
             .class_atom = 0,
         };
+        self.resolveDpiFunctions();
         const id = class_counter.fetchAdd(1, .monotonic);
         formatClassName(id, &self.class_name);
         const cls = api.WNDCLASSEXW{
@@ -277,6 +308,7 @@ pub const Backend = struct {
         _ = self;
         var ctx = DisplayCollector{ .allocator = allocator };
         defer ctx.list.deinit(allocator);
+        defer ctx.monitors.deinit(allocator);
         const ok = api.EnumDisplayMonitors(
             null,
             null,
@@ -378,18 +410,19 @@ pub const Backend = struct {
     /// O Win32 suporta posicionamento, clipboard, IME (via `WM_CHAR`),
     /// cursor do sistema, captura de ponteiro e modos de video.
     pub fn capabilities(self: *const Backend) types.Capabilities {
-        _ = self;
         return .{
             .absolute_positioning = true,
             .resize_request = true,
             .focus_request = true,
             .clipboard = true,
             .text_input_ime = true,
+            .surrounding_text = false,
             .system_cursor = true,
             .pointer_capture = true,
             .pointer_relative = false,
             .pointer_confinement = false,
             .fractional_scale = false,
+            .dpi_per_monitor = self.get_dpi_for_window != null,
             .video_modes = true,
             .seat = false,
         };
@@ -402,6 +435,110 @@ pub const Backend = struct {
         _ = reg;
         _ = id;
         return null;
+    }
+
+    /// Resolve as funcoes de DPI (Windows 10+) e declara o processo como
+    /// "per monitor aware v2" (a partir dai as coordenadas do cliente
+    /// sao fisicas e o Windows envia `WM_DPICHANGED`).
+    fn resolveDpiFunctions(self: *Backend) void {
+        const user32_name = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, "user32") catch return;
+        defer self.allocator.free(user32_name);
+        const user32 = api.GetModuleHandleW(user32_name.ptr) orelse return;
+        if (api.GetProcAddress(user32, "GetDpiForWindow")) |p| {
+            self.get_dpi_for_window = @ptrCast(@alignCast(p));
+        }
+        if (api.GetProcAddress(user32, "GetDpiForSystem")) |p| {
+            self.get_dpi_for_system = @ptrCast(@alignCast(p));
+        }
+        if (api.GetProcAddress(user32, "SetProcessDpiAwarenessContext")) |p| {
+            const set_awareness: SetProcessDpiAwarenessContextFn = @ptrCast(@alignCast(p));
+            _ = set_awareness(api.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        // `shcore.dll` traz o DPI por monitor (Windows 8.1+).
+        const shcore_name = std.unicode.utf8ToUtf16LeAllocZ(self.allocator, "shcore.dll") catch return;
+        defer self.allocator.free(shcore_name);
+        if (api.LoadLibraryW(shcore_name.ptr)) |shcore| {
+            if (api.GetProcAddress(shcore, "GetDpiForMonitor")) |p| {
+                self.get_dpi_for_monitor = @ptrCast(@alignCast(p));
+            }
+        }
+    }
+
+    /// Escala (fracao) a partir de um DPI (96 = 100%).
+    fn dpiToScale(dpi: api.UINT) types.Scale {
+        return scaleFromDpi(dpi);
+    }
+
+    /// DPI do monitor de uma janela.
+    fn windowDpi(self: *const Backend, hwnd: api.HWND) api.UINT {
+        if (self.get_dpi_for_window) |get| return get(hwnd);
+        if (self.get_dpi_for_system) |get| return get();
+        return 96;
+    }
+
+    /// O Win32 entrega o texto confirmado (`WM_CHAR`); o contexto de
+    /// composicao do IME nao e exposto por esse caminho.
+    pub fn setSurroundingText(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+        text: []const u8,
+        cursor: u32,
+    ) !void {
+        _ = self;
+        _ = reg;
+        _ = id;
+        _ = text;
+        _ = cursor;
+        return error.NotImplemented;
+    }
+
+    /// Escala da janela: DPI do monitor em que ela esta (100% = 96 DPI).
+    pub fn windowScale(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.Scale {
+        const entry_idx = self.findEntryById(reg, id) orelse return .identity;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+        return dpiToScale(self.windowDpi(hwnd));
+    }
+
+    /// Escala do sistema (DPI padrao do Windows).
+    fn systemDpiScale(self: *const Backend) types.Scale {
+        if (self.get_dpi_for_system) |get| return dpiToScale(get());
+        if (self.get_dpi_for_window) |get| return dpiToScale(get(null));
+        return .identity;
+    }
+
+    /// No Win32 as coordenadas do cliente ja sao fisicas (a API e DPI
+    /// aware), entao o buffer e o proprio cliente.
+    pub fn windowBufferSize(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.WindowSize {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .{ .width = 0, .height = 0 };
+        return .{
+            .width = reg.slots.items[slot].width,
+            .height = reg.slots.items[slot].height,
+        };
+    }
+
+    /// Escala do monitor (DPI por monitor, via `shcore`).
+    pub fn displayScale(self: *const Backend, id: types.DisplayId) types.Scale {
+        const get = self.get_dpi_for_monitor orelse return self.systemDpiScale();
+        // Enumera os monitores (mesma ordem do snapshot de `displays`).
+        var ctx = DisplayCollector{ .allocator = self.allocator };
+        defer ctx.list.deinit(self.allocator);
+        defer ctx.monitors.deinit(self.allocator);
+        const ok = api.EnumDisplayMonitors(
+            null,
+            null,
+            collectMonitor,
+            @bitCast(@intFromPtr(&ctx)),
+        );
+        if (ok == 0) return self.systemDpiScale();
+        if (id.raw >= ctx.monitors.items.len) return self.systemDpiScale();
+        var dpi_x: api.UINT = 0;
+        var dpi_y: api.UINT = 0;
+        if (get(ctx.monitors.items[id.raw], api.MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y) != 0) {
+            return self.systemDpiScale();
+        }
+        return dpiToScale(dpi_x);
     }
 
     /// O Win32 nao modela um seat (o input e por janela).
@@ -492,6 +629,15 @@ pub const Backend = struct {
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {
+        for (self.entries.items, 0..) |entry, i| {
+            if (entry.slot == slot) return i;
+        }
+        return null;
+    }
+
+    /// Indice da entrada nativa de uma janela (pelo id do registro).
+    fn findEntryById(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) ?usize {
+        const slot = reg.slotOf(id) orelse return null;
         for (self.entries.items, 0..) |entry, i| {
             if (entry.slot == slot) return i;
         }
@@ -1285,6 +1431,36 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                     .modifiers = currentMods(),
                 } });
             }
+            return 0;
+        },
+        api.WM_DPICHANGED => {
+            // A janela mudou de monitor: o wparam traz o novo DPI e o
+            // lparam o retangulo sugerido pelo sistema.
+            const new_dpi: u32 = @truncate(wparam & 0xFFFF);
+            const scale = scaleFromDpi(@intCast(new_dpi));
+            if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
+                const entry = &pending.reg.slots.items[slot];
+                const changed = !entry.scale.eql(scale);
+                entry.scale = scale;
+                if (changed) {
+                    events.dispatch(queue, state, .{ .scale_changed = .{
+                        .window = pending.reg.idOf(slot),
+                        .scale = scale,
+                    } });
+                }
+            }
+            // Aplica o retangulo sugerido (o Windows calcula o tamanho
+            // da janela para o novo DPI).
+            const suggested: *const api.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
+            _ = api.SetWindowPos(
+                hwnd,
+                null,
+                suggested.left,
+                suggested.top,
+                suggested.right - suggested.left,
+                suggested.bottom - suggested.top,
+                api.SWP_NOZORDER | api.SWP_NOACTIVATE,
+            );
             return 0;
         },
         api.WM_CHAR => {

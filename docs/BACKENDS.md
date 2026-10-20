@@ -1,5 +1,11 @@
 # Backends — cobertura e limitações (v0.1.0-alpha.3)
 
+**Escala (X11)**: o X11 não tem escala por monitor. A escala exposta é
+uma aproximação pelo DPI da tela (`XDisplayWidth` sobre
+`XDisplayWidthMM`, 96 DPI = 100%) e vale para todas as janelas. O
+servidor X também não notifica mudanças de DPI de forma confiável, então
+não há evento de mudança de escala no X11.
+
 ## X11 (`src/platform/x11/`)
 
 ABI Xlib declarada manualmente (`api.zig`), layouts conferidos contra o
@@ -214,6 +220,13 @@ Limitações conhecidas:
   a área de cliente para o tamanho externo com `AdjustWindowRectEx`; um
   máximo menor que o monitor também limita fullscreen. Sem validação em
   runtime (apenas compilação cruzada).
+- DPI: o processo é declarado "per monitor aware v2"
+  (`SetProcessDpiAwarenessContext`, resolvido em runtime), então as
+  coordenadas do cliente são físicas. `GetDpiForWindow` dá a escala da
+  janela e `GetDpiForMonitor` (via `shcore.dll`) a do monitor;
+  `WM_DPICHANGED` atualiza a escala (evento `scale_changed`) e aplica o
+  retângulo sugerido pelo sistema. Sem validação em runtime (apenas
+  compilação cruzada).
 - Maximização usa `ShowWindow` e `IsZoomed`; mudanças externas de estado
   são refletidas por `WM_SIZE`. Fullscreen e maximizado são mutuamente
   exclusivos. Sem validação em runtime (apenas compilação cruzada).
@@ -233,6 +246,9 @@ Limitações conhecidas:
   e `GetClipboardData` na leitura. A área é aberta/fechada a cada
   operação; `GlobalAlloc`/`GlobalLock` para o bloco de memória. Sem
   validação em runtime (apenas compilação cruzada).
+- Escala: `get_dpi_for_window`/`get_dpi_for_system`/
+  `get_dpi_for_monitor` são resolvidos em runtime (`GetProcAddress`),
+  então o binário carrega em Windows onde elas não existem.
 - Modos de vídeo: `EnumDisplaySettingsW` (por dispositivo
   `\\.\DISPLAY<n>`, via `MONITORINFOEXW`) e `ChangeDisplaySettingsExW`
   (troca dinâmica, sem gravar no registro). O `DisplayModeId` empacota

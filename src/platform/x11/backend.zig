@@ -386,11 +386,13 @@ pub const Backend = struct {
             .focus_request = true,
             .clipboard = true,
             .text_input_ime = false,
+            .surrounding_text = false,
             .system_cursor = true,
             .pointer_capture = true,
             .pointer_relative = false,
             .pointer_confinement = false,
             .fractional_scale = false,
+            .dpi_per_monitor = false,
             .video_modes = self.xrandr_monitors,
             .seat = false,
         };
@@ -402,6 +404,65 @@ pub const Backend = struct {
         _ = reg;
         _ = id;
         return null;
+    }
+
+    /// O X11 nao tem IME implementado (XIM pendente).
+    pub fn setSurroundingText(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+        text: []const u8,
+        cursor: u32,
+    ) !void {
+        _ = self;
+        _ = reg;
+        _ = id;
+        _ = text;
+        _ = cursor;
+        return error.NotImplemented;
+    }
+
+    /// Escala aproximada da tela (DPI/96). O X11 nao tem escala por
+    /// monitor: e um valor unico para todas as telas.
+    fn screenScale(self: *const Backend) types.Scale {
+        const screen = api.XDefaultScreen(self.display);
+        const px_w = api.XDisplayWidth(self.display, screen);
+        const mm_w = api.XDisplayWidthMM(self.display, screen);
+        if (px_w <= 0 or mm_w <= 0) return .identity;
+        const dpi = (@as(f64, @floatFromInt(px_w)) * 25.4) / @as(f64, @floatFromInt(mm_w));
+        const ratio = dpi / 96.0;
+        if (ratio < 1.0) return .identity;
+        const rounded: u32 = @intFromFloat(@round(ratio));
+        if (rounded == 0) return .identity;
+        return .{ .numerator = rounded, .denominator = 1 };
+    }
+
+    /// Escala da janela: no X11 nao ha escala por monitor, entao vale a
+    /// escala (aproximada) da tela.
+    pub fn windowScale(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.Scale {
+        _ = reg;
+        _ = id;
+        return self.screenScale();
+    }
+
+    /// No X11 o cliente recebe pixels: o buffer e o proprio cliente.
+    pub fn windowBufferSize(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.WindowSize {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .{ .width = 0, .height = 0 };
+        return .{
+            .width = reg.slots.items[slot].width,
+            .height = reg.slots.items[slot].height,
+        };
+    }
+
+    /// Escala aproximada da tela: DPI/96 arredondado (o X11 nao tem
+    /// escala por monitor).
+    ///
+    /// O DPI vem do tamanho fisico da tela (`XDisplayWidthMM`), que nem
+    /// sempre e preciso: e uma aproximacao, nao um valor autoritativo.
+    pub fn displayScale(self: *const Backend, id: types.DisplayId) types.Scale {
+        _ = id;
+        return self.screenScale();
     }
 
     /// O X11 nao modela um seat (o input e por janela).

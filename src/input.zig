@@ -68,6 +68,8 @@ pub const InputState = struct {
             .text_input => {},
             .composition_start => {},
             .composition_end => {},
+            .scale_changed => {},
+            .surrounding_delete => {},
             .raw_key => {},
             .close => {},
         }

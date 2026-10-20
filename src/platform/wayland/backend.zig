@@ -106,9 +106,20 @@ const WindowEntry = struct {
     buffer: ?*api.wl_proxy = null,
     /// Pool shm dono do buffer.
     pool: ?*api.wl_proxy = null,
-    /// Tamanho do buffer atual (o que o compositor confirmou).
+    /// Tamanho do buffer atual (o que o compositor confirmou), em pixels
+    /// fisicos (ja inclui a escala).
     width: u32 = 0,
     height: u32 = 0,
+    /// Tamanho logico da superficie (unidades do compositor).
+    logical_width: u32 = 0,
+    logical_height: u32 = 0,
+    /// Escala da janela (fracao). 1/1 = 100%.
+    scale: types.Scale = .identity,
+    /// Escala preferida mudando (aguardando o evento do compositor).
+    pending_scale: ?types.Scale = null,
+    /// Objetos de escala/viewport desta superficie.
+    fractional_scale: ?*api.wl_proxy = null,
+    viewport: ?*api.wl_proxy = null,
     /// Serial do `xdg_surface.configure` aguardando `ack_configure`.
     pending_serial: ?u32 = null,
     /// Tamanho pedido pelo compositor (0 = o cliente decide).
@@ -251,6 +262,11 @@ const TextInputListener = extern struct {
     done: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
 };
 
+/// Callbacks do `wp_fractional_scale_v1`.
+const FractionalScaleListener = extern struct {
+    preferred_scale: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+};
+
 /// Listeners do protocolo (endereco estavel: a libwayland guarda o
 /// ponteiro).
 const Listeners = struct {
@@ -268,6 +284,7 @@ const Listeners = struct {
     data_offer: DataOfferListener,
     data_source: DataSourceListener,
     text_input: TextInputListener,
+    fractional_scale: FractionalScaleListener,
 };
 
 /// Estado mutavel do backend (heap, endereco estavel para os callbacks).
@@ -350,6 +367,8 @@ const State = struct {
     /// Um output mudou (modo/escala/posicao): o aplicativo precisa
     /// reconsultar `displays()`.
     pending_display_change: bool = false,
+    /// A escala de uma janela mudou (publicar `scale_changed`).
+    pending_scale_changed: bool = false,
     /// Gerenciador de data device (clipboard do protocolo Wayland).
     data_device_manager: ?*api.wl_proxy = null,
     data_device_manager_version: u32 = 0,
@@ -363,6 +382,12 @@ const State = struct {
     selection_mimes: std.ArrayList([64]u8) = .empty,
     /// Pipe de escrita pendente (o compositor pediu os dados).
     pending_send_fd: ?c_int = null,
+    /// Gerenciador de escala fracionaria (wp_fractional_scale_manager_v1).
+    fractional_scale_manager: ?*api.wl_proxy = null,
+    fractional_scale_manager_version: u32 = 0,
+    /// Viewporter (wp_viewporter), necessario para escala fracionaria.
+    viewporter: ?*api.wl_proxy = null,
+    viewporter_version: u32 = 0,
     /// Gerenciador de entrada de texto (zwp_text_input_manager_v3).
     text_input_manager: ?*api.wl_proxy = null,
     text_input_manager_version: u32 = 0,
@@ -416,6 +441,9 @@ const State = struct {
             .dnd_drop_performed = onSourceDndDropPerformed,
             .dnd_finished = onSourceDndFinished,
             .action = onSourceAction,
+        },
+        .fractional_scale = .{
+            .preferred_scale = onFractionalScalePreferred,
         },
         .text_input = .{
             .enter = onTextInputEnter,
@@ -509,6 +537,16 @@ const State = struct {
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.compositor_interface) orelse return;
             self.compositor = proxy;
             self.compositor_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_wp_fractional_scale_manager_v1)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.fractional_scale_manager_v1_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.fractional_scale_manager_v1_interface) orelse return;
+            self.fractional_scale_manager = proxy;
+            self.fractional_scale_manager_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_wp_viewporter)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.viewporter_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.viewporter_interface) orelse return;
+            self.viewporter = proxy;
+            self.viewporter_version = bind_version;
         } else if (std.mem.eql(u8, iface, api.interface_zwp_text_input_manager_v3)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.text_input_manager_v3_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.text_input_manager_v3_interface) orelse return;
@@ -562,6 +600,48 @@ const State = struct {
         if (slot >= reg.slots.items.len) return null;
         if (!reg.slots.items[slot].occupied) return null;
         return reg.idOf(slot);
+    }
+
+    /// Cria os objetos de escala da superficie (escala fracionaria e
+    /// viewport). Sem `wp_viewporter` a escala fracionaria nao pode ser
+    /// aplicada (o compositor nao consegue escalar o buffer).
+    fn ensureScaleObjects(self: *State, index: usize) void {
+        const entry = &self.windows.items[index];
+        if (self.fractional_scale_manager) |manager| {
+            if (entry.fractional_scale == null) {
+                const proxy = self.symbols.proxy_marshal_flags(
+                    manager,
+                    api.wp_fractional_scale_manager_v1_get_fractional_scale,
+                    &protocol.fractional_scale_v1_interface,
+                    self.fractional_scale_manager_version,
+                    0,
+                    @as(?*anyopaque, null),
+                    @as(?*anyopaque, @ptrCast(entry.surface)),
+                );
+                if (proxy) |p| {
+                    self.symbols.proxy_add_listener(
+                        p,
+                        @ptrCast(&self.listeners.fractional_scale),
+                        @ptrCast(self),
+                    );
+                    entry.fractional_scale = p;
+                }
+            }
+        }
+        if (self.viewporter) |viewporter| {
+            if (entry.viewport == null) {
+                const proxy = self.symbols.proxy_marshal_flags(
+                    viewporter,
+                    api.wp_viewporter_get_viewport,
+                    &protocol.viewport_interface,
+                    self.viewporter_version,
+                    0,
+                    @as(?*anyopaque, null),
+                    @as(?*anyopaque, @ptrCast(entry.surface)),
+                );
+                entry.viewport = proxy;
+            }
+        }
     }
 
     /// Cria o `zwp_text_input_v3` (precisa do gerenciador e do seat).
@@ -790,9 +870,26 @@ const State = struct {
         //    confirmado o commit seria rejeitado ("invalid_size").
         if (!entry.configured or !entry.size_known) return;
 
-        const width = if (entry.pending_width > 0) entry.pending_width else entry.width;
-        const height = if (entry.pending_height > 0) entry.pending_height else entry.height;
-        if (width == 0 or height == 0) return;
+        // Escala: o compositor pode ter anunciado uma escala nova
+        // (wp_fractional_scale_v1) depois do ultimo configure.
+        if (entry.pending_scale) |new_scale| {
+            entry.pending_scale = null;
+            if (!entry.scale.eql(new_scale)) {
+                entry.scale = new_scale;
+                self.pending_scale_changed = true;
+            }
+        }
+
+        // Tamanho logico (unidades da superficie) e tamanho fisico do
+        // buffer (logico * escala).
+        const logical_width = if (entry.pending_width > 0) entry.pending_width else entry.logical_width;
+        const logical_height = if (entry.pending_height > 0) entry.pending_height else entry.logical_height;
+        if (logical_width == 0 or logical_height == 0) return;
+        entry.logical_width = logical_width;
+        entry.logical_height = logical_height;
+        const physical = entry.scale.applyToSize(.{ .width = logical_width, .height = logical_height });
+        const width = physical.width;
+        const height = physical.height;
 
         if (!entry.visible) {
             // Janela oculta: sem buffer a superficie fica desmapeada.
@@ -803,6 +900,12 @@ const State = struct {
 
         const resized = entry.buffer == null or entry.width != width or entry.height != height;
         self.attachBuffer(index, width, height) catch return;
+        // Com escala fracionaria o viewport mapeia o buffer (fisico) no
+        // tamanho logico da superficie.
+        if (entry.viewport) |viewport| {
+            requestViewportDestination(&self.symbols, viewport, logical_width, logical_height);
+            requestViewportSource(&self.symbols, viewport, width, height);
+        }
         if (resized) {
             requestNoArgs(&self.symbols, entry.surface, api.wl_surface_commit);
         }
@@ -891,6 +994,48 @@ fn requestObject(lib: *api.Symbols, proxy: *api.wl_proxy, opcode: u32, value: ?*
 /// `wl_surface.attach`: buffer (anulavel), deslocamento x e y.
 fn requestAttach(lib: *api.Symbols, proxy: *api.wl_proxy, buffer: ?*anyopaque) void {
     _ = lib.proxy_marshal_flags(proxy, api.wl_surface_attach, null, 0, 0, buffer, @as(i32, 0), @as(i32, 0));
+}
+
+/// `wp_viewport.set_destination` (tamanho logico da superficie).
+fn requestViewportDestination(
+    lib: *api.Symbols,
+    proxy: *api.wl_proxy,
+    width: u32,
+    height: u32,
+) void {
+    _ = lib.proxy_marshal_flags(
+        proxy,
+        api.wp_viewport_set_destination,
+        null,
+        0,
+        0,
+        @as(i32, @intCast(width)),
+        @as(i32, @intCast(height)),
+    );
+}
+
+/// `wp_viewport.set_source` (origem no buffer, em pixels).
+///
+/// A origem e o retangulo do buffer que alimenta o destino. O protocolo
+/// aceita (-1,-1,-1,-1) para "sem recorte", mas nao aceita (-1,-1) com
+/// tamanho valido (erro `bad_value`).
+fn requestViewportSource(
+    lib: *api.Symbols,
+    proxy: *api.wl_proxy,
+    width: u32,
+    height: u32,
+) void {
+    _ = lib.proxy_marshal_flags(
+        proxy,
+        api.wp_viewport_set_source,
+        null,
+        0,
+        0,
+        @as(i32, 0),
+        @as(i32, 0),
+        @as(i32, @intCast(width)),
+        @as(i32, @intCast(height)),
+    );
 }
 
 /// `wl_surface.damage` (superficies ate a v3).
@@ -1124,11 +1269,14 @@ pub const Backend = struct {
             .focus_request = false,
             .clipboard = st.data_device != null,
             .text_input_ime = st.text_input != null,
+            .surrounding_text = st.text_input != null,
             .system_cursor = st.cursor_lib != null,
             .pointer_capture = false,
             .pointer_relative = false,
             .pointer_confinement = false,
-            .fractional_scale = false,
+            .fractional_scale = st.fractional_scale_manager != null and
+                st.viewporter != null,
+            .dpi_per_monitor = false,
             .video_modes = false,
             .seat = st.seat != null,
         };
@@ -1142,6 +1290,79 @@ pub const Backend = struct {
         if (st.composition_text.len == 0) return null;
         _ = id;
         return st.composition_text;
+    }
+
+    /// Escala da janela (fracao). Vem do `wp_fractional_scale_v1` quando
+    /// o compositor suporta; caso contrario 1:1.
+    pub fn windowScale(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.Scale {
+        const st = self.state;
+        const slot = reg.slotOf(id) orelse return .identity;
+        for (st.windows.items) |entry| {
+            if (entry.slot != slot) continue;
+            return entry.scale;
+        }
+        return .identity;
+    }
+
+    /// Tamanho fisico do buffer da janela (pixels da tela).
+    pub fn windowBufferSize(self: *const Backend, reg: *const registry.Registry, id: types.WindowId) types.WindowSize {
+        const st = self.state;
+        const slot = reg.slotOf(id) orelse return .{ .width = 0, .height = 0 };
+        for (st.windows.items) |entry| {
+            if (entry.slot != slot) continue;
+            return .{ .width = entry.width, .height = entry.height };
+        }
+        return .{ .width = 0, .height = 0 };
+    }
+
+    /// Escala do output (inteira, vinda de `wl_output.scale`).
+    pub fn displayScale(self: *const Backend, id: types.DisplayId) types.Scale {
+        const st = self.state;
+        for (st.outputs.items, 0..) |out, i| {
+            if (i != id.raw) continue;
+            const scale: u32 = if (out.scale > 0) @intCast(out.scale) else 1;
+            return .{ .numerator = scale, .denominator = 1 };
+        }
+        return .identity;
+    }
+
+    /// Informa ao IME o texto ao redor do cursor (o contexto textual).
+    ///
+    /// A plataforma nao guarda o texto: ela apenas repassa ao compositor,
+    /// para que o IME possa sugerir correcoes. `cursor` e o deslocamento
+    /// (em bytes UTF-8) do cursor dentro de `text`.
+    pub fn setSurroundingText(
+        self: *Backend,
+        reg: *registry.Registry,
+        id: types.WindowId,
+        text: []const u8,
+        cursor: u32,
+    ) !void {
+        _ = reg;
+        _ = id;
+        const st = self.state;
+        const proxy = st.text_input orelse return error.NotImplemented;
+        // O texto vive enquanto o pedido e enviado: a libwayland copia o
+        // argumento durante o marshal.
+        const owned = st.allocator.dupeZ(u8, text) catch return error.OutOfMemory;
+        defer st.allocator.free(owned);
+        _ = self.lib.symbols.proxy_marshal_flags(
+            proxy,
+            api.zwp_text_input_v3_set_surrounding_text,
+            null,
+            0,
+            0,
+            owned.ptr,
+            @as(i32, @intCast(cursor)),
+            @as(i32, @intCast(text.len)),
+        );
+        _ = self.lib.symbols.proxy_marshal_flags(
+            proxy,
+            api.zwp_text_input_v3_commit,
+            null,
+            0,
+            0,
+        );
     }
 
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
@@ -1308,6 +1529,9 @@ pub const Backend = struct {
         });
         errdefer _ = st.windows.pop();
 
+        // Objetos de escala da superficie (fracionaria + viewport).
+        st.ensureScaleObjects(st.windows.items.len - 1);
+
         // Commit inicial: o compositor responde com `xdg_surface.configure`
         // (e `xdg_toplevel.configure`), que dispara a criacao do buffer.
         requestNoArgs(lib, surface, api.wl_surface_commit);
@@ -1318,6 +1542,16 @@ pub const Backend = struct {
         const st = self.state;
         const entry = &st.windows.items[index];
         const lib = &st.symbols;
+        if (entry.fractional_scale) |proxy| {
+            requestNoArgs(lib, proxy, api.wp_fractional_scale_v1_destroy);
+            lib.proxy_destroy(proxy);
+            entry.fractional_scale = null;
+        }
+        if (entry.viewport) |proxy| {
+            requestNoArgs(lib, proxy, api.wp_viewport_destroy);
+            lib.proxy_destroy(proxy);
+            entry.viewport = null;
+        }
         if (entry.buffer) |buffer| {
             requestNoArgs(lib, buffer, api.wl_buffer_destroy);
             lib.proxy_destroy(buffer);
@@ -1749,6 +1983,21 @@ pub const Backend = struct {
     ) void {
         if (self.state.failed) return;
 
+        // Mudanca de escala de uma janela.
+        if (self.state.pending_scale_changed) {
+            self.state.pending_scale_changed = false;
+            for (self.state.windows.items) |entry| {
+                if (entry.slot >= reg.slots.items.len) continue;
+                if (!reg.slots.items[entry.slot].occupied) continue;
+                // O slot reflete a escala corrente.
+                reg.slots.items[entry.slot].scale = entry.scale;
+                events.dispatch(queue, state, .{ .scale_changed = .{
+                    .window = reg.idOf(entry.slot),
+                    .scale = entry.scale,
+                } });
+            }
+        }
+
         // Mudanca de display (modo/escala/posicao de um output).
         if (self.state.pending_display_change) {
             self.state.pending_display_change = false;
@@ -2178,6 +2427,23 @@ fn setComposition(
     _ = reg;
 }
 
+fn onFractionalScalePreferred(
+    data: ?*anyopaque,
+    fractional_scale: ?*api.wl_proxy,
+    scale: u32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    const proxy = fractional_scale orelse return;
+    // O valor e em 120avos (120 = 100%).
+    const value = scaleToFraction(scale);
+    for (state.windows.items) |*entry| {
+        if (entry.fractional_scale == proxy) {
+            entry.pending_scale = value;
+            return;
+        }
+    }
+}
+
 fn onTextInputEnter(
     data: ?*anyopaque,
     text_input: ?*api.wl_proxy,
@@ -2279,13 +2545,17 @@ fn onTextInputDeleteSurrounding(
     before: u32,
     after: u32,
 ) callconv(.c) void {
-    _ = data;
+    const state = stateFrom(data) orelse return;
     _ = text_input;
-    _ = before;
-    _ = after;
-    // Delecao ao redor do cursor: depende do texto de contextoo que a
-    // aplicacao envia (set_surrounding_text), que o Zigway ainda nao
-    // envia. Nao ha evento proprio para isso.
+    // Quem apaga e a aplicacao: o evento traz quantos caracteres remover.
+    const window_id = state.textInputWindowId();
+    if (window_id) |wid| {
+        events.dispatch(state.poll_queue.?, state.poll_input.?, .{ .surrounding_delete = .{
+            .window = wid,
+            .before = before,
+            .after = after,
+        } });
+    }
 }
 
 fn onTextInputDone(data: ?*anyopaque, text_input: ?*api.wl_proxy, serial: u32) callconv(.c) void {
@@ -2423,6 +2693,19 @@ fn onSourceAction(data: ?*anyopaque, source: ?*api.wl_proxy, action: u32) callco
     _ = data;
     _ = source;
     _ = action;
+}
+
+/// Converte a escala do protocolo (120avos) em fracao.
+fn scaleToFraction(value: u32) types.Scale {
+    if (value == 0) return .identity;
+    // Reduz a fracao (ex.: 180/120 -> 3/2).
+    var num = value;
+    var den: u32 = 120;
+    while (num % 2 == 0 and den % 2 == 0) {
+        num /= 2;
+        den /= 2;
+    }
+    return .{ .numerator = num, .denominator = den };
 }
 
 /// Escreve todo o conteudo no fd (escritas parciais sao repetidas).

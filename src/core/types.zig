@@ -228,6 +228,8 @@ pub const Capabilities = struct {
     clipboard: bool = false,
     /// Entrada de texto Unicode/IME (composicao, dead keys).
     text_input_ime: bool = false,
+    /// O backend aceita texto circundante (`setSurroundingText`).
+    surrounding_text: bool = false,
     /// Cursor do sistema por janela.
     system_cursor: bool = false,
     /// Captura exclusiva do ponteiro.
@@ -236,12 +238,59 @@ pub const Capabilities = struct {
     pointer_relative: bool = false,
     /// Confinamento do ponteiro a uma janela.
     pointer_confinement: bool = false,
-    /// Escala fracionaria por monitor.
+    /// Escala fracionaria por janela (Wayland).
     fractional_scale: bool = false,
+    /// DPI por monitor (Win32); no X11 a escala e aproximada e global.
+    dpi_per_monitor: bool = false,
     /// Modos de video (resolucao) por display.
     video_modes: bool = false,
     /// O backend modela um "seat" (dispositivos de entrada).
     seat: bool = false,
+};
+
+/// Escala de exibicao de uma janela ou display.
+///
+/// Razao entre pixels fisicos e unidades logicas: `1/1` = 100%,
+/// `3/2` = 150%. O Wayland pode ser fracionaria (o compositor anuncia
+/// `wp_fractional_scale_v1`); X11 e Win32 usam valores inteiros
+/// (por monitor no Win32, aproximado no X11).
+///
+/// Unidades: o *tamanho logico* e expresso em unidades de superficie
+/// (o que o compositor informa no `configure`); o *tamanho fisico* (o
+/// buffer) e o tamanho logico multiplicado pela escala.
+pub const Scale = struct {
+    numerator: u32 = 1,
+    denominator: u32 = 1,
+
+    pub const identity: Scale = .{};
+
+    /// Escala como fracao de ponto flutuante (1.5 = 150%).
+    pub fn toFloat(self: Scale) f64 {
+        if (self.denominator == 0) return 1.0;
+        return @as(f64, @floatFromInt(self.numerator)) /
+            @as(f64, @floatFromInt(self.denominator));
+    }
+
+    /// true quando a escala nao e um multiplo inteiro de 1/1.
+    pub fn isFractional(self: Scale) bool {
+        if (self.denominator == 0) return false;
+        return self.numerator % self.denominator != 0;
+    }
+
+    pub fn eql(self: Scale, other: Scale) bool {
+        return self.numerator == other.numerator and self.denominator == other.denominator;
+    }
+
+    /// Converte um tamanho logico no tamanho fisico do buffer
+    /// (arredondado para cima, para nao cortar conteudo).
+    pub fn applyToSize(self: Scale, size: WindowSize) WindowSize {
+        const n = @as(u64, self.numerator);
+        const d = @as(u64, if (self.denominator == 0) 1 else self.denominator);
+        return .{
+            .width = @intCast((@as(u64, size.width) * n + d - 1) / d),
+            .height = @intCast((@as(u64, size.height) * n + d - 1) / d),
+        };
+    }
 };
 
 /// Capacidades de entrada do "seat" (dispositivos de entrada) do
@@ -253,6 +302,33 @@ pub const SeatCapabilities = struct {
 };
 
 const std = @import("std");
+
+test "scale arithmetic and size conversion" {
+    const one = Scale.identity;
+    try std.testing.expectEqual(@as(f64, 1.0), one.toFloat());
+    try std.testing.expect(!one.isFractional());
+
+    const half = Scale{ .numerator = 3, .denominator = 2 };
+    try std.testing.expectEqual(@as(f64, 1.5), half.toFloat());
+    try std.testing.expect(half.isFractional());
+
+    const integer = Scale{ .numerator = 2, .denominator = 1 };
+    try std.testing.expect(!integer.isFractional());
+
+    // 800x600 logico a 150% => 1200x900 de buffer.
+    const sized = half.applyToSize(.{ .width = 800, .height = 600 });
+    try std.testing.expectEqual(@as(u32, 1200), sized.width);
+    try std.testing.expectEqual(@as(u32, 900), sized.height);
+
+    // Arredonda para cima (nao corta o conteudo).
+    const odd = half.applyToSize(.{ .width = 101, .height = 101 });
+    try std.testing.expectEqual(@as(u32, 152), odd.width);
+    try std.testing.expectEqual(@as(u32, 152), odd.height);
+
+    // Divisor zero nao divide por zero.
+    const broken = Scale{ .numerator = 1, .denominator = 0 };
+    try std.testing.expectEqual(@as(f64, 1.0), broken.toFloat());
+}
 
 test "Key ordinals are dense from zero" {
     try std.testing.expectEqual(@as(u16, 0), @backingInt(Key.unknown));

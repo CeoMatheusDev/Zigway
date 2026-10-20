@@ -508,6 +508,113 @@ test "live wayland: waitEvents respects the timeout and can be woken up" {
     try std.testing.expect(elapsed_wake >= 30);
 }
 
+test "live wayland: the scale of a window is consistent with its buffer" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const caps = plat.capabilities();
+    std.debug.print("\n[wl-live] escala fracionaria={} dpi_por_monitor={}\n", .{
+        caps.fractional_scale,
+        caps.dpi_per_monitor,
+    });
+
+    var win = try plat.createWindow(.{ .width = 320, .height = 240, .title = "zigway-live-scale" });
+    defer win.deinit();
+
+    // Aguarda o configure (o tamanho logico e conhecido).
+    var attempts: u32 = 0;
+    while (attempts < 200 and win.size().width == 0) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        sleepMs(10);
+    }
+
+    const scale = win.scale();
+    try std.testing.expect(scale.denominator > 0);
+    const logical = win.size();
+    const buffer = win.bufferSize();
+
+    // O buffer e o tamanho logico escalado (arredondado para cima).
+    const expected = scale.applyToSize(logical);
+    try std.testing.expectEqual(expected.width, buffer.width);
+    try std.testing.expectEqual(expected.height, buffer.height);
+    std.debug.print("\n[wl-live] escala {d}/{d} logico {d}x{d} buffer {d}x{d}\n", .{
+        scale.numerator, scale.denominator, logical.width, logical.height, buffer.width, buffer.height,
+    });
+
+    // A escala fracionaria precisa de `wp_viewporter` (o compositor
+    // recusa sem ele); com os dois, a escala pode ser fracionaria.
+    if (caps.fractional_scale) {
+        // O compositor pode anunciar uma escala fracionaria em
+        // qualquer momento (quando o usuario muda a preferencia).
+        std.debug.print("\n[wl-live] escala fracionaria habilitada\n", .{});
+    }
+
+    // O display reporta a escala do output (inteira no protocolo base).
+    const displays = try plat.displays(std.testing.allocator);
+    defer std.testing.allocator.free(displays);
+    for (displays) |display| {
+        const display_scale = plat.displayScale(display.id);
+        try std.testing.expect(display_scale.denominator > 0);
+    }
+}
+
+test "live wayland: adversarial window lifecycle keeps the connection alive" {
+    // Sequencia adversa: criar/destruir janelas em rajada, destruir
+    // enquanto ha eventos pendentes e misturar escalas.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    // 1) Janelas criadas e destruidas sem nunca serem processadas.
+    for (0..8) |_| {
+        var win = try plat.createWindow(.{ .width = 160, .height = 120, .title = "zigway-stress" });
+        win.deinit();
+    }
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
+
+    // 2) Janela destruida com eventos pendentes (o compositor ainda vai
+    //    mandar `configure` para uma superficie morta).
+    var win = try plat.createWindow(.{ .width = 200, .height = 150, .title = "zigway-stress-2" });
+    const id = win.windowId();
+    win.deinit();
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
+    // O id morto nao pode ser usado.
+    try std.testing.expect(!plat.isWindowAlive(id));
+
+    // 3) Escala consultada em janelas recem-criadas e destruidas.
+    for (0..4) |_| {
+        var w = try plat.createWindow(.{ .width = 100, .height = 100, .title = "zigway-stress-3" });
+        _ = w.scale();
+        _ = w.bufferSize();
+        w.deinit();
+    }
+
+    // 4) A conexao continua viva: uma janela nova funciona.
+    var last = try plat.createWindow(.{ .width = 120, .height = 90, .title = "zigway-stress-4" });
+    defer last.deinit();
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
+    try std.testing.expect(plat.isWindowAlive(last.windowId()));
+}
+
 test "live wayland: initial output properties are not a display change" {
     // As propriedades iniciais dos outputs nao podem gerar um
     // `display_change` espurio (o evento e para mudancas reais).

@@ -89,6 +89,26 @@ pub const CompositionEndEvent = struct {
     window: WindowId,
 };
 
+/// O IME pediu para apagar texto ao redor do cursor.
+///
+/// A plataforma nao tem o texto da aplicacao: quem apaga e a aplicacao
+/// (o evento traz quantos caracteres remover antes e depois do cursor).
+pub const SurroundingDeleteEvent = struct {
+    window: WindowId,
+    /// Caracteres a remover antes do cursor.
+    before: u32,
+    /// Caracteres a remover depois do cursor.
+    after: u32,
+};
+
+/// A escala de exibicao da janela mudou (DPI, monitor novo, preferencia
+/// do compositor).
+pub const ScaleChangedEvent = struct {
+    window: WindowId,
+    /// Nova escala (1/1 = 100%).
+    scale: types.Scale,
+};
+
 /// Tecla em nivel de hardware ("input bruto"), separada de `Key`.
 ///
 /// Permite distinguir teclas fisicas que o `Key` agrupa (Shift
@@ -141,6 +161,8 @@ pub const Event = union(enum) {
     text_input: TextInputEvent,
     composition_start: CompositionStartEvent,
     composition_end: CompositionEndEvent,
+    scale_changed: ScaleChangedEvent,
+    surrounding_delete: SurroundingDeleteEvent,
     raw_key: RawKeyEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
@@ -170,6 +192,8 @@ pub const Event = union(enum) {
             .text_input => |e| e.window,
             .composition_start => |e| e.window,
             .composition_end => |e| e.window,
+            .scale_changed => |e| e.window,
+            .surrounding_delete => |e| e.window,
             .raw_key => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
@@ -366,6 +390,8 @@ test "event window accessor covers all variants" {
         .{ .text_input = .{ .window = id, .codepoint = 'a' } },
         .{ .composition_start = .{ .window = id } },
         .{ .composition_end = .{ .window = id } },
+        .{ .scale_changed = .{ .window = id, .scale = .{ .numerator = 2, .denominator = 1 } } },
+        .{ .surrounding_delete = .{ .window = id, .before = 1, .after = 2 } },
         .{ .raw_key = .{ .window = id, .scancode = 30, .pressed = true, .modifiers = .{} } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

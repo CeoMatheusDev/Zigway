@@ -657,6 +657,71 @@ pub const text_input_v3_interface = Interface{
     .events = &text_input_events,
 };
 
+// --- wp_fractional_scale_manager_v1 (v1) ---
+const fractional_scale_surface_types = [_]?*const Interface{ null, &surface_interface };
+const fractional_scale_manager_methods: [2]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "get_fractional_scale", .signature = "no", .types = &fractional_scale_surface_types },
+};
+
+pub const fractional_scale_manager_v1_interface = Interface{
+    .name = "wp_fractional_scale_manager_v1",
+    .version = 1,
+    .method_count = 2,
+    .methods = &fractional_scale_manager_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- wp_fractional_scale_v1 (v1) ---
+const fractional_scale_methods: [1]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+};
+const fractional_scale_events: [1]Message = .{
+    .{ .name = "preferred_scale", .signature = "u", .types = null },
+};
+
+pub const fractional_scale_v1_interface = Interface{
+    .name = "wp_fractional_scale_v1",
+    .version = 1,
+    .method_count = 1,
+    .methods = &fractional_scale_methods,
+    .event_count = 1,
+    .events = &fractional_scale_events,
+};
+
+// --- wp_viewporter (v1) ---
+const viewporter_viewport_types = [_]?*const Interface{ null, &surface_interface };
+const viewporter_methods: [2]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "get_viewport", .signature = "no", .types = &viewporter_viewport_types },
+};
+
+pub const viewporter_interface = Interface{
+    .name = "wp_viewporter",
+    .version = 1,
+    .method_count = 2,
+    .methods = &viewporter_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- wp_viewport (v1) ---
+const viewport_methods: [3]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_source", .signature = "ffff", .types = null },
+    .{ .name = "set_destination", .signature = "ii", .types = null },
+};
+
+pub const viewport_interface = Interface{
+    .name = "wp_viewport",
+    .version = 1,
+    .method_count = 3,
+    .methods = &viewport_methods,
+    .event_count = 0,
+    .events = null,
+};
+
 test "interface layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(Interface));
@@ -695,6 +760,12 @@ test "protocol tables match the generated reference" {
     try std.testing.expectEqualStrings("?s", std.mem.span(text_input_events[3].signature));
     try std.testing.expectEqualStrings("uu", std.mem.span(text_input_events[4].signature));
     try std.testing.expectEqual(@as(c_int, 6), text_input_v3_interface.event_count);
+    // Escala fracionaria e viewporter.
+    try std.testing.expectEqualStrings("no", std.mem.span(fractional_scale_manager_methods[1].signature));
+    try std.testing.expectEqualStrings("u", std.mem.span(fractional_scale_events[0].signature));
+    try std.testing.expectEqualStrings("no", std.mem.span(viewporter_methods[1].signature));
+    try std.testing.expectEqualStrings("ffff", std.mem.span(viewport_methods[1].signature));
+    try std.testing.expectEqualStrings("ii", std.mem.span(viewport_methods[2].signature));
 }
 
 test "xdg-shell tables match the generated reference" {

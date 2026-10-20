@@ -302,12 +302,21 @@ pub const wl_output_description: u32 = 5;
 pub const wl_output_mode_current: u32 = 0x1;
 pub const wl_output_mode_preferred: u32 = 0x2;
 
+// --- Requests: wp_fractional_scale_manager_v1 / wp_viewporter ---
+pub const wp_fractional_scale_v1_destroy: u32 = 0;
+pub const wp_viewport_destroy: u32 = 0;
+pub const wp_fractional_scale_manager_v1_get_fractional_scale: u32 = 1;
+pub const wp_viewporter_get_viewport: u32 = 1;
+pub const wp_viewport_set_source: u32 = 1;
+pub const wp_viewport_set_destination: u32 = 2;
+
 // --- Requests: zwp_text_input_manager_v3 ---
 pub const zwp_text_input_manager_v3_get_text_input: u32 = 1;
 
 // --- Requests: zwp_text_input_v3 ---
 pub const zwp_text_input_v3_enable: u32 = 1;
 pub const zwp_text_input_v3_disable: u32 = 2;
+pub const zwp_text_input_v3_set_surrounding_text: u32 = 3;
 pub const zwp_text_input_v3_commit: u32 = 7;
 
 // --- Requests: wl_pointer ---
@@ -352,6 +361,8 @@ pub const interface_wl_surface = "wl_surface";
 pub const interface_wl_shm = "wl_shm";
 pub const interface_wl_data_device_manager = "wl_data_device_manager";
 pub const interface_zwp_text_input_manager_v3 = "zwp_text_input_manager_v3";
+pub const interface_wp_fractional_scale_manager_v1 = "wp_fractional_scale_manager_v1";
+pub const interface_wp_viewporter = "wp_viewporter";
 pub const interface_xdg_wm_base = "xdg_wm_base";
 
 /// Interfaces do protocolo estavel (para binds futuros).

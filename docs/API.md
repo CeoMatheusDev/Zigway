@@ -31,6 +31,10 @@ platform.clipboardText(allocator) !?[]u8      // texto UTF-8; null quando vazia
 platform.seatCapabilities() ?SeatCapabilities // capacidades do seat (Wayland)
 platform.capabilities() Capabilities     // o que o backend suporta
 platform.compositionText(id) ?[]const u8   // texto em composicao (IME)
+platform.setWindowSurroundingText(id, text, cursor) !void // contexto para o IME
+platform.windowScale(id) Scale            // escala da janela (1/1 = 100%)
+platform.windowBufferSize(id) WindowSize   // tamanho fisico do buffer
+platform.displayScale(id) Scale            // escala do display
 ```
 
 Janelas via Platform:
@@ -270,6 +274,46 @@ comportamento idêntico entre plataformas: o Wayland, por exemplo, não
 oferece posicionamento absoluto nem resize pedido, e o protocolo
 proíbe simular esses recursos.
 
+## Escala e DPI
+
+`Scale` é uma fração (`numerator`/`denominator`): `1/1` = 100%,
+`3/2` = 150%. O Wayland suporta escala **fracionária** (o compositor
+anuncia `wp_fractional_scale_v1`; o `wp_viewporter` é exigido para que
+o buffer escalado seja exibido no tamanho lógico correto). X11 e Win32
+usam valores inteiros.
+
+Unidades (não misturadas):
+
+- **Tamanho lógico** (`window.size()`): unidades de superfície — o que
+  o compositor informa no `configure`.
+- **Tamanho físico** (`window.bufferSize()`): pixels da tela — o tamanho
+  lógico multiplicado pela escala. É o tamanho que o buffer deve ter.
+- **Escala** (`window.scale()`): razão entre os dois.
+
+`Platform.displayScale(id)` devolve a escala do display (Wayland: a do
+output; Win32: o DPI do monitor; X11: uma aproximação pelo DPI da tela —
+o X11 não tem escala por monitor). A escala da janela pode divergir da
+do display (no Wayland, a preferência do compositor; no Win32, a do
+monitor em que a janela está).
+
+O evento `scale_changed` (`{ window, scale }`) avisa quando a escala
+muda (DPI, monitor novo, preferência do compositor). A aplicação deve
+recriar o buffer no novo tamanho físico.
+
+DPI por monitor (Win32) exige `SetProcessDpiAwarenessContext`
+(per-monitor aware v2), feito no `init` do backend; a partir daí as
+coordenadas do cliente são físicas e o Windows envia `WM_DPICHANGED`
+(a escala muda e o retângulo sugerido é aplicado).
+
+## Contexto textual para o IME
+
+`window.setSurroundingText(text, cursor)` informa ao IME o texto ao
+redor do cursor (`cursor` é o deslocamento em bytes UTF-8 dentro de
+`text`). A plataforma **não guarda o texto**: apenas o repassa ao
+compositor. Quando o IME pede para apagar texto, a aplicação recebe o
+evento `surrounding_delete` (`{ window, before, after }`) e decide o que
+apagar — a plataforma não conhece o conteúdo do editor.
+
 ## Composição de texto (IME)
 
 O texto confirmado chega em `text_input` (um codepoint por evento). A
@@ -375,6 +419,8 @@ pub const Event = union(enum) {
     fullscreen: FullscreenEvent,     // { window, fullscreen }
     maximized: MaximizedEvent,       // { window, maximized }
     text_input: TextInputEvent,      // { window, codepoint }
+    scale_changed: ScaleChangedEvent, // { window, scale }
+    surrounding_delete: SurroundingDeleteEvent, // { window, before, after }
     raw_key: RawKeyEvent,            // { window, scancode, pressed, modifiers }
     focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
@@ -445,6 +491,7 @@ botões são estado global e não são associados a janela.
 `WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
 `FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `RawKeyEvent`,
+`ScaleChangedEvent`, `SurroundingDeleteEvent`, `Scale`,
 `version.string`
 (`"0.1.0-alpha.3"`).
 
