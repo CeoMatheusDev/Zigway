@@ -134,6 +134,14 @@ pub const Backend = struct {
     /// houver. O servidor libera o grab quando a janela fica nao-visivel
     /// ou e destruida; os handlers de evento limpam o estado nesses casos.
     captured: ?u32 = null,
+    /// Ultima posicao absoluta do ponteiro (para o delta relativo).
+    last_pointer_x: i32 = 0,
+    last_pointer_y: i32 = 0,
+    /// A ultima posicao e valida (houve um `motion`).
+    pointer_position_valid: bool = false,
+    /// Restricao de ponteiro ativa (lock/confine) e sua regiao (logica).
+    pointer_constraint: types.PointerConstraint = .none,
+    constraint_region: ?types.ConstraintRegion = null,
     /// libXrandr carregada em runtime (opcional). Mantida viva ate depois
     /// de XCloseDisplay: a biblioteca registra extensoes na Xlib.
     xrandr: ?xrandr.Lib = null,
@@ -389,8 +397,9 @@ pub const Backend = struct {
             .surrounding_text = false,
             .system_cursor = true,
             .pointer_capture = true,
-            .pointer_relative = false,
-            .pointer_confinement = false,
+            .pointer_relative = true,
+            .pointer_lock = true,
+            .pointer_confinement = true,
             .fractional_scale = false,
             .dpi_per_monitor = false,
             .video_modes = self.xrandr_monitors,
@@ -404,6 +413,108 @@ pub const Backend = struct {
         _ = reg;
         _ = id;
         return null;
+    }
+
+    /// Restricao de ponteiro.
+    ///
+    /// O X11 nao tem pointer lock nativo: a implementacao usa o
+    /// `XGrabPointer` (capture exclusivo) e, no lock, reposiciona o
+    /// ponteiro para o centro da janela a cada movimento (o mesmo
+    /// mecanismo usado pelos toolkits). O confinamento usa a mesma
+    /// captura e mantem o ponteiro dentro da regiao.
+    ///
+    /// Nao ha confirmacao do servidor: a restricao vale a partir do
+    /// retorno da chamada (e o evento sai junto).
+    pub fn setPointerConstraint(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        id: types.WindowId,
+        constraint: types.PointerConstraint,
+        region: ?types.ConstraintRegion,
+    ) !void {
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const win = self.entries.items[entry_idx].win;
+
+        // Libera a restricao anterior.
+        if (self.pointer_constraint != .none) {
+            if (self.captured == slot) {
+                _ = api.XUngrabPointer(self.display, api.CurrentTime);
+                self.captured = null;
+            }
+            self.pointer_constraint = .none;
+            self.constraint_region = null;
+        }
+
+        switch (constraint) {
+            .none => {},
+            .lock, .confine => {
+                if (region) |r| {
+                    if (r.width == 0 or r.height == 0) return error.InvalidConfig;
+                }
+                const status = api.XGrabPointer(
+                    self.display,
+                    win,
+                    api.True,
+                    @intCast(api.ButtonPressMask | api.ButtonReleaseMask | api.PointerMotionMask),
+                    api.GrabModeAsync,
+                    api.GrabModeAsync,
+                    api.None, // confine_to: a restricao e mantida por nos
+                    api.None,
+                    api.CurrentTime,
+                );
+                if (status != api.GrabSuccess) return error.PointerCaptureFailed;
+                self.captured = slot;
+                self.pointer_constraint = constraint;
+                self.constraint_region = region;
+                // No lock, o ponteiro volta ao centro da janela.
+                if (constraint == .lock) self.warpPointerToCenter(slot);
+            },
+        }
+        reg.slots.items[slot].pointer_constraint = constraint;
+        events.dispatch(queue, state, .{ .pointer_constraint = .{
+            .window = reg.idOf(slot),
+            .constraint = constraint,
+        } });
+        _ = api.XFlush(self.display);
+    }
+
+    /// Restricao de ponteiro ativa.
+    pub fn pointerConstraint(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+    ) types.PointerConstraint {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .none;
+        return reg.slots.items[slot].pointer_constraint;
+    }
+
+    /// Reposiciona o ponteiro no centro da janela (base do lock no X11).
+    fn warpPointerToCenter(self: *const Backend, slot: u32) void {
+        const entry_idx = self.findEntry(slot) orelse return;
+        const win = self.entries.items[entry_idx].win;
+        var root: api.Window = 0;
+        var x: c_int = 0;
+        var y: c_int = 0;
+        var width: c_uint = 0;
+        var height: c_uint = 0;
+        var border: c_uint = 0;
+        var depth: c_uint = 0;
+        if (api.XGetGeometry(self.display, win, &root, &x, &y, &width, &height, &border, &depth) == 0) return;
+        _ = api.XWarpPointer(
+            self.display,
+            api.None,
+            win,
+            0,
+            0,
+            0,
+            0,
+            @intCast(width / 2),
+            @intCast(height / 2),
+        );
     }
 
     /// O X11 nao tem IME implementado (XIM pendente).
@@ -1529,6 +1640,36 @@ pub const Backend = struct {
                     .x = ev.motion.x,
                     .y = ev.motion.y,
                 } });
+                // Movimento relativo: enquanto o ponteiro esta capturado
+                // (grab), o X11 so entrega posicoes absolutas. O delta
+                // e a diferenca entre movimentos consecutivos.
+                if (self.pointer_constraint != .none) {
+                    const dx = ev.motion.x - self.last_pointer_x;
+                    const dy = ev.motion.y - self.last_pointer_y;
+                    self.last_pointer_x = ev.motion.x;
+                    self.last_pointer_y = ev.motion.y;
+                    if (self.pointer_position_valid and (dx != 0 or dy != 0)) {
+                        if (wid) |window_id| {
+                            events.dispatch(queue, state, .{ .pointer_relative = .{
+                                .window = window_id,
+                                .dx = @floatFromInt(dx),
+                                .dy = @floatFromInt(dy),
+                                .dx_unaccelerated = null,
+                                .dy_unaccelerated = null,
+                            } });
+                        }
+                    }
+                    self.pointer_position_valid = true;
+                    // No lock, o ponteiro volta ao centro (o X11 nao tem
+                    // lock nativo).
+                    if (self.pointer_constraint == .lock) {
+                        if (self.captured) |slot| self.warpPointerToCenter(slot);
+                    }
+                } else {
+                    self.last_pointer_x = ev.motion.x;
+                    self.last_pointer_y = ev.motion.y;
+                    self.pointer_position_valid = true;
+                }
             },
             api.PropertyNotify => {
                 if (ev.property.atom != self.net_wm_state) return;

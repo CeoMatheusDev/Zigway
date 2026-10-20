@@ -615,6 +615,217 @@ test "live wayland: adversarial window lifecycle keeps the connection alive" {
     try std.testing.expect(plat.isWindowAlive(last.windowId()));
 }
 
+test "live wayland: pointer constraints are negotiated with the compositor" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const caps = plat.capabilities();
+    std.debug.print("\n[wl-live] relativo={} lock={} confinamento={}\n", .{
+        caps.pointer_relative,
+        caps.pointer_lock,
+        caps.pointer_confinement,
+    });
+
+    var win = try plat.createWindow(.{ .width = 320, .height = 240, .title = "zigway-live-pointer" });
+    defer win.deinit();
+
+    if (!caps.pointer_lock) {
+        // O compositor nao anuncia `zwp_pointer_constraints_manager_v1`.
+        try std.testing.expectError(error.NotImplemented, win.setPointerConstraint(.lock, null));
+        std.debug.print("\n[wl-live] compositor sem pointer constraints\n", .{});
+        return;
+    }
+
+    // O compositor so ativa o lock quando o ponteiro esta dentro da
+    // superficie. Uma janela em fullscreen garante isso (o ponteiro
+    // esta em algum output).
+    try win.setFullscreen(true);
+    var pointer_inside = false;
+    var wait: u32 = 0;
+    while (wait < 200 and !pointer_inside) : (wait += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .pointer_move) {
+                if (ev.pointer_move.window) |wid| {
+                    if (wid.eql(win.windowId())) pointer_inside = true;
+                }
+            }
+        }
+        if (!pointer_inside) sleepMs(10);
+    }
+    if (!pointer_inside) {
+        std.debug.print("\n[wl-live] ponteiro nao entrou na janela; lock nao testado\n", .{});
+        return;
+    }
+
+    // O pedido e assincrono: o compositor confirma com `locked`.
+    try win.setPointerConstraint(.lock, null);
+
+    var saw_locked = false;
+    var attempts: u32 = 0;
+    while (attempts < 200 and !saw_locked) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .pointer_constraint) {
+                if (ev.pointer_constraint.constraint == .lock) {
+                    saw_locked = true;
+                    try std.testing.expectEqual(zigway.PointerConstraint.lock, win.pointerConstraint());
+                }
+            }
+        }
+        if (!saw_locked) sleepMs(10);
+    }
+    std.debug.print("\n[wl-live] pointer lock confirmado={}\n", .{saw_locked});
+
+    // Liberar: o compositor confirma `unlocked`.
+    try win.setPointerConstraint(.none, null);
+    attempts = 0;
+    var saw_unlocked = false;
+    while (attempts < 200 and !saw_unlocked) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .pointer_constraint and ev.pointer_constraint.constraint == .none) {
+                saw_unlocked = true;
+            }
+        }
+        if (!saw_unlocked) sleepMs(10);
+    }
+    std.debug.print("\n[wl-live] pointer unlock confirmado={}\n", .{saw_unlocked});
+}
+
+test "live wayland: relative motion is reported while the pointer is locked" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const caps = plat.capabilities();
+    if (!caps.pointer_relative or !caps.pointer_lock) {
+        std.debug.print("\n[wl-live] compositor sem relativo/lock\n", .{});
+        return;
+    }
+
+    var win = try plat.createWindow(.{ .width = 320, .height = 240, .title = "zigway-live-relative" });
+    defer win.deinit();
+
+    // Precisa do ponteiro dentro da janela (fullscreen garante).
+    try win.setFullscreen(true);
+    var pointer_inside = false;
+    var wait: u32 = 0;
+    while (wait < 200 and !pointer_inside) : (wait += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .pointer_move) {
+                if (ev.pointer_move.window) |wid| {
+                    if (wid.eql(win.windowId())) pointer_inside = true;
+                }
+            }
+        }
+        if (!pointer_inside) sleepMs(10);
+    }
+    if (!pointer_inside) {
+        std.debug.print("\n[wl-live] ponteiro nao entrou; relativo nao testado\n", .{});
+        return;
+    }
+
+    try win.setPointerConstraint(.lock, null);
+
+    // Com o lock ativo, o compositor envia `relative_motion` no lugar de
+    // `motion`. O teste so observa (nao ha como mover o ponteiro de
+    // forma confiavel sem um dispositivo de entrada).
+    var saw_relative = false;
+    var attempts: u32 = 0;
+    while (attempts < 100 and !saw_relative) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .pointer_relative) {
+                saw_relative = true;
+                try std.testing.expect(ev.pointer_relative.window.eql(win.windowId()));
+            }
+        }
+        if (!saw_relative) sleepMs(10);
+    }
+    std.debug.print("\n[wl-live] movimento relativo observado={}\n", .{saw_relative});
+}
+
+test "live wayland: adversarial pointer constraint sequences keep the connection" {
+    // Sequencia adversa: alterna lock/unlock, restringe, destroi a janela
+    // com restricao ativa e recria. O objetivo e nao deixar objetos nem
+    // grabs pendentes.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const caps = plat.capabilities();
+    if (!caps.pointer_lock) {
+        std.debug.print("\n[wl-live] compositor sem pointer constraints\n", .{});
+        return;
+    }
+
+    for (0..6) |round| {
+        var win = try plat.createWindow(.{
+            .width = 200 + @as(u32, @intCast(round)) * 20,
+            .height = 150,
+            .title = "zigway-stress-pointer",
+        });
+
+        // Alterna as restricoes (o compositor pode negar: o protocolo
+        // permite que um lock nunca seja ativado).
+        win.setPointerConstraint(.lock, null) catch |err| switch (err) {
+            error.NotImplemented, error.WindowStateFailed => {},
+            else => return err,
+        };
+        win.setPointerConstraint(.confine, .{ .x = 0, .y = 0, .width = 100, .height = 80 }) catch |err| switch (err) {
+            error.NotImplemented, error.WindowStateFailed, error.InvalidConfig => {},
+            else => return err,
+        };
+        win.setPointerConstraint(.none, null) catch |err| switch (err) {
+            error.NotImplemented, error.WindowStateFailed => {},
+            else => return err,
+        };
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+
+        // Destroi a janela com uma restricao ativa (a liberacao e feita
+        // no teardown).
+        win.setPointerConstraint(.lock, null) catch |err| switch (err) {
+            error.NotImplemented, error.WindowStateFailed => {},
+            else => return err,
+        };
+        win.deinit();
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+    }
+
+    // A conexao continua viva: uma janela nova funciona.
+    var last = try plat.createWindow(.{ .width = 120, .height = 90, .title = "zigway-stress-pointer-2" });
+    defer last.deinit();
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
+    try std.testing.expect(plat.isWindowAlive(last.windowId()));
+}
+
 test "live wayland: initial output properties are not a display change" {
     // As propriedades iniciais dos outputs nao podem gerar um
     // `display_change` espurio (o evento e para mudancas reais).

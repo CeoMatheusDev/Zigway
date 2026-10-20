@@ -248,6 +248,10 @@ pub const Backend = struct {
     get_dpi_for_monitor: ?GetDpiForMonitorFn = null,
     /// Evento manual de wakeup (acorda `waitEvents`).
     wake_event: ?*anyopaque = null,
+    /// Janela com restricao de ponteiro ativa (clip + captura).
+    constraint_hwnd: ?api.HWND = null,
+    constraint_slot: ?u32 = null,
+    constraint_region: ?types.ConstraintRegion = null,
     instance: api.HINSTANCE,
     class_atom: api.ATOM,
     class_name: [max_class_name:0]u16 = undefined,
@@ -420,7 +424,8 @@ pub const Backend = struct {
             .system_cursor = true,
             .pointer_capture = true,
             .pointer_relative = false,
-            .pointer_confinement = false,
+            .pointer_lock = true,
+            .pointer_confinement = true,
             .fractional_scale = false,
             .dpi_per_monitor = self.get_dpi_for_window != null,
             .video_modes = true,
@@ -474,6 +479,109 @@ pub const Backend = struct {
         if (self.get_dpi_for_window) |get| return get(hwnd);
         if (self.get_dpi_for_system) |get| return get();
         return 96;
+    }
+
+    /// Restricao de ponteiro.
+    ///
+    /// O confinamento usa o mecanismo nativo do Windows (`ClipCursor`:
+    /// o sistema prende o ponteiro a um retangulo de tela) mais a
+    /// captura da janela (`SetCapture`), para que os eventos continuem
+    /// chegando a ela. O lock usa a mesma captura com o ponteiro
+    /// reposicionado ao centro da janela.
+    ///
+    /// Nao ha confirmacao explicita do sistema: a restricao vale a
+    /// partir do retorno da chamada.
+    pub fn setPointerConstraint(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        id: types.WindowId,
+        constraint: types.PointerConstraint,
+        region: ?types.ConstraintRegion,
+    ) !void {
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry_idx = self.findEntryById(reg, id) orelse return error.InvalidWindow;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+
+        // Libera a restricao anterior (clip + captura).
+        self.releasePointerConstraint();
+
+        switch (constraint) {
+            .none => {},
+            .lock, .confine => {
+                if (region) |r| {
+                    if (r.width == 0 or r.height == 0) return error.InvalidConfig;
+                }
+                if (api.SetCapture(hwnd) == null) return error.PointerCaptureFailed;
+                self.constraint_hwnd = hwnd;
+                self.constraint_slot = slot;
+
+                // `ClipCursor` recebe coordenadas de tela.
+                var client: api.RECT = undefined;
+                if (api.GetClientRect(hwnd, &client) == 0) {
+                    self.releasePointerConstraint();
+                    return error.WindowStateFailed;
+                }
+                var origin: api.POINT = .{ .x = 0, .y = 0 };
+                _ = api.ClientToScreen(hwnd, &origin);
+                const area = if (region) |r| blk: {
+                    const w: i32 = @intCast(r.width);
+                    const h: i32 = @intCast(r.height);
+                    break :blk api.RECT{
+                        .left = origin.x + r.x,
+                        .top = origin.y + r.y,
+                        .right = origin.x + r.x + w,
+                        .bottom = origin.y + r.y + h,
+                    };
+                } else api.RECT{
+                    .left = origin.x + client.left,
+                    .top = origin.y + client.top,
+                    .right = origin.x + client.right,
+                    .bottom = origin.y + client.bottom,
+                };
+                if (api.ClipCursor(&area) == 0) {
+                    self.releasePointerConstraint();
+                    return error.PointerCaptureFailed;
+                }
+                self.constraint_region = region;
+                if (constraint == .lock) {
+                    // Lock: o ponteiro volta ao centro da janela.
+                    const center: api.POINT = .{
+                        .x = origin.x + @divTrunc(client.right - client.left, 2),
+                        .y = origin.y + @divTrunc(client.bottom - client.top, 2),
+                    };
+                    _ = api.SetCursorPos(center.x, center.y);
+                }
+            },
+        }
+        reg.slots.items[slot].pointer_constraint = constraint;
+        events.dispatch(queue, state, .{ .pointer_constraint = .{
+            .window = reg.idOf(slot),
+            .constraint = constraint,
+        } });
+    }
+
+    /// Restricao de ponteiro ativa.
+    pub fn pointerConstraint(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+    ) types.PointerConstraint {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .none;
+        return reg.slots.items[slot].pointer_constraint;
+    }
+
+    /// Libera o clip e a captura da restricao de ponteiro.
+    fn releasePointerConstraint(self: *Backend) void {
+        if (self.constraint_hwnd != null) {
+            _ = api.ClipCursor(null);
+            if (api.GetCapture() == self.constraint_hwnd) _ = api.ReleaseCapture();
+            self.constraint_hwnd = null;
+            self.constraint_slot = null;
+            self.constraint_region = null;
+        }
     }
 
     /// O Win32 entrega o texto confirmado (`WM_CHAR`); o contexto de

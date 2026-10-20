@@ -7,6 +7,21 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Input avancado de ponteiro**: `Window.setPointerConstraint(.lock |
+  .confine, regiao)`, `Window.pointerConstraint()` e o evento
+  `pointer_constraint` (estado efetivo). A restricao e assincrona onde a
+  plataforma confirma (Wayland): so e publicada depois de
+  `locked`/`confined`. Regioes de confinamento usam coordenadas
+  **logicas** da area de cliente.
+- **Movimento relativo**: evento `pointer_relative` (`{ window, dx, dy,
+  dx_unaccelerated, dy_unaccelerated }`) com **deltas** (nunca
+  posicoes), em unidades de superficie. No Wayland vem do
+  `zwp_relative_pointer_v1` (com raw motion); no X11 e derivado de
+  movimentos absolutos consecutivos enquanto restrito (sem raw motion).
+- **Capacidades separadas**: `pointer_relative`, `pointer_lock` e
+  `pointer_confinement` sao flags independentes (alem de
+  `pointer_capture`); no Wayland refletem os protocolos anunciados pelo
+  compositor.
 - **Métricas do loop de eventos**: novo exemplo `bench_loop`
   (latência de `wakeup`, custo de `poll` e de `waitEvents(0)`), com a
   metodologia documentada em `docs/BUILDING.md`.
@@ -46,6 +61,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Corrigido
 
+- **Wayland: `zwp_pointer_constraints_v1` nunca era ligado** — o nome da
+  interface do manager e `zwp_pointer_constraints_v1` (sem `_manager`);
+  com o nome errado o compositor nunca era detectado.
+- **Wayland: `lifetime` invalido** no pedido de lock/confinamento (o
+  protocolo aceita `persistent` = 2; `0` e recusado pelo compositor).
 - **Wayland: `wp_viewport.set_source` invalido**: usava (-1,-1) com
   tamanho valido, o que o protocolo rejeita (`bad_value`); a origem do
   viewport e (0,0) com o tamanho do buffer.

@@ -176,6 +176,48 @@ pub const Platform = struct {
         }
     }
 
+    /// Aplica (ou remove) uma restricao de ponteiro na janela.
+    ///
+    /// - `none`: libera qualquer restricao.
+    /// - `lock`: o ponteiro fica preso a janela (com movimento relativo).
+    /// - `confine`: o ponteiro fica dentro de `region` (coordenadas
+    ///   logicas da area de cliente); `region == null` usa a area
+    ///   inteira.
+    ///
+    /// A operacao e **assincrona** quando a plataforma confirma: o
+    /// evento `pointer_constraint` traz o estado efetivo. Onde nao ha
+    /// confirmacao (X11/Win32), a API aplica a restricao de inmediato e
+    /// o evento sai junto.
+    ///
+    /// Falhas: `NotImplemented` (backend sem suporte), `InvalidConfig`
+    /// (regiao invalida) e `WindowStateFailed` (o backend recusou).
+    pub fn setWindowPointerConstraint(
+        self: *Platform,
+        id: types.WindowId,
+        constraint: types.PointerConstraint,
+        region: ?types.ConstraintRegion,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.setPointerConstraint(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                id,
+                constraint,
+                region,
+            ),
+        }
+    }
+
+    /// Restricao de ponteiro ativa na janela.
+    pub fn windowPointerConstraint(self: *const Platform, id: types.WindowId) types.PointerConstraint {
+        if (self.closed) return .none;
+        return switch (self.backend) {
+            inline else => |*b| b.pointerConstraint(&self.reg, id),
+        };
+    }
+
     /// Escala de exibicao de uma janela (1/1 = 100%).
     pub fn windowScale(self: *const Platform, id: types.WindowId) types.Scale {
         if (self.closed) return .identity;
@@ -972,6 +1014,52 @@ test "window position on null backend updates state and emits move" {
     // Mesma posicao: sem evento duplicado.
     try w.setPosition(120, 80);
     try std.testing.expect(plat.nextEvent() == null);
+}
+
+test "pointer constraint on null backend follows the documented contract" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+    const id = w.windowId();
+
+    // Sem restricao no inicio.
+    try std.testing.expectEqual(types.PointerConstraint.none, w.pointerConstraint());
+
+    // Lock: o estado muda e o evento e publicado.
+    try w.setPointerConstraint(.lock, null);
+    try std.testing.expectEqual(types.PointerConstraint.lock, w.pointerConstraint());
+    const ev = plat.nextEvent() orelse return error.TestExpectedPointerConstraintEvent;
+    try std.testing.expect(ev == .pointer_constraint);
+    try std.testing.expect(ev.pointer_constraint.window.eql(id));
+    try std.testing.expectEqual(types.PointerConstraint.lock, ev.pointer_constraint.constraint);
+
+    // Idempotente: repetir o mesmo estado nao publica evento.
+    try w.setPointerConstraint(.lock, null);
+    try std.testing.expect(plat.nextEvent() == null);
+
+    // Confinamento com regiao: regiao invalida e recusada.
+    try std.testing.expectError(
+        error.InvalidConfig,
+        w.setPointerConstraint(.confine, .{ .width = 0, .height = 10 }),
+    );
+    try w.setPointerConstraint(.confine, .{ .x = 4, .y = 4, .width = 100, .height = 50 });
+    try std.testing.expectEqual(types.PointerConstraint.confine, w.pointerConstraint());
+    const ev2 = plat.nextEvent() orelse return error.TestExpectedPointerConstraintEvent;
+    try std.testing.expectEqual(types.PointerConstraint.confine, ev2.pointer_constraint.constraint);
+
+    // Liberar volta para `none`.
+    try w.setPointerConstraint(.none, null);
+    try std.testing.expectEqual(types.PointerConstraint.none, w.pointerConstraint());
+    const ev3 = plat.nextEvent() orelse return error.TestExpectedPointerConstraintEvent;
+    try std.testing.expectEqual(types.PointerConstraint.none, ev3.pointer_constraint.constraint);
+
+    // Id invalido.
+    try std.testing.expectError(
+        error.InvalidWindow,
+        plat.setWindowPointerConstraint(.{ .index = 99, .generation = 0 }, .lock, null),
+    );
 }
 
 test "clipboard on null backend round-trips text" {

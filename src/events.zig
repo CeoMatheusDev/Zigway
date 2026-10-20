@@ -101,6 +101,33 @@ pub const SurroundingDeleteEvent = struct {
     after: u32,
 };
 
+/// Movimento **relativo** do ponteiro (delta, nao posicao).
+///
+/// Unidades: unidades de superficie (logicas) da janela de origem — o
+/// mesmo criterio de `pointer_move`. Nao ha conversao por escala: o
+/// valor e o que o SO reportou.
+///
+/// `dx_unaccelerated`/`dy_unaccelerated` vem do "raw motion" (sem
+/// aceleracao do ponteiro) quando a plataforma expoe; `null` quando
+/// nao expoe (X11/Win32).
+pub const PointerRelativeEvent = struct {
+    window: WindowId,
+    dx: f64,
+    dy: f64,
+    dx_unaccelerated: ?f64 = null,
+    dy_unaccelerated: ?f64 = null,
+};
+
+/// A restricao do ponteiro mudou (bloqueio, confinamento ou liberacao).
+///
+/// No Wayland o evento so chega depois da confirmacao do compositor
+/// (`locked`/`unlocked`/`confined`/`unconfined`).
+pub const PointerConstraintEvent = struct {
+    window: WindowId,
+    /// Restricao agora ativa.
+    constraint: types.PointerConstraint,
+};
+
 /// A escala de exibicao da janela mudou (DPI, monitor novo, preferencia
 /// do compositor).
 pub const ScaleChangedEvent = struct {
@@ -163,6 +190,8 @@ pub const Event = union(enum) {
     composition_end: CompositionEndEvent,
     scale_changed: ScaleChangedEvent,
     surrounding_delete: SurroundingDeleteEvent,
+    pointer_relative: PointerRelativeEvent,
+    pointer_constraint: PointerConstraintEvent,
     raw_key: RawKeyEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
@@ -194,6 +223,8 @@ pub const Event = union(enum) {
             .composition_end => |e| e.window,
             .scale_changed => |e| e.window,
             .surrounding_delete => |e| e.window,
+            .pointer_relative => |e| e.window,
+            .pointer_constraint => |e| e.window,
             .raw_key => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
@@ -392,6 +423,8 @@ test "event window accessor covers all variants" {
         .{ .composition_end = .{ .window = id } },
         .{ .scale_changed = .{ .window = id, .scale = .{ .numerator = 2, .denominator = 1 } } },
         .{ .surrounding_delete = .{ .window = id, .before = 1, .after = 2 } },
+        .{ .pointer_relative = .{ .window = id, .dx = 1.5, .dy = -2.0 } },
+        .{ .pointer_constraint = .{ .window = id, .constraint = .lock } },
         .{ .raw_key = .{ .window = id, .scancode = 30, .pressed = true, .modifiers = .{} } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

@@ -489,6 +489,18 @@ pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to:
 pub extern "X11" fn XCreateFontCursor(display: *Display, shape: c_uint) Cursor;
 pub extern "X11" fn XDefineCursor(display: *Display, window: Window, cursor: Cursor) c_int;
 pub extern "X11" fn XFreeCursor(display: *Display, cursor: Cursor) c_int;
+/// `XWarpPointer` (Xlib.h): reposiciona o ponteiro.
+pub extern "X11" fn XWarpPointer(
+    display: *Display,
+    src_window: Window,
+    dest_window: Window,
+    src_x: c_int,
+    src_y: c_int,
+    src_width: c_uint,
+    src_height: c_uint,
+    dest_x: c_int,
+    dest_y: c_int,
+) c_int;
 pub extern "X11" fn XGrabPointer(
     display: *Display,
     grab_window: Window,

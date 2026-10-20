@@ -234,9 +234,11 @@ pub const Capabilities = struct {
     system_cursor: bool = false,
     /// Captura exclusiva do ponteiro.
     pointer_capture: bool = false,
-    /// Movimento relativo do ponteiro (pointer lock).
+    /// Movimento relativo do ponteiro (delta, nao posicao).
     pointer_relative: bool = false,
-    /// Confinamento do ponteiro a uma janela.
+    /// Bloqueio do ponteiro a uma janela (pointer lock).
+    pointer_lock: bool = false,
+    /// Confinamento do ponteiro a uma regiao da janela.
     pointer_confinement: bool = false,
     /// Escala fracionaria por janela (Wayland).
     fractional_scale: bool = false,
@@ -246,6 +248,27 @@ pub const Capabilities = struct {
     video_modes: bool = false,
     /// O backend modela um "seat" (dispositivos de entrada).
     seat: bool = false,
+};
+
+/// Restricao aplicada ao ponteiro de uma janela.
+///
+/// - `none`: sem restricao (comportamento normal).
+/// - `lock`: o ponteiro fica preso a janela (movimento relativo).
+/// - `confine`: o ponteiro fica dentro de uma regiao da janela.
+pub const PointerConstraint = enum {
+    none,
+    lock,
+    confine,
+};
+
+/// Regiao de confinamento do ponteiro, em coordenadas **logicas**
+/// relativas a area de cliente da janela (a mesma unidade de
+/// `Window.size()`; a escala e aplicada pelo backend).
+pub const ConstraintRegion = struct {
+    x: i32 = 0,
+    y: i32 = 0,
+    width: u32 = 0,
+    height: u32 = 0,
 };
 
 /// Escala de exibicao de uma janela ou display.

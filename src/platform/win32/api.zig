@@ -423,6 +423,13 @@ pub const WAIT_TIMEOUT: DWORD = 0x00000102;
 /// `QS_ALLINPUT` (winuser.h): todas as mensagens de entrada.
 pub const QS_ALLINPUT: DWORD = 0x00FF0000;
 
+// --- Confinamento do ponteiro ---
+/// `ClipCursor` (user32): prende o ponteiro a um retangulo de tela
+/// (`null` libera).
+pub extern "user32" fn ClipCursor(rect: ?*const RECT) BOOL;
+/// `SetCursorPos` (user32): reposiciona o ponteiro.
+pub extern "user32" fn SetCursorPos(x: c_int, y: c_int) BOOL;
+
 // --- Area de transferencia (clipboard) ---
 pub extern "user32" fn OpenClipboard(hwnd: HWND) BOOL;
 pub extern "user32" fn CloseClipboard() BOOL;

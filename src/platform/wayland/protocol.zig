@@ -722,6 +722,96 @@ pub const viewport_interface = Interface{
     .events = null,
 };
 
+// --- zwp_relative_pointer_manager_v1 (v1) ---
+const relative_pointer_manager_surface_types = [_]?*const Interface{ null, &relative_pointer_interface, &surface_interface };
+const relative_pointer_manager_methods: [2]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "get_relative_pointer", .signature = "no", .types = &relative_pointer_manager_surface_types },
+};
+
+pub const relative_pointer_manager_v1_interface = Interface{
+    .name = "zwp_relative_pointer_manager_v1",
+    .version = 1,
+    .method_count = 2,
+    .methods = &relative_pointer_manager_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- zwp_relative_pointer_v1 (v1) ---
+const relative_pointer_methods: [1]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+};
+const relative_pointer_events: [1]Message = .{
+    .{ .name = "relative_motion", .signature = "uuffff", .types = null },
+};
+
+pub const relative_pointer_interface = Interface{
+    .name = "zwp_relative_pointer_v1",
+    .version = 1,
+    .method_count = 1,
+    .methods = &relative_pointer_methods,
+    .event_count = 1,
+    .events = &relative_pointer_events,
+};
+
+// --- zwp_pointer_constraints_manager_v1 (v1) ---
+const locked_pointer_surface_types = [_]?*const Interface{ null, &locked_pointer_interface, &surface_interface, &region_interface, null };
+const confined_pointer_surface_types = [_]?*const Interface{ null, &confined_pointer_interface, &surface_interface, &region_interface, null };
+const pointer_constraints_methods: [3]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "lock_pointer", .signature = "noo?ou", .types = &locked_pointer_surface_types },
+    .{ .name = "confine_pointer", .signature = "noo?ou", .types = &confined_pointer_surface_types },
+};
+
+pub const pointer_constraints_manager_v1_interface = Interface{
+    .name = "zwp_pointer_constraints_v1",
+    .version = 1,
+    .method_count = 3,
+    .methods = &pointer_constraints_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- zwp_locked_pointer_v1 (v1) ---
+const locked_pointer_methods: [3]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_cursor_position_hint", .signature = "ff", .types = null },
+    .{ .name = "set_region", .signature = "?o", .types = null },
+};
+const locked_pointer_events: [2]Message = .{
+    .{ .name = "locked", .signature = "", .types = null },
+    .{ .name = "unlocked", .signature = "", .types = null },
+};
+
+pub const locked_pointer_interface = Interface{
+    .name = "zwp_locked_pointer_v1",
+    .version = 1,
+    .method_count = 3,
+    .methods = &locked_pointer_methods,
+    .event_count = 2,
+    .events = &locked_pointer_events,
+};
+
+// --- zwp_confined_pointer_v1 (v1) ---
+const confined_pointer_methods: [2]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_region", .signature = "?o", .types = null },
+};
+const confined_pointer_events: [2]Message = .{
+    .{ .name = "confined", .signature = "", .types = null },
+    .{ .name = "unconfined", .signature = "", .types = null },
+};
+
+pub const confined_pointer_interface = Interface{
+    .name = "zwp_confined_pointer_v1",
+    .version = 1,
+    .method_count = 2,
+    .methods = &confined_pointer_methods,
+    .event_count = 2,
+    .events = &confined_pointer_events,
+};
+
 test "interface layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(Interface));
@@ -766,6 +856,14 @@ test "protocol tables match the generated reference" {
     try std.testing.expectEqualStrings("no", std.mem.span(viewporter_methods[1].signature));
     try std.testing.expectEqualStrings("ffff", std.mem.span(viewport_methods[1].signature));
     try std.testing.expectEqualStrings("ii", std.mem.span(viewport_methods[2].signature));
+    // Movimento relativo e restricoes de ponteiro.
+    try std.testing.expectEqualStrings("no", std.mem.span(relative_pointer_manager_methods[1].signature));
+    try std.testing.expectEqualStrings("uuffff", std.mem.span(relative_pointer_events[0].signature));
+    try std.testing.expectEqualStrings("noo?ou", std.mem.span(pointer_constraints_methods[1].signature));
+    try std.testing.expectEqualStrings("noo?ou", std.mem.span(pointer_constraints_methods[2].signature));
+    try std.testing.expectEqualStrings("ff", std.mem.span(locked_pointer_methods[1].signature));
+    try std.testing.expectEqualStrings("?o", std.mem.span(locked_pointer_methods[2].signature));
+    try std.testing.expectEqualStrings("?o", std.mem.span(confined_pointer_methods[1].signature));
 }
 
 test "xdg-shell tables match the generated reference" {

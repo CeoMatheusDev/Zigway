@@ -18,6 +18,8 @@ pub const WindowSize = types.WindowSize;
 pub const WindowPosition = types.WindowPosition;
 pub const WindowSizeLimits = types.WindowSizeLimits;
 pub const Scale = types.Scale;
+pub const PointerConstraint = types.PointerConstraint;
+pub const ConstraintRegion = types.ConstraintRegion;
 pub const Cursor = types.Cursor;
 pub const Platform = platform_mod.Platform;
 
@@ -147,6 +149,21 @@ pub const Window = struct {
     /// `cursor` e o deslocamento (em bytes UTF-8) dentro de `text`.
     pub fn setSurroundingText(self: Window, text: []const u8, cursor: u32) !void {
         try self.platform.setWindowSurroundingText(self.id, text, cursor);
+    }
+
+    /// Aplica (ou remove) uma restricao de ponteiro nesta janela
+    /// (`lock`, `confine` com a regiao ou `none`).
+    pub fn setPointerConstraint(
+        self: Window,
+        constraint: PointerConstraint,
+        region: ?ConstraintRegion,
+    ) !void {
+        try self.platform.setWindowPointerConstraint(self.id, constraint, region);
+    }
+
+    /// Restricao de ponteiro ativa nesta janela.
+    pub fn pointerConstraint(self: Window) PointerConstraint {
+        return self.platform.windowPointerConstraint(self.id);
     }
 
     /// Escala de exibicao da janela (1/1 = 100%). No Wayland pode ser

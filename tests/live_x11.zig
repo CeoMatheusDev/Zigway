@@ -1958,6 +1958,64 @@ test "live x11: waitEvents respects the timeout and can be woken up" {
     try std.testing.expect(elapsed_wake >= 30);
 }
 
+test "live x11: pointer constraint applies and releases without leaking the grab" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{ .width = 320, .height = 240, .title = "zigway-live-pointer" });
+    defer w.deinit();
+    const id = w.windowId();
+
+    try std.testing.expectEqual(zigway.PointerConstraint.none, w.pointerConstraint());
+
+    // O grab exige janela visivel: tenta por um tempo (o WM pode
+    // demorar a mapear).
+    var constrained = false;
+    var attempt: u32 = 0;
+    while (attempt < 200 and !constrained) : (attempt += 1) {
+        w.setPointerConstraint(.lock, null) catch |err| {
+            if (err != error.PointerCaptureFailed) return err;
+            plat.pollEvents();
+            while (plat.nextEvent()) |_| {}
+            sleepMs(10);
+            continue;
+        };
+        constrained = true;
+    }
+    if (!constrained) {
+        std.debug.print("\n[x11-live] grab nao concedido; pulando.\n", .{});
+        return;
+    }
+    try std.testing.expectEqual(zigway.PointerConstraint.lock, w.pointerConstraint());
+    const ev = plat.nextEvent() orelse return error.TestExpectedPointerConstraintEvent;
+    try std.testing.expect(ev == .pointer_constraint);
+    try std.testing.expect(ev.pointer_constraint.window.eql(id));
+    try std.testing.expectEqual(zigway.PointerConstraint.lock, ev.pointer_constraint.constraint);
+
+    // Confinamento com regiao invalida e recusado.
+    try std.testing.expectError(
+        error.InvalidConfig,
+        w.setPointerConstraint(.confine, .{ .width = 10, .height = 0 }),
+    );
+    try w.setPointerConstraint(.confine, .{ .x = 0, .y = 0, .width = 100, .height = 80 });
+    try std.testing.expectEqual(zigway.PointerConstraint.confine, w.pointerConstraint());
+    _ = plat.nextEvent();
+
+    // Liberar: o grab e solto (a captura volta a ser possivel).
+    try w.setPointerConstraint(.none, null);
+    try std.testing.expectEqual(zigway.PointerConstraint.none, w.pointerConstraint());
+    const ev3 = plat.nextEvent() orelse return error.TestExpectedPointerConstraintEvent;
+    try std.testing.expectEqual(zigway.PointerConstraint.none, ev3.pointer_constraint.constraint);
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —

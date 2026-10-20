@@ -120,6 +120,13 @@ const WindowEntry = struct {
     /// Objetos de escala/viewport desta superficie.
     fractional_scale: ?*api.wl_proxy = null,
     viewport: ?*api.wl_proxy = null,
+    /// Restricao ativa: o objeto e a ultima restricao pedida.
+    locked_pointer: ?*api.wl_proxy = null,
+    confined_pointer: ?*api.wl_proxy = null,
+    /// Restricao confirmada pelo compositor (o estado efetivo).
+    confirmed_constraint: types.PointerConstraint = .none,
+    /// Regiao de confinamento pedida (coordenadas logicas).
+    constraint_region: ?types.ConstraintRegion = null,
     /// Serial do `xdg_surface.configure` aguardando `ack_configure`.
     pending_serial: ?u32 = null,
     /// Tamanho pedido pelo compositor (0 = o cliente decide).
@@ -267,6 +274,31 @@ const FractionalScaleListener = extern struct {
     preferred_scale: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
 };
 
+/// Callbacks do `zwp_relative_pointer_v1`.
+const RelativePointerListener = extern struct {
+    relative_motion: *const fn (
+        ?*anyopaque,
+        ?*api.wl_proxy,
+        u32,
+        i32,
+        i32,
+        i32,
+        i32,
+    ) callconv(.c) void,
+};
+
+/// Callbacks do `zwp_locked_pointer_v1`.
+const LockedPointerListener = extern struct {
+    locked: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    unlocked: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+};
+
+/// Callbacks do `zwp_confined_pointer_v1`.
+const ConfinedPointerListener = extern struct {
+    confined: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    unconfined: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+};
+
 /// Listeners do protocolo (endereco estavel: a libwayland guarda o
 /// ponteiro).
 const Listeners = struct {
@@ -285,6 +317,9 @@ const Listeners = struct {
     data_source: DataSourceListener,
     text_input: TextInputListener,
     fractional_scale: FractionalScaleListener,
+    relative_pointer: RelativePointerListener,
+    locked_pointer: LockedPointerListener,
+    confined_pointer: ConfinedPointerListener,
 };
 
 /// Estado mutavel do backend (heap, endereco estavel para os callbacks).
@@ -382,6 +417,16 @@ const State = struct {
     selection_mimes: std.ArrayList([64]u8) = .empty,
     /// Pipe de escrita pendente (o compositor pediu os dados).
     pending_send_fd: ?c_int = null,
+    /// Regioes de confinamento criadas (destruidas com a janela).
+    regions: std.ArrayList(*api.wl_proxy) = .empty,
+    /// Gerenciador de movimento relativo.
+    relative_pointer_manager: ?*api.wl_proxy = null,
+    /// Objeto de movimento relativo (ligado ao wl_pointer do seat).
+    relative_pointer: ?*api.wl_proxy = null,
+    relative_pointer_manager_version: u32 = 0,
+    /// Gerenciador de restricoes de ponteiro (lock/confinamento).
+    pointer_constraints_manager: ?*api.wl_proxy = null,
+    pointer_constraints_manager_version: u32 = 0,
     /// Gerenciador de escala fracionaria (wp_fractional_scale_manager_v1).
     fractional_scale_manager: ?*api.wl_proxy = null,
     fractional_scale_manager_version: u32 = 0,
@@ -444,6 +489,17 @@ const State = struct {
         },
         .fractional_scale = .{
             .preferred_scale = onFractionalScalePreferred,
+        },
+        .relative_pointer = .{
+            .relative_motion = onRelativeMotion,
+        },
+        .locked_pointer = .{
+            .locked = onPointerLocked,
+            .unlocked = onPointerUnlocked,
+        },
+        .confined_pointer = .{
+            .confined = onPointerConfined,
+            .unconfined = onPointerUnconfined,
         },
         .text_input = .{
             .enter = onTextInputEnter,
@@ -537,6 +593,16 @@ const State = struct {
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.compositor_interface) orelse return;
             self.compositor = proxy;
             self.compositor_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_zwp_relative_pointer_manager_v1)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.relative_pointer_manager_v1_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.relative_pointer_manager_v1_interface) orelse return;
+            self.relative_pointer_manager = proxy;
+            self.relative_pointer_manager_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_zwp_pointer_constraints_manager_v1)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.pointer_constraints_manager_v1_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.pointer_constraints_manager_v1_interface) orelse return;
+            self.pointer_constraints_manager = proxy;
+            self.pointer_constraints_manager_version = bind_version;
         } else if (std.mem.eql(u8, iface, api.interface_wp_fractional_scale_manager_v1)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.fractional_scale_manager_v1_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.fractional_scale_manager_v1_interface) orelse return;
@@ -600,6 +666,75 @@ const State = struct {
         if (slot >= reg.slots.items.len) return null;
         if (!reg.slots.items[slot].occupied) return null;
         return reg.idOf(slot);
+    }
+
+    /// Cria um `wl_region` (coordenadas logicas da superficie).
+    fn createRegion(self: *State, r: types.ConstraintRegion) ?*api.wl_proxy {
+        const compositor = self.compositor orelse return null;
+        const region = self.symbols.proxy_marshal_flags(
+            compositor,
+            api.wl_compositor_create_region,
+            &protocol.region_interface,
+            self.compositor_version,
+            0,
+            @as(?*anyopaque, null),
+        ) orelse return null;
+        // `wl_region.add` (x, y, width, height).
+        _ = self.symbols.proxy_marshal_flags(
+            region,
+            api.wl_region_add,
+            null,
+            0,
+            0,
+            @as(i32, r.x),
+            @as(i32, r.y),
+            @as(i32, @intCast(r.width)),
+            @as(i32, @intCast(r.height)),
+        );
+        return region;
+    }
+
+    /// Libera a restricao de ponteiro ativa da janela.
+    fn releaseConstraint(self: *State, index: usize) void {
+        const entry = &self.windows.items[index];
+        if (entry.locked_pointer) |proxy| {
+            requestNoArgs(&self.symbols, proxy, api.zwp_locked_pointer_v1_destroy);
+            self.symbols.proxy_destroy(proxy);
+            entry.locked_pointer = null;
+        }
+        if (entry.confined_pointer) |proxy| {
+            requestNoArgs(&self.symbols, proxy, api.zwp_confined_pointer_v1_destroy);
+            self.symbols.proxy_destroy(proxy);
+            entry.confined_pointer = null;
+        }
+        entry.confirmed_constraint = .none;
+        entry.constraint_region = null;
+    }
+
+    /// Cria (sob demanda) o objeto de movimento relativo.
+    ///
+    /// O objeto e ligado ao `wl_pointer` do seat (nao a uma superficie):
+    /// `get_relative_pointer` recebe o ponteiro. O evento nao identifica
+    /// a janela, entao o texto usa a superficie sob o ponteiro.
+    fn ensureRelativePointer(self: *State) void {
+        if (self.relative_pointer != null) return;
+        const manager = self.relative_pointer_manager orelse return;
+        const pointer = self.pointer orelse return;
+        const proxy = self.symbols.proxy_marshal_flags(
+            manager,
+            api.zwp_relative_pointer_manager_v1_get_relative_pointer,
+            &protocol.relative_pointer_interface,
+            self.relative_pointer_manager_version,
+            0,
+            @as(?*anyopaque, null),
+            @as(?*anyopaque, @ptrCast(pointer)),
+        ) orelse return;
+        self.symbols.proxy_add_listener(
+            proxy,
+            @ptrCast(&self.listeners.relative_pointer),
+            @ptrCast(self),
+        );
+        self.relative_pointer = proxy;
     }
 
     /// Cria os objetos de escala da superficie (escala fracionaria e
@@ -1164,6 +1299,20 @@ pub const Backend = struct {
         state.data_device = null;
         if (state.data_device_manager) |manager| lib.proxy_destroy(manager);
         state.data_device_manager = null;
+        for (state.regions.items) |region| {
+            requestNoArgs(lib, region, api.wl_region_destroy);
+            lib.proxy_destroy(region);
+        }
+        state.regions.deinit(self.allocator);
+        if (state.relative_pointer) |proxy| {
+            requestNoArgs(lib, proxy, api.zwp_relative_pointer_v1_destroy);
+            lib.proxy_destroy(proxy);
+            state.relative_pointer = null;
+        }
+        if (state.relative_pointer_manager) |manager| lib.proxy_destroy(manager);
+        state.relative_pointer_manager = null;
+        if (state.pointer_constraints_manager) |manager| lib.proxy_destroy(manager);
+        state.pointer_constraints_manager = null;
         if (state.text_input) |text_input| lib.proxy_destroy(text_input);
         state.text_input = null;
         if (state.text_input_manager) |manager| lib.proxy_destroy(manager);
@@ -1272,8 +1421,9 @@ pub const Backend = struct {
             .surrounding_text = st.text_input != null,
             .system_cursor = st.cursor_lib != null,
             .pointer_capture = false,
-            .pointer_relative = false,
-            .pointer_confinement = false,
+            .pointer_relative = st.relative_pointer_manager != null,
+            .pointer_lock = st.pointer_constraints_manager != null,
+            .pointer_confinement = st.pointer_constraints_manager != null,
             .fractional_scale = st.fractional_scale_manager != null and
                 st.viewporter != null,
             .dpi_per_monitor = false,
@@ -1363,6 +1513,117 @@ pub const Backend = struct {
             0,
             0,
         );
+    }
+
+    /// Aplica uma restricao de ponteiro (lock ou confinamento).
+    ///
+    /// O protocolo e assincrono: o compositor confirma com
+    /// `locked`/`confined` (evento `pointer_constraint`). A regiao do
+    /// confinamento e em coordenadas **logicas** da superficie (o
+    /// protocolo converte usando a escala da superficie).
+    pub fn setPointerConstraint(
+        self: *const Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        id: types.WindowId,
+        constraint: types.PointerConstraint,
+        region: ?types.ConstraintRegion,
+    ) !void {
+        const st = self.state;
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const index = st.windowIndexBySlot(slot) orelse return error.InvalidWindow;
+        const entry = &st.windows.items[index];
+
+        // Libera a restricao anterior.
+        st.releaseConstraint(index);
+
+        switch (constraint) {
+            .none => {
+                // O compositor nao envia `unlocked` quando o objeto e
+                // destruido: a liberacao e confirmada localmente.
+                entry.confirmed_constraint = .none;
+                reg.slots.items[slot].pointer_constraint = .none;
+                events.dispatch(queue, state, .{ .pointer_constraint = .{
+                    .window = reg.idOf(slot),
+                    .constraint = .none,
+                } });
+                return;
+            },
+            .lock => {
+                const manager = st.pointer_constraints_manager orelse
+                    return error.NotImplemented;
+                // Argumentos: surface, pointer, region (null), lifetime.
+                const pointer = st.pointer orelse return error.NotImplemented;
+                const proxy = st.symbols.proxy_marshal_flags(
+                    manager,
+                    api.zwp_pointer_constraints_manager_v1_lock_pointer,
+                    &protocol.locked_pointer_interface,
+                    st.pointer_constraints_manager_version,
+                    0,
+                    @as(?*anyopaque, null),
+                    @as(?*anyopaque, @ptrCast(entry.surface)),
+                    @as(?*anyopaque, @ptrCast(pointer)),
+                    @as(?*anyopaque, null),
+                    api.zwp_pointer_constraint_lifetime_persistent,
+                ) orelse return error.WindowStateFailed;
+                st.symbols.proxy_add_listener(
+                    proxy,
+                    @ptrCast(&st.listeners.locked_pointer),
+                    @ptrCast(st),
+                );
+                entry.locked_pointer = proxy;
+            },
+            .confine => {
+                const manager = st.pointer_constraints_manager orelse
+                    return error.NotImplemented;
+                // A regiao e um `wl_region` (superficie local, logico).
+                var region_proxy: ?*api.wl_proxy = null;
+                if (region) |r| {
+                    if (r.width == 0 or r.height == 0) return error.InvalidConfig;
+                    region_proxy = st.createRegion(r) orelse return error.WindowStateFailed;
+                }
+                // Argumentos: surface, pointer, region, lifetime.
+                const pointer = st.pointer orelse return error.NotImplemented;
+                const proxy = st.symbols.proxy_marshal_flags(
+                    manager,
+                    api.zwp_pointer_constraints_manager_v1_confine_pointer,
+                    &protocol.confined_pointer_interface,
+                    st.pointer_constraints_manager_version,
+                    0,
+                    @as(?*anyopaque, null),
+                    @as(?*anyopaque, @ptrCast(entry.surface)),
+                    @as(?*anyopaque, @ptrCast(pointer)),
+                    if (region_proxy) |r| @as(?*anyopaque, @ptrCast(r)) else @as(?*anyopaque, null),
+                    api.zwp_pointer_constraint_lifetime_persistent,
+                ) orelse return error.WindowStateFailed;
+                if (region_proxy) |r| {
+                    // O `wl_region` e destruido junto com a superficie.
+                    st.regions.append(st.allocator, r) catch {};
+                }
+                st.symbols.proxy_add_listener(
+                    proxy,
+                    @ptrCast(&st.listeners.confined_pointer),
+                    @ptrCast(st),
+                );
+                entry.confined_pointer = proxy;
+                entry.constraint_region = region;
+            },
+        }
+        // A confirmacao vem do compositor (evento `pointer_constraint`).
+        entry.confirmed_constraint = .none;
+    }
+
+    /// Restricao de ponteiro confirmada (o estado efetivo).
+    pub fn pointerConstraint(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+    ) types.PointerConstraint {
+        const st = self.state;
+        const slot = reg.slotOf(id) orelse return .none;
+        const index = st.windowIndexBySlot(slot) orelse return .none;
+        return st.windows.items[index].confirmed_constraint;
     }
 
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
@@ -1552,6 +1813,8 @@ pub const Backend = struct {
             lib.proxy_destroy(proxy);
             entry.viewport = null;
         }
+        // A restricao de ponteiro e liberada junto com a janela.
+        st.releaseConstraint(index);
         if (entry.buffer) |buffer| {
             requestNoArgs(lib, buffer, api.wl_buffer_destroy);
             lib.proxy_destroy(buffer);
@@ -2444,6 +2707,85 @@ fn onFractionalScalePreferred(
     }
 }
 
+fn onRelativeMotion(
+    data: ?*anyopaque,
+    relative_pointer: ?*api.wl_proxy,
+    time: u32,
+    dx: i32,
+    dy: i32,
+    dx_unaccel: i32,
+    dy_unaccel: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    const proxy = relative_pointer orelse return;
+    _ = time;
+    _ = proxy;
+    // O evento nao traz a superficie: usa a janela sob o ponteiro.
+    const reg = state.poll_reg orelse return;
+    const surface = state.pointer_surface orelse return;
+    var window_id: ?types.WindowId = null;
+    for (state.windows.items) |entry| {
+        if (entry.surface != surface) continue;
+        window_id = reg.idOf(entry.slot);
+        break;
+    }
+    const wid = window_id orelse return;
+    // `wl_fixed_t` = 24.8 fixo (1/256 de unidade).
+    events.dispatch(state.poll_queue.?, state.poll_input.?, .{ .pointer_relative = .{
+        .window = wid,
+        .dx = @as(f64, @floatFromInt(dx)) / 256.0,
+        .dy = @as(f64, @floatFromInt(dy)) / 256.0,
+        .dx_unaccelerated = @as(f64, @floatFromInt(dx_unaccel)) / 256.0,
+        .dy_unaccelerated = @as(f64, @floatFromInt(dy_unaccel)) / 256.0,
+    } });
+}
+
+/// Aplica a mudanca de restricao confirmada pelo compositor.
+fn applyConfirmedConstraint(
+    state: *State,
+    proxy: ?*api.wl_proxy,
+    constraint: types.PointerConstraint,
+) void {
+    var window_id: ?types.WindowId = null;
+    for (state.windows.items) |*entry| {
+        const matches = (entry.locked_pointer == proxy) or (entry.confined_pointer == proxy);
+        if (!matches) continue;
+        entry.confirmed_constraint = constraint;
+        const reg = state.poll_reg orelse return;
+        window_id = reg.idOf(entry.slot);
+        break;
+    }
+    const wid = window_id orelse return;
+    if (state.poll_reg) |reg| {
+        const slot = reg.slotOf(wid) orelse return;
+        reg.slots.items[slot].pointer_constraint = constraint;
+    }
+    events.dispatch(state.poll_queue.?, state.poll_input.?, .{ .pointer_constraint = .{
+        .window = wid,
+        .constraint = constraint,
+    } });
+}
+
+fn onPointerLocked(data: ?*anyopaque, locked_pointer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    applyConfirmedConstraint(state, locked_pointer, .lock);
+}
+
+fn onPointerUnlocked(data: ?*anyopaque, locked_pointer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    applyConfirmedConstraint(state, locked_pointer, .none);
+}
+
+fn onPointerConfined(data: ?*anyopaque, confined_pointer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    applyConfirmedConstraint(state, confined_pointer, .confine);
+}
+
+fn onPointerUnconfined(data: ?*anyopaque, confined_pointer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    applyConfirmedConstraint(state, confined_pointer, .none);
+}
+
 fn onTextInputEnter(
     data: ?*anyopaque,
     text_input: ?*api.wl_proxy,
@@ -2737,6 +3079,8 @@ fn onSeatCapabilities(data: ?*anyopaque, seat: ?*api.wl_proxy, capabilities: u32
     // na proxima etapa).
     if ((capabilities & api.wl_seat_capability_pointer) != 0 and state.pointer == null) {
         state.bindPointer();
+        // O movimento relativo e ligado ao wl_pointer do seat.
+        state.ensureRelativePointer();
     }
     if ((capabilities & api.wl_seat_capability_keyboard) != 0 and state.keyboard == null) {
         state.bindKeyboard();

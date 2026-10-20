@@ -32,6 +32,8 @@ platform.seatCapabilities() ?SeatCapabilities // capacidades do seat (Wayland)
 platform.capabilities() Capabilities     // o que o backend suporta
 platform.compositionText(id) ?[]const u8   // texto em composicao (IME)
 platform.setWindowSurroundingText(id, text, cursor) !void // contexto para o IME
+platform.setWindowPointerConstraint(id, constraint, region) !void // lock/confinamento
+platform.windowPointerConstraint(id) PointerConstraint  // restricao ativa
 platform.windowScale(id) Scale            // escala da janela (1/1 = 100%)
 platform.windowBufferSize(id) WindowSize   // tamanho fisico do buffer
 platform.displayScale(id) Scale            // escala do display
@@ -314,6 +316,43 @@ compositor. Quando o IME pede para apagar texto, a aplicação recebe o
 evento `surrounding_delete` (`{ window, before, after }`) e decide o que
 apagar — a plataforma não conhece o conteúdo do editor.
 
+## Ponteiro: captura, lock e confinamento
+
+São **três operações diferentes**, e a API as separa:
+
+| Operação | Efeito | who confirma |
+|---|---|---|
+| `capturePointer()` | o ponteiro fica preso à janela, mas ainda entrega **posições absolutas** | o servidor (X11/Win32) |
+| `setPointerConstraint(.lock, null)` | o ponteiro **não se move** na tela; a aplicação recebe **deltas relativos** | o compositor (Wayland) ou imediato (X11/Win32) |
+| `setPointerConstraint(.confine, regiao)` | o ponteiro fica **dentro de uma região** da janela | idem |
+
+`PointerConstraint` é `none`, `lock` ou `confine`. A região do
+confinamento (`ConstraintRegion`) usa **coordenadas lógicas** da área de
+cliente (a mesma unidade de `Window.size()`); o backend aplica a escala.
+
+A operação é **assíncrona onde a plataforma confirma**: o evento
+`pointer_constraint` traz o **estado efetivo**. No Wayland, o compositor
+responde `locked`/`confined` (e `unlocked`/`unconfined` quando libera
+sozinho) — o `pointer_constraint` só é publicado depois disso. Se o
+compositor nunca confirmar (o protocolo permite que um lock nunca seja
+ativado), o estado permanece o anterior. Em X11 e Win32 não há
+confirmação: a restrição vale a partir do retorno da chamada.
+
+`pointerConstraint(id)` devolve o estado efetivo (o confirmado).
+
+**Movimento relativo**: o evento `pointer_relative`
+(`{ window, dx, dy, dx_unaccelerated, dy_unaccelerated }`) traz
+**deltas**, nunca posições. As unidades são unidades de superfície
+(lógicas) da janela de origem — o mesmo critério de `pointer_move`; não
+há conversão por escala, o valor é o que a plataforma reportou.
+`dx_unaccelerated`/`dy_unaccelerated` só existem quando a plataforma
+informa o movimento sem aceleração (Wayland: `zwp_relative_pointer_v1`).
+
+Onde o recurso não existe, a API devolve `error.NotImplemented` e a
+capacidade correspondente fica `false` (consulte
+`Platform.capabilities()`): `pointer_relative`, `pointer_lock` e
+`pointer_confinement` são independentes.
+
 ## Composição de texto (IME)
 
 O texto confirmado chega em `text_input` (um codepoint por evento). A
@@ -419,6 +458,8 @@ pub const Event = union(enum) {
     fullscreen: FullscreenEvent,     // { window, fullscreen }
     maximized: MaximizedEvent,       // { window, maximized }
     text_input: TextInputEvent,      // { window, codepoint }
+    pointer_relative: PointerRelativeEvent, // { window, dx, dy, ... }
+    pointer_constraint: PointerConstraintEvent, // { window, constraint }
     scale_changed: ScaleChangedEvent, // { window, scale }
     surrounding_delete: SurroundingDeleteEvent, // { window, before, after }
     raw_key: RawKeyEvent,            // { window, scancode, pressed, modifiers }
@@ -492,6 +533,8 @@ botões são estado global e não são associados a janela.
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
 `FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `RawKeyEvent`,
 `ScaleChangedEvent`, `SurroundingDeleteEvent`, `Scale`,
+`PointerConstraint`, `ConstraintRegion`, `PointerRelativeEvent`,
+`PointerConstraintEvent`,
 `version.string`
 (`"0.1.0-alpha.3"`).
 

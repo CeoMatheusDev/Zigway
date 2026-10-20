@@ -65,6 +65,40 @@ pub const Backend = struct {
         return null;
     }
 
+    /// Restricao de ponteiro (simulacao deterministica para testes).
+    pub fn setPointerConstraint(
+        self: *const Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        id: types.WindowId,
+        constraint: types.PointerConstraint,
+        region: ?types.ConstraintRegion,
+    ) !void {
+        _ = self;
+        if (region) |r| {
+            if (r.width == 0 or r.height == 0) return error.InvalidConfig;
+        }
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        if (reg.slots.items[slot].pointer_constraint == constraint) return;
+        reg.slots.items[slot].pointer_constraint = constraint;
+        events.dispatch(queue, state, .{ .pointer_constraint = .{
+            .window = reg.idOf(slot),
+            .constraint = constraint,
+        } });
+    }
+
+    /// Restricao de ponteiro ativa.
+    pub fn pointerConstraint(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        id: types.WindowId,
+    ) types.PointerConstraint {
+        _ = self;
+        const slot = reg.slotOf(id) orelse return .none;
+        return reg.slots.items[slot].pointer_constraint;
+    }
+
     /// Sem IME: nada a informar.
     pub fn setSurroundingText(
         self: *const Backend,

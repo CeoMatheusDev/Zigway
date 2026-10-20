@@ -286,6 +286,8 @@ pub const wl_registry_global_remove: u32 = 1;
 // --- Requests: wl_compositor ---
 pub const wl_compositor_create_surface: u32 = 0;
 pub const wl_compositor_create_region: u32 = 1;
+pub const wl_region_add: u32 = 1;
+pub const wl_region_destroy: u32 = 0;
 
 // --- Requests: wl_output ---
 pub const wl_output_release: u32 = 0;
@@ -301,6 +303,19 @@ pub const wl_output_description: u32 = 5;
 /// Flags de `wl_output.mode`.
 pub const wl_output_mode_current: u32 = 0x1;
 pub const wl_output_mode_preferred: u32 = 0x2;
+
+// --- Requests: movimento relativo e restricoes de ponteiro ---
+pub const zwp_relative_pointer_manager_v1_get_relative_pointer: u32 = 1;
+pub const zwp_relative_pointer_v1_destroy: u32 = 0;
+pub const zwp_pointer_constraints_manager_v1_lock_pointer: u32 = 1;
+pub const zwp_pointer_constraints_manager_v1_confine_pointer: u32 = 2;
+pub const zwp_locked_pointer_v1_destroy: u32 = 0;
+/// `lifetime` do protocolo de restricoes: `persistent` = 2 (o `oneshot` =
+/// 1 so vale para um unico uso).
+pub const zwp_pointer_constraint_lifetime_persistent: u32 = 2;
+pub const zwp_locked_pointer_v1_set_region: u32 = 2;
+pub const zwp_confined_pointer_v1_destroy: u32 = 0;
+pub const zwp_confined_pointer_v1_set_region: u32 = 1;
 
 // --- Requests: wp_fractional_scale_manager_v1 / wp_viewporter ---
 pub const wp_fractional_scale_v1_destroy: u32 = 0;
@@ -362,6 +377,8 @@ pub const interface_wl_shm = "wl_shm";
 pub const interface_wl_data_device_manager = "wl_data_device_manager";
 pub const interface_zwp_text_input_manager_v3 = "zwp_text_input_manager_v3";
 pub const interface_wp_fractional_scale_manager_v1 = "wp_fractional_scale_manager_v1";
+pub const interface_zwp_relative_pointer_manager_v1 = "zwp_relative_pointer_manager_v1";
+pub const interface_zwp_pointer_constraints_manager_v1 = "zwp_pointer_constraints_v1";
 pub const interface_wp_viewporter = "wp_viewporter";
 pub const interface_xdg_wm_base = "xdg_wm_base";
 

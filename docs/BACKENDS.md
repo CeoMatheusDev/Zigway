@@ -1,5 +1,13 @@
 # Backends — cobertura e limitações (v0.1.0-alpha.3)
 
+**Ponteiro (X11)**: nao ha pointer lock nem confinamento nativos. A
+implementacao usa o `XGrabPointer` (o mesmo mecanismo da captura) e, no
+lock, reposiciona o ponteiro ao centro da janela a cada movimento. O
+movimento relativo e derivado de movimentos absolutos consecutivos
+(enquanto restrito) e nao tem "raw motion" (sem aceleracao). Nao ha
+confirmacao do servidor: a restricao vale na hora. O `XInput2` (raw
+motion) fica pendente.
+
 **Escala (X11)**: o X11 não tem escala por monitor. A escala exposta é
 uma aproximação pelo DPI da tela (`XDisplayWidth` sobre
 `XDisplayWidthMM`, 96 DPI = 100%) e vale para todas as janelas. O
@@ -246,6 +254,12 @@ Limitações conhecidas:
   e `GetClipboardData` na leitura. A área é aberta/fechada a cada
   operação; `GlobalAlloc`/`GlobalLock` para o bloco de memória. Sem
   validação em runtime (apenas compilação cruzada).
+- Ponteiro: o confinamento usa o mecanismo nativo do Windows
+  (`ClipCursor`, com o retangulo em coordenadas de tela) mais
+  `SetCapture`, para que os eventos continuem chegando a janela; o lock
+  usa a mesma captura com o ponteiro centralizado. Nao ha confirmacao
+  explicita do sistema. O movimento relativo (Raw Input/`WM_INPUT`) fica
+  pendente: hoje nao ha evento relativo no Win32.
 - Escala: `get_dpi_for_window`/`get_dpi_for_system`/
   `get_dpi_for_monitor` são resolvidos em runtime (`GetProcAddress`),
   então o binário carrega em Windows onde elas não existem.
@@ -313,6 +327,16 @@ quando o compositor o anuncia; o `zwp_text_input_v3` recebe `enter`/
 composição) e `commit_string` (texto confirmado, publicado como
 `text_input`, um codepoint por evento). O texto em composição é
 consultado com `Platform.compositionText`.
+
+**Movimento relativo e restricoes**: o compositor pode anunciar
+`zwp_relative_pointer_manager_v1` (movimento relativo, ligado ao
+`wl_pointer` do seat) e `zwp_pointer_constraints_v1` (pointer lock e
+confinamento). O lock e o confinamento sao pedidos por superficie
+(`lock_pointer`/`confine_pointer`, com a regiao em `wl_region` em
+coordenadas logicas) e **confirmados pelo compositor** (`locked`/
+`confined`); o evento `pointer_constraint` so e publicado depois da
+confirmacao. A liberacao e local (destruir o objeto nao gera
+`unlocked`). O `lifetime` valido e `persistent` (2).
 
 **Cursor do sistema**: o tema de cursor vem da `libwayland-cursor`
 (carregada em runtime); a imagem é anexada a uma superfície dedicada e
