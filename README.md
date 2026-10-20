@@ -40,6 +40,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Native cursors:** Apply standard system cursors per window without depending on a renderer.
 - **Pointer capture:** Keep receiving pointer input for a window beyond its bounds, with explicit release.
 - **Monitor enumeration:** Query active display outputs and their geometry through one allocator-aware API, with native backends and a headless empty result.
+- **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
 - **Headless operation:** Use the null backend to exercise platform logic without a desktop session.
 - **Rendering freedom:** Integrate your preferred graphics API or UI toolkit without a bundled renderer.
@@ -189,13 +190,15 @@ A published release archive is not yet available; use a local dependency until a
 
 ## Examples
 
-The repository includes three example programs:
+The repository includes five example programs:
 
 | Example | Purpose |
 | --- | --- |
 | [`hello_window.zig`](examples/hello_window.zig) | Create and manage a native window |
 | [`multiple_windows.zig`](examples/multiple_windows.zig) | Work with more than one window |
 | [`keyboard_input.zig`](examples/keyboard_input.zig) | Handle keyboard events |
+| [`displays.zig`](examples/displays.zig) | List monitors and their geometry |
+| [`display_change.zig`](examples/display_change.zig) | React to display configuration changes |
 
 Build all examples with `zig build examples`.
 

@@ -62,6 +62,7 @@ pub const InputState = struct {
             .focus => {},
             .resize => {},
             .move => {},
+            .display_change => {},
             .close => {},
         }
     }

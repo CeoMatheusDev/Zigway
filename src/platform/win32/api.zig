@@ -141,6 +141,7 @@ pub const WM_SETFOCUS: UINT = 0x0007;
 pub const WM_KILLFOCUS: UINT = 0x0008;
 pub const WM_CLOSE: UINT = 0x0010;
 pub const WM_SETCURSOR: UINT = 0x0020;
+pub const WM_DISPLAYCHANGE: UINT = 0x007E;
 pub const WM_NCCREATE: UINT = 0x0081;
 pub const WM_KEYDOWN: UINT = 0x0100;
 pub const WM_KEYUP: UINT = 0x0101;

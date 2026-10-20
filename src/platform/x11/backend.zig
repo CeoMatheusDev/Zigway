@@ -100,6 +100,9 @@ pub const Backend = struct {
     xrandr: ?xrandr.Lib = null,
     /// RandR 1.5+ disponivel, com `XRRGetMonitors` utilizavel.
     xrandr_monitors: bool = false,
+    /// event_base RandR quando screen/crtc/output notifications foram
+    /// selecionados no root; null sem libXrandr/simbolos.
+    xrandr_event_base: ?c_int = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -132,8 +135,10 @@ pub const Backend = struct {
         // continua correto em qualquer falha anterior.
         const xrandr_lib = xrandr.Lib.load();
         var xrandr_monitors = false;
+        var xrandr_event_base: ?c_int = null;
         if (xrandr_lib) |*lib| {
             xrandr_monitors = lib.supportsMonitors(display);
+            xrandr_event_base = lib.enableEvents(display, root);
         }
         return .{
             .allocator = allocator,
@@ -145,6 +150,7 @@ pub const Backend = struct {
             .net_moveresize_supported = net_moveresize_supported,
             .xrandr = xrandr_lib,
             .xrandr_monitors = xrandr_monitors,
+            .xrandr_event_base = xrandr_event_base,
         };
     }
 
@@ -490,8 +496,22 @@ pub const Backend = struct {
         reg: *registry.Registry,
         queue: *events.EventQueue,
         state: *input.InputState,
-        ev: *const api.XEvent,
+        ev: *api.XEvent,
     ) void {
+        // RandR: evento base + 0 = RRScreenChangeNotify; + 1 = RRNotify
+        // (CRTC/output). Ambos significam que o snapshot de displays pode
+        // ter mudado; um aviso sem payload e suficiente.
+        if (self.xrandr_event_base) |base| {
+            if (ev.type == base) {
+                if (self.xrandr) |*lib| lib.updateConfiguration(ev);
+                events.dispatch(queue, state, .{ .display_change = .{} });
+                return;
+            }
+            if (ev.type == base + 1) {
+                events.dispatch(queue, state, .{ .display_change = .{} });
+                return;
+            }
+        }
         switch (ev.type) {
             api.KeyPress, api.KeyRelease => {
                 const pressed = ev.type == api.KeyPress;

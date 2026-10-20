@@ -44,6 +44,10 @@ pub const MoveEvent = struct {
     y: i32,
 };
 
+/// Mudanca na configuracao de monitores/display. Sem payload: o consumidor
+/// deve reconsultar `Platform.displays()` para obter o novo snapshot.
+pub const DisplayChangeEvent = struct {};
+
 pub const FocusEvent = struct {
     window: WindowId,
     focused: bool,
@@ -83,6 +87,7 @@ pub const Event = union(enum) {
     close: CloseEvent,
     resize: ResizeEvent,
     move: MoveEvent,
+    display_change: DisplayChangeEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
     key_up: KeyEvent,
@@ -105,6 +110,7 @@ pub const Event = union(enum) {
             .close => |e| e.window,
             .resize => |e| e.window,
             .move => |e| e.window,
+            .display_change => null,
             .focus => |e| e.window,
             .key_down => |e| e.window,
             .key_up => |e| e.window,
@@ -144,6 +150,11 @@ pub const EventQueue = struct {
 
     pub fn push(self: *EventQueue, event: Event) void {
         // 1. Coalescing de pointer_move adjacente (mesma janela).
+        // display_change tambem e coalescido: uma reconfiguracao pode gerar
+        // varios eventos RandR/WM seguidos; um unico aviso basta.
+        if (event == .display_change and self.events.items.len > 0) {
+            if (self.events.items[self.events.items.len - 1] == .display_change) return;
+        }
         if (event == .pointer_move and self.events.items.len > 0) {
             const last = &self.events.items[self.events.items.len - 1];
             if (last.* == .pointer_move and
@@ -226,6 +237,19 @@ test "queue preserves fifo order" {
     try std.testing.expect(q.next() == null);
 }
 
+test "queue coalesces adjacent display changes" {
+    var q = try EventQueue.init(std.testing.allocator, 8);
+    defer q.deinit();
+    q.push(.{ .display_change = .{} });
+    q.push(.{ .display_change = .{} });
+    try std.testing.expectEqual(@as(usize, 1), q.len());
+    // Uma janela entre os avisos separa o coalescing (FIFO preservado).
+    const id: WindowId = .{ .index = 0, .generation = 0 };
+    q.push(.{ .resize = .{ .window = id, .width = 1, .height = 1 } });
+    q.push(.{ .display_change = .{} });
+    try std.testing.expectEqual(@as(usize, 3), q.len());
+}
+
 test "queue coalesces adjacent pointer moves" {
     var q = try EventQueue.init(std.testing.allocator, 8);
     defer q.deinit();
@@ -276,6 +300,7 @@ test "event window accessor covers all variants" {
         .{ .close = .{ .window = id } },
         .{ .resize = .{ .window = id, .width = 1, .height = 1 } },
         .{ .move = .{ .window = id, .x = 1, .y = 2 } },
+        .{ .display_change = .{} },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
         .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
@@ -291,6 +316,10 @@ test "event window accessor covers all variants" {
         .{ .scroll = .{ .window = id, .dx = 0, .dy = 0 } },
     };
     for (cases) |ev| {
+        if (ev == .display_change) {
+            try std.testing.expect(ev.window() == null);
+            continue;
+        }
         try std.testing.expect(ev.window().?.eql(id));
     }
     const floating: Event = .{ .key_down = .{

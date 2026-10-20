@@ -655,6 +655,19 @@ test "null backend reports no displays" {
     try std.testing.expectEqual(@as(usize, 0), displays.len);
 }
 
+test "display change injection is global and coalesced" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    plat.injectEvent(.{ .display_change = .{} });
+    plat.injectEvent(.{ .display_change = .{} });
+
+    const event = plat.nextEvent() orelse return error.TestExpectedDisplayChange;
+    try std.testing.expect(event == .display_change);
+    try std.testing.expect(event.window() == null);
+    try std.testing.expect(plat.nextEvent() == null);
+}
+
 test "window position on null backend updates state and emits move" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     defer plat.deinit();

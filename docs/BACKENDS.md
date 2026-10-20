@@ -18,7 +18,9 @@ mouse (movimento,
 `deinit`), captura de ponteiro (`XGrabPointer`/`XUngrabPointer`,
 exclusiva por conexão, com transferência entre janelas) e enumeração
 de monitores (`XRRGetMonitors`, RandR 1.5+, com fallback para
-`XScreenCount`/`XDisplayWidth`/`XDisplayHeight`). Posição usa
+`XScreenCount`/`XDisplayWidth`/`XDisplayHeight`) e notificações RandR
+(`RRScreenChangeNotify`/`RRNotify` selecionados no root, emitindo
+`display_change`). Posição usa
 `_NET_MOVERESIZE_WINDOW` (EWMH, `StaticGravity`) quando o WM anuncia o
 atom em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. A leitura
 usa `XTranslateCoordinates` até o root e o evento `move` é emitido a
@@ -68,12 +70,17 @@ Limitações conhecidas:
 - Monitores: RandR 1.5+ é opcional em runtime. Sem `libXrandr.so.2`,
   sem a extensão, ou com versão <1.5, `displays()` reporta X screens
   (cada uma com origem `(0,0)`; são espaços independentes). Com RandR,
-  apenas a tela padrão é consultada. Não há eventos de hotplug: cada
-  chamada reflete o estado no momento. Troca de modo de vídeo não é
+  apenas a tela padrão é consultada. Quando `libXrandr` expõe
+  `XRRQueryExtension`/`XRRSelectInput`, screen/crtc/output notifications
+  são selecionados no root e viram `display_change`; sem a biblioteca, o
+  evento nativo não é emitido. Uma mudança pode gerar mais de um evento;
+  reconsultar `displays()` é idempotente. Troca de modo de vídeo não é
   implementada; `id` é o índice do snapshot (pode mudar em hotplug).
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
-Validado com display real: `zig build test-x11`.
+Validado com display real: `zig build test-x11`. Mudança de resolução e
+evento `display_change` validados manualmente em Xwayland; hotplug físico
+não foi testado.
 
 ## Win32 (`src/platform/win32/`)
 
@@ -88,9 +95,9 @@ estado autoritativo via `GetKeyState` (mouse e teclado), mouse
 (movimento, 5 botões, wheel vertical/horizontal), `WM_SIZE` (inclui
 minimize como invisível), posição via `WM_MOVE` + `ClientToScreen`,
 `GetWindowRect`/`SetWindowPos` preservando o delta da área de cliente,
-foco, `WM_CLOSE`→evento sem destruir,
-cursores do sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por
-janela), captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`,
+foco, `WM_CLOSE`→evento sem destruir, `WM_DISPLAYCHANGE`→
+`display_change`, cursores do sistema (`LoadCursorW` + `SetCursor` e
+`WM_SETCURSOR` por janela), captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`,
 por thread), enumeração de monitores
 (`EnumDisplayMonitors`/`GetMonitorInfoW`), multi-janelas.
 
@@ -119,6 +126,9 @@ Limitações conhecidas:
   janela. `setPosition` consulta a posição real após `SetWindowPos` e
   emite `move`; movimentos do usuário chegam por `WM_MOVE`. Sem
   validação em runtime (apenas compilação cruzada).
+- `display_change` vem de `WM_DISPLAYCHANGE`; a mensagem só chega a
+  janelas top-level (sem janelas abertas não há aviso) e hotplug pode
+  ser reportado de forma best-effort pelo Windows.
 - Captura de mouse é por thread: `SetCapture` pode falhar enquanto outra
   thread detém a captura (`PointerCaptureFailed`); a captura é liberada
   ao destruir a janela e verificada via `GetCapture`.
@@ -135,6 +145,7 @@ Não implementado. Ver `src/platform/wayland/README.md`.
 Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
 é no-op e a captura de ponteiro é apenas estado interno (aceita todas as
 variantes/janelas); `setPosition` atualiza o slot e emite `move`;
-`displays()` retorna lista vazia (não inventa monitores). Usado pelos
-testes unitários e como fallback em SOs sem
+`displays()` retorna lista vazia (não inventa monitores) e
+`display_change` é testável via `injectEvent`. Usado pelos testes
+unitários e como fallback em SOs sem
 backend.

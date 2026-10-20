@@ -86,13 +86,19 @@ for (displays) |info| {
 ```
 
 `DisplayInfo` é um snapshot: cada chamada consulta o estado atual, então
-hotplug/reconfiguração pode mudar a quantidade, a ordem e os `id`s. Não
-há eventos de mudança de monitor nesta fase. X11 usa RandR 1.5+ quando
-`libXrandr.so.2` está disponível em runtime; sem ela (ou sem RandR 1.5)
-reporta X screens, cada uma com origem `(0,0)` (espaços de coordenadas
-independentes). Win32 usa `EnumDisplayMonitors`. O backend null não
-inventa monitores: retorna lista vazia. Em plataforma fechada a lista
-também é vazia. Não há troca de modo de vídeo.
+hotplug/reconfiguração pode mudar a quantidade, a ordem e os `id`s.
+Mudanças são sinalizadas pelo evento `display_change` (sem payload):
+reconsulte `displays()` para obter o novo snapshot. X11 usa RandR 1.5+
+quando `libXrandr.so.2` está disponível em runtime; sem ela (ou sem
+RandR 1.5) reporta X screens, cada uma com origem `(0,0)` (espaços de
+coordenadas independentes). Se `libXrandr` e a extensão RandR expõem
+`XRRQueryExtension`/`XRRSelectInput`, notificações de tela/CRTC/output
+são emitidas mesmo quando `displays()` cai para X screens; sem a
+biblioteca ou a extensão não há evento nativo. Win32 usa
+`EnumDisplayMonitors` e trata `WM_DISPLAYCHANGE` nas janelas. O backend
+null não inventa monitores: retorna lista vazia; `display_change` pode
+ser injetado. Em plataforma fechada a lista também é vazia. Não há troca
+de modo de vídeo.
 
 ## Posição de janela
 
@@ -114,7 +120,8 @@ pub const Event = union(enum) {
     close: CloseEvent,              // { window: WindowId }
     resize: ResizeEvent,            // { window, width, height }
     move: MoveEvent,                // { window, x, y } origem do cliente
-    focus: FocusEvent,               // { window, focused }
+    display_change: DisplayChangeEvent, // sem payload; reconsultar displays()
+    focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
     pointer_button: PointerButtonEvent,
@@ -123,11 +130,14 @@ pub const Event = union(enum) {
 ```
 
 Fila: capacidade fixa, sem alocação após init; coalescing de
-`pointer_move` adjacente; overflow preserva `close` (`dropped` conta
-descartes). Eventos carregam só ids/escalares — destruir a janela
-poda seus eventos pendentes (seguro destruir durante o consumo da
-fila: `nextEvent` não retém índices). `Event.window()` retorna a
-janela associada, quando houver.
+`pointer_move` adjacente e de `display_change` adjacente; overflow
+preserva `close` (`dropped` conta descartes). Uma reconfiguração nativa
+pode gerar mais de um `display_change` (RandR emite screen/crtc/output
+em momentos distintos); reconsultar `displays()` é idempotente. Eventos
+carregam só ids/escalares — destruir a janela poda seus eventos
+pendentes (seguro destruir durante o consumo da fila: `nextEvent` não
+retém índices). `Event.window()` retorna a janela associada, quando
+houver; `display_change` não tem janela.
 
 Teclas sem mapeamento geram eventos com `.key == .unknown` (não são
 filtradas); o estado de input as registra normalmente.
@@ -176,7 +186,7 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
-`MoveEvent`, `version.string` (`"0.1.0-alpha.2"`).
+`MoveEvent`, `DisplayChangeEvent`, `version.string` (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,

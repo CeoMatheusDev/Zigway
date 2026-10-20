@@ -18,12 +18,14 @@ implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 
 Cursores do SO, captura de ponteiro, enumeração de monitores e posição
 de janela implementados (`Window.setCursor`/`capturePointer`/
-`setPosition`, `Platform.displays`). No X11, monitores físicos usam
+`setPosition`, `Platform.displays` e evento `display_change`). No X11,
+monitores físicos usam
 RandR 1.5+ via `libXrandr` opcional em runtime, com fallback para X
 screens, e posição usa EWMH (`_NET_MOVERESIZE_WINDOW`) quando
 disponível; Win32 usa `EnumDisplayMonitors` e
 `SetWindowPos`/`WM_MOVE`; null retorna lista vazia e aplica posição
-localmente. Troca de modo de vídeo permanece pendente.
+localmente. Notificações de mudança de display usam RandR no X11 e
+`WM_DISPLAYCHANGE` no Win32. Troca de modo de vídeo permanece pendente.
 
 ## v0.3.x — Text Input e Clipboard
 

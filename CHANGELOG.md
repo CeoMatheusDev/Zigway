@@ -45,6 +45,14 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   `move`. Falha de posicionamento nativo retorna `WindowMoveFailed`.
   Cobertura live X11 move uma janela e valida evento/posicao final
   (EWMH e fallback sem WM).
+- Evento `display_change` (`DisplayChangeEvent`, sem payload) para
+  reconfiguracao de monitores/display. X11 seleciona
+  `RRScreenChangeNotify`/`RRNotify` via `libXrandr` opcional e atualiza o
+  cache da Xlib; Win32 trata `WM_DISPLAYCHANGE`; null aceita
+  `injectEvent`. O evento e coalescido quando adjacente e nao tem
+  janela associada; uma mudanca nativa pode gerar mais de um aviso.
+  Exemplo `display_change.zig`; mudanca de resolucao/evento validados em
+  Xwayland, hotplug fisico nao testado.
 
 ## [0.1.0-alpha.2] — 2026-10-19
 

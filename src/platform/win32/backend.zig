@@ -543,6 +543,13 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             }
             return 0;
         },
+        api.WM_DISPLAYCHANGE => {
+            // Resolucao/color depth (e, na pratica, hotplug que altera o
+            // desktop). Cada janela top-level recebe; o coalescing da fila
+            // evita avisos adjacentes duplicados.
+            events.dispatch(queue, state, .{ .display_change = .{} });
+            return 0;
+        },
         api.WM_MOVE => {
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
                 var client = api.POINT{ .x = 0, .y = 0 };
