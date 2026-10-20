@@ -11,7 +11,7 @@ implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 - [x] Exemplos + testes unitários + live X11
 - [x] CI (Linux/X11 + Windows) — `.github/workflows/ci.yml`
 - [ ] Validação Win32 em runtime (requer Windows com desktop)
-- [ ] Endurecimento de lifecycle e cobertura de regressão
+- [x] Endurecimento de lifecycle e cobertura de regressão
 - [ ] Beta → RC → `v0.1.0` (primeira funcional)
 
 ## v0.2.x — Display e Cursor

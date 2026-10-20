@@ -279,6 +279,63 @@ test "live x11: multiple windows are independent" {
     try std.testing.expectEqual(@as(u32, 480), w2.size().width);
 }
 
+test "live x11: visibility toggle via Map/Unmap" {
+    // Valida setVisible end-to-end: XUnmapWindow/XMapWindow geram
+    // UnmapNotify/MapNotify, que atualizam slot.visible.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-live-visibility",
+    });
+    defer w.deinit();
+
+    // Drena eventos iniciais (MapNotify etc.).
+    var i: usize = 0;
+    while (i < 30) : (i += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+    }
+
+    try std.testing.expect(plat.isWindowVisible(w.windowId()));
+
+    // Unmap.
+    try w.setVisible(false);
+    var saw_unmap = false;
+    var waited: u32 = 0;
+    while (waited < 3000 and !saw_unmap) : (waited += 50) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        if (!plat.isWindowVisible(w.windowId())) saw_unmap = true;
+        if (!saw_unmap) sleepMs(50);
+    }
+    try std.testing.expect(saw_unmap);
+    try std.testing.expect(!plat.isWindowVisible(w.windowId()));
+
+    // Map.
+    try w.setVisible(true);
+    var saw_map = false;
+    waited = 0;
+    while (waited < 3000 and !saw_map) : (waited += 50) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        if (plat.isWindowVisible(w.windowId())) saw_map = true;
+        if (!saw_map) sleepMs(50);
+    }
+    try std.testing.expect(saw_map);
+    try std.testing.expect(plat.isWindowVisible(w.windowId()));
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —

@@ -49,9 +49,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   display): ciclo create/poll/resize, erro de protocolo não encerra o
   processo, destruição externa (servidor) — `close` uma única vez,
   entrada nativa removida (ops retornam `InvalidWindow`) e slot
-  preservado até o consumidor destruir — e independência de múltiplas
+  preservado até o consumidor destruir —, independência de múltiplas
   janelas simultâneas (ids distintos, resize isolado, destroy não
-  afeta a outra, poda de eventos da janela destruída).
+  afeta a outra, poda de eventos da janela destruída) e visibilidade
+  via Map/Unmap (`setVisible` → `UnmapNotify`/`MapNotify` →
+  `isWindowVisible`).
 - Teste de sincronia de versão (`version string matches build.zig.zon`):
   falha ruidosamente se `src/core/version.zig` divergir de
   `build.zig.zon` (declarado como entrada do passo de teste).
