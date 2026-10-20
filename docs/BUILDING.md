@@ -33,6 +33,22 @@ zig build test-wayland        # integração Wayland (pula sem compositor nativo
 modo original ao final (inclusive em caso de falha). Use um display de
 teste (ex.: `Xwayland :99`) para não afetar a sessão real.
 
+### Aviso `failed command:` nos passos live
+
+Os passos `test-x11` e `test-wayland` podem imprimir a linha
+
+```
+failed command: ./.zig-cache/o/.../test --cache-dir=... --listen=-
+```
+
+Isso é um **aviso do runner do Zig 0.17** (o passo aparece como
+`run test w`), não uma falha: o `Build Summary` mostra o passo como
+`success`, o código de saída é 0 e todos os testes passaram. O runner
+imprime a linha porque o processo filho do runner de testes é encerrado
+depois que os resultados já foram recebidos. Os testes live dependem de
+timing (o WM e o compositor demoram a responder), então uma primeira
+tentativa pode falhar e ser repetida automaticamente pelo Zig.
+
 Saídas em `zig-out/` (`bin/`, `lib/`); cache em `.zig-cache/`
 (ambos ignorados pelo git).
 

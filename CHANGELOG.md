@@ -128,6 +128,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Backend Wayland: `display_change` passa a ser emitido quando um
+  output muda (modo, escala ou posição); as propriedades iniciais do
+  compositor não geram evento espúrio.
 - Backend Wayland **nativo** (não XWayland): conexão com o compositor,
   registry (`wl_display.get_registry` + `wl_registry.bind`), outputs
   (`wl_output` → `Platform.displays()` com tamanho lógico) e seat

@@ -286,3 +286,27 @@ test "live wayland: the keyboard focuses the window under the cursor" {
         std.debug.print("\n[wl-live] teclado com foco na janela\n", .{});
     }
 }
+
+test "live wayland: initial output properties are not a display change" {
+    // As propriedades iniciais dos outputs nao podem gerar um
+    // `display_change` espurio (o evento e para mudancas reais).
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .wayland }) catch |err| {
+        if (err == error.NoDisplay or err == error.UnsupportedBackend or
+            err == error.ConnectionFailed or err == error.NotImplemented)
+        {
+            std.debug.print("\n[wl-live] compositor indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var attempts: u32 = 0;
+    while (attempts < 20) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            try std.testing.expect(ev != .display_change);
+        }
+        sleepMs(10);
+    }
+}

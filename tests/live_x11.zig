@@ -14,6 +14,14 @@ extern "c" fn nanosleep(req: *const Timespec, rem: ?*Timespec) c_int;
 
 const XErrorHandler = *const fn (display: ?*anyopaque, event: *anyopaque) callconv(.c) c_int;
 extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
+extern "X11" fn XInitThreads() c_int;
+
+/// A Xlib exige `XInitThreads()` antes de qualquer uso quando mais de uma
+/// thread toca a biblioteca (os testes de clipboard usam duas conexoes em
+/// threads distintas). Retorna 0 se a Xlib ja foi inicializada.
+fn initXlibThreads() void {
+    _ = XInitThreads();
+}
 
 /// Contador de erros de protocolo durante o teste de cursores. O handler
 /// da Xlib nao recebe contexto do usuario, por isso o estado e de arquivo.
@@ -50,6 +58,7 @@ fn captureEventually(plat: *zigway.Platform, window: zigway.Window) !void {
 }
 
 test "live x11: open display, create window, poll, destroy" {
+    initXlibThreads();
     var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
         // Sem display, backend indisponivel ou SO sem X11: pula sem falhar.
         if (err == error.NoDisplay or err == error.ConnectionFailed or
@@ -715,19 +724,22 @@ test "live x11: focus in/out updates state" {
 
     // Tenta dar foco à janela.
     try w.focus();
-    var saw_focus = false;
+    // O WM pode mover o foco (outro cliente, o mouse do usuario): o que
+    // importa e o ULTIMO evento de foco, e nao "algum evento de foco".
+    var last_focused: ?bool = null;
     var waited: u32 = 0;
-    while (waited < 3000 and !saw_focus) : (waited += 50) {
+    while (waited < 3000 and last_focused == null) : (waited += 50) {
         plat.pollEvents();
         while (plat.nextEvent()) |ev| {
-            if (ev == .focus and ev.focus.focused) saw_focus = true;
+            if (ev == .focus) last_focused = ev.focus.focused;
         }
-        if (!saw_focus) sleepMs(50);
+        if (last_focused == null) sleepMs(50);
     }
 
     // Em ambiente sem WM, o foco pode não ser concedido; não falha o teste.
-    if (saw_focus) {
-        try std.testing.expect(plat.isWindowFocused(w.windowId()));
+    if (last_focused) |focused| {
+        // O estado precisa refletir o último evento de foco observado.
+        try std.testing.expectEqual(focused, plat.isWindowFocused(w.windowId()));
     }
 }
 
@@ -1158,6 +1170,7 @@ test "live x11: clipboard falls back to legacy STRING target when reading" {
     defer plat.deinit();
 
     var owner = LegacyClipboardOwner{ .text = "caf\xe9" };
+    initXlibThreads();
     const thread = try std.Thread.spawn(.{}, LegacyClipboardOwner.run, .{&owner});
     defer {
         owner.stop.store(true, .release);
@@ -1872,6 +1885,7 @@ test "live x11: clipboard transfers between two connections" {
     try owner_plat.setClipboardText("zigway cross connection");
 
     var owner = ClipboardOwner{ .plat = &owner_plat };
+    initXlibThreads();
     const thread = try std.Thread.spawn(.{}, ClipboardOwner.run, .{&owner});
     defer {
         owner.stop.store(true, .release);

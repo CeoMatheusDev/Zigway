@@ -337,6 +337,10 @@ tamanho, maximização/fullscreen e destruição). Sem compositor, o teste
 pula sem falhar. A CI não tem compositor Wayland: lá o passo apenas
 exercita o caminho de "pula".
 
+Mudanças de output (modo, escala, posição) geram o evento
+`display_change` (reconsulte `displays()`); as propriedades iniciais do
+compositor não geram evento espúrio.
+
 Detalhe: `wl_output` não informa qual output é o primário (exige
 `xdg-output`), então `DisplayInfo.primary` é `false` no Wayland; o
 tamanho reportado é o lógico (modo ÷ escala).

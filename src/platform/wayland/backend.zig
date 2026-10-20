@@ -297,6 +297,9 @@ const State = struct {
     /// Descritores de arquivo ja enviados ao compositor via SCM_RIGHTS:
     /// so podem ser fechados depois que a requisicao foi enviada (flush).
     pending_fds: std.ArrayList(i32) = .empty,
+    /// Um output mudou (modo/escala/posicao): o aplicativo precisa
+    /// reconsultar `displays()`.
+    pending_display_change: bool = false,
     /// Listeners: a libwayland guarda o ponteiro, entao precisam de
     /// endereco estavel.
     listeners: Listeners = .{
@@ -702,6 +705,8 @@ pub const Backend = struct {
             @ptrCast(state),
         );
 
+        // As propriedades iniciais dos outputs nao sao uma "mudanca":
+        // o flag e limpo depois dos roundtrips.
         // Roundtrip: recebe os globals (wl_output, wl_seat, ...).
         if (lib.symbols.display_roundtrip(display) < 0) return error.ConnectionFailed;
 
@@ -709,6 +714,9 @@ pub const Backend = struct {
         // eventos de propriedade dos outputs (geometry/mode/scale), do
         // seat (capabilities) e do shm (format).
         if (lib.symbols.display_roundtrip(display) < 0) return error.ConnectionFailed;
+
+        // As propriedades iniciais nao contam como mudanca de display.
+        state.pending_display_change = false;
 
         return .{
             .allocator = allocator,
@@ -1215,6 +1223,12 @@ pub const Backend = struct {
     ) void {
         if (self.state.failed) return;
 
+        // Mudanca de display (modo/escala/posicao de um output).
+        if (self.state.pending_display_change) {
+            self.state.pending_display_change = false;
+            events.dispatch(queue, state, .{ .display_change = .{} });
+        }
+
         // Entrada do ponteiro (superficie -> janela).
         const pointer_slot = self.slotOfSurface(self.state.pointer_surface);
         var pointer_window: ?types.WindowId = null;
@@ -1526,6 +1540,7 @@ fn onOutputGeometry(
     out.y = y;
     out.physical_width = physical_width;
     out.physical_height = physical_height;
+    state.pending_display_change = true;
     _ = subpixel;
     if (make) |m| copyString(&out.make, m);
     if (model) |m| copyString(&out.model, m);
@@ -1546,6 +1561,7 @@ fn onOutputMode(
         out.mode_height = height;
         out.refresh = refresh;
         out.has_mode = true;
+        state.pending_display_change = true;
     }
 }
 
@@ -1558,7 +1574,10 @@ fn onOutputDone(data: ?*anyopaque, proxy: ?*api.wl_proxy) callconv(.c) void {
 fn onOutputScale(data: ?*anyopaque, proxy: ?*api.wl_proxy, factor: i32) callconv(.c) void {
     const state = stateFrom(data) orelse return;
     const out = state.outputByProxy(proxy orelse return) orelse return;
-    if (factor > 0) out.scale = factor;
+    if (factor > 0 and factor != out.scale) {
+        out.scale = factor;
+        state.pending_display_change = true;
+    }
 }
 
 fn onOutputName(data: ?*anyopaque, proxy: ?*api.wl_proxy, name: ?[*:0]const u8) callconv(.c) void {
