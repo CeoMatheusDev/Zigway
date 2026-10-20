@@ -33,12 +33,60 @@ fn xErrorHandler(display: ?*api.Display, event: *api.XErrorEvent) callconv(.c) c
     return 0;
 }
 
+/// Verifica se `atom` esta na propriedade `property` (formato ATOM) da
+/// janela. Usado para detectar `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`
+/// sem depender de um WM especifico.
+fn propertyHasAtom(
+    display: *api.Display,
+    target: api.Window,
+    property: api.Atom,
+    atom: api.Atom,
+) bool {
+    if (property == 0 or atom == 0) return false;
+    var actual_type: api.Atom = 0;
+    var actual_format: c_int = 0;
+    var nitems: c_ulong = 0;
+    var bytes_after: c_ulong = 0;
+    var raw: ?[*]u8 = null;
+    const status = api.XGetWindowProperty(
+        display,
+        target,
+        property,
+        0,
+        1024,
+        0,
+        api.XA_ATOM,
+        &actual_type,
+        &actual_format,
+        &nitems,
+        &bytes_after,
+        &raw,
+    );
+    defer {
+        if (raw) |ptr| _ = api.XFree(@ptrCast(ptr));
+    }
+    if (status != 0) return false;
+    if (actual_type != api.XA_ATOM or actual_format != 32) return false;
+    // Formato 32 da Xlib e devolvido como array de `long`, nao de int.
+    const values: [*]c_ulong = @ptrCast(@alignCast(raw orelse return false));
+    var i: usize = 0;
+    while (i < @as(usize, @intCast(nitems))) : (i += 1) {
+        if (values[i] == atom) return true;
+    }
+    return false;
+}
+
 pub const Backend = struct {
     allocator: std.mem.Allocator,
     display: *api.Display,
     root: api.Window,
     wm_delete: api.Atom,
     wm_protocols: api.Atom,
+    /// `_NET_MOVERESIZE_WINDOW` (EWMH): posicionamento absoluto com
+    /// StaticGravity quando suportado pelo WM.
+    net_moveresize_window: api.Atom,
+    /// O WM anunciou `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`.
+    net_moveresize_supported: bool = false,
     entries: std.ArrayList(Entry) = .empty,
     /// Cache de cursores por variante, criado sob demanda e liberado no
     /// deinit. Handles sao globais ao backend (compartilhados por janelas).
@@ -71,6 +119,14 @@ pub const Backend = struct {
         if (wm_delete == 0) return error.ConnectionFailed;
         const wm_protocols = api.XInternAtom(display, "WM_PROTOCOLS", 0);
         if (wm_protocols == 0) return error.ConnectionFailed;
+        const net_moveresize_window = api.XInternAtom(display, "_NET_MOVERESIZE_WINDOW", 0);
+        const net_supported = api.XInternAtom(display, "_NET_SUPPORTED", 0);
+        const net_moveresize_supported = propertyHasAtom(
+            display,
+            root,
+            net_supported,
+            net_moveresize_window,
+        );
         // Opcional e sem dependencia de link. Carregado por ultimo: nao ha
         // mais operacoes faliveis no init, entao o errdefer do display
         // continua correto em qualquer falha anterior.
@@ -85,6 +141,8 @@ pub const Backend = struct {
             .root = root,
             .wm_delete = wm_delete,
             .wm_protocols = wm_protocols,
+            .net_moveresize_window = net_moveresize_window,
+            .net_moveresize_supported = net_moveresize_supported,
             .xrandr = xrandr_lib,
             .xrandr_monitors = xrandr_monitors,
         };
@@ -244,6 +302,86 @@ pub const Backend = struct {
         _ = api.XResizeWindow(self.display, self.entries.items[entry_idx].win, width, height);
         _ = api.XFlush(self.display);
         // Confirmacao chega via ConfigureNotify.
+    }
+
+    /// Move a origem da area de cliente para (x, y) em coordenadas de
+    /// tela. Se o WM anunciar `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`,
+    /// usa EWMH + StaticGravity; caso contrario usa `XMoveWindow`
+    /// (melhor esforco). Confirmacao via ConfigureNotify.
+    pub fn setPosition(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        x: i32,
+        y: i32,
+    ) !void {
+        _ = reg;
+        _ = queue;
+        _ = state;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const win = self.entries.items[entry_idx].win;
+
+        if (self.net_moveresize_supported and self.net_moveresize_window != 0) {
+            // data.l[0]: gravidade (StaticGravity) | flags (x,y) << 8 |
+            // source (aplicacao) << 12. Ver EWMH 4.2.
+            const flags: c_long = api.StaticGravity | (0x03 << 8) | (1 << 12);
+            var event = api.XEvent{ .client = .{
+                .type = api.ClientMessage,
+                .serial = 0,
+                .send_event = 1,
+                .display = self.display,
+                .window = win,
+                .message_type = self.net_moveresize_window,
+                .format = 32,
+                .data = .{ .l = .{ flags, @intCast(x), @intCast(y), 0, 0 } },
+            } };
+            if (api.XSendEvent(
+                self.display,
+                self.root,
+                0,
+                api.SubstructureRedirectMask | api.SubstructureNotifyMask,
+                &event,
+            ) != 0) {
+                _ = api.XFlush(self.display);
+                return;
+            }
+        }
+
+        if (api.XMoveWindow(self.display, win, x, y) == 0) {
+            return error.WindowMoveFailed;
+        }
+        _ = api.XFlush(self.display);
+    }
+
+    /// Posicao atual da origem da area de cliente, consultada na Xlib
+    /// (funciona com janelas reparented pelo WM).
+    pub fn position(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) types.WindowPosition {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return .{ .x = 0, .y = 0 };
+        return self.clientPosition(self.entries.items[entry_idx].win) orelse .{ .x = 0, .y = 0 };
+    }
+
+    fn clientPosition(self: *const Backend, win: api.Window) ?types.WindowPosition {
+        var x: c_int = 0;
+        var y: c_int = 0;
+        var child: api.Window = 0;
+        if (api.XTranslateCoordinates(
+            self.display,
+            win,
+            self.root,
+            0,
+            0,
+            &x,
+            &y,
+            &child,
+        ) == 0) return null;
+        return .{ .x = x, .y = y };
     }
 
     pub fn setVisible(
@@ -432,6 +570,17 @@ pub const Backend = struct {
                 const w: u32 = @intCast(ev.configure.width);
                 const h: u32 = @intCast(ev.configure.height);
                 const entry = &reg.slots.items[slot];
+                if (self.clientPosition(ev.configure.window)) |pos| {
+                    if (entry.x != pos.x or entry.y != pos.y) {
+                        entry.x = pos.x;
+                        entry.y = pos.y;
+                        events.dispatch(queue, state, .{ .move = .{
+                            .window = reg.idOf(slot),
+                            .x = pos.x,
+                            .y = pos.y,
+                        } });
+                    }
+                }
                 if (entry.width != w or entry.height != h) {
                     entry.width = w;
                     entry.height = h;

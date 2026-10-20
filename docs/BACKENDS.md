@@ -9,15 +9,20 @@ opcional em runtime para monitores físicos (RandR 1.5+), carregada via
 `dlopen`; não é dependência de link nem exige headers no build.
 
 Cobertura: abrir/fechar display, criar/destruir, mapear/desmapear,
-título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
-`WM_PROTOCOLS`), teclado via `XLookupKeysym`, mouse (movimento,
+título, resize, posição da área de cliente, foco, `WM_DELETE_WINDOW`
+(close, com checagem de `WM_PROTOCOLS`), teclado via `XLookupKeysym`,
+mouse (movimento,
 5 botões, roda vertical/horizontal), modificadores
 (Shift/Ctrl/Alt/Super), multi-janelas, cursores do sistema
 (`XCreateFontCursor` + `XDefineCursor`, cache por backend liberado no
 `deinit`), captura de ponteiro (`XGrabPointer`/`XUngrabPointer`,
 exclusiva por conexão, com transferência entre janelas) e enumeração
 de monitores (`XRRGetMonitors`, RandR 1.5+, com fallback para
-`XScreenCount`/`XDisplayWidth`/`XDisplayHeight`).
+`XScreenCount`/`XDisplayWidth`/`XDisplayHeight`). Posição usa
+`_NET_MOVERESIZE_WINDOW` (EWMH, `StaticGravity`) quando o WM anuncia o
+atom em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. A leitura
+usa `XTranslateCoordinates` até o root e o evento `move` é emitido a
+partir de `ConfigureNotify` quando a origem do cliente muda.
 
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
@@ -52,7 +57,9 @@ Limitações conhecidas:
 - Mapeamento keysym→`Key` cobre o conjunto documentado; o restante é
   `.unknown` (não falha).
 - `focus()` usa `XSetInputFocus` (melhor esforço; o WM pode recusar).
-- Posição absoluta da janela não é controlada (limite do protocolo).
+- Posição: é uma requisição ao WM, que pode ajustar, restringir ou
+  ignorar (especialmente antes do mapeamento); a confirmação chega via
+  `move`. `XMoveWindow` sem EWMH pode aplicar offsets de decoração.
 - `setCursor` é validado por ausência de erro de protocolo; o efeito
   visual não é inspecionado pelo teste.
 - Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);
@@ -79,7 +86,9 @@ ajustada via `AdjustWindowRectEx`), `WndProc` + pump com `PeekMessageW`,
 teclado (VK→`Key`, flag `repeat` via bit 30), modificadores derivados do
 estado autoritativo via `GetKeyState` (mouse e teclado), mouse
 (movimento, 5 botões, wheel vertical/horizontal), `WM_SIZE` (inclui
-minimize como invisível), foco, `WM_CLOSE`→evento sem destruir,
+minimize como invisível), posição via `WM_MOVE` + `ClientToScreen`,
+`GetWindowRect`/`SetWindowPos` preservando o delta da área de cliente,
+foco, `WM_CLOSE`→evento sem destruir,
 cursores do sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por
 janela), captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`,
 por thread), enumeração de monitores
@@ -106,6 +115,10 @@ Limitações conhecidas:
   `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
   (`ScreenToClient`).
 - `focus()` usa `SetFocus` (melhor esforço; foreground pertence ao SO).
+- Posição é a origem da área de cliente; o WM pode ajustar/clamp a
+  janela. `setPosition` consulta a posição real após `SetWindowPos` e
+  emite `move`; movimentos do usuário chegam por `WM_MOVE`. Sem
+  validação em runtime (apenas compilação cruzada).
 - Captura de mouse é por thread: `SetCapture` pode falhar enquanto outra
   thread detém a captura (`PointerCaptureFailed`); a captura é liberada
   ao destruir a janela e verificada via `GetCapture`.
@@ -121,6 +134,7 @@ Não implementado. Ver `src/platform/wayland/README.md`.
 
 Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
 é no-op e a captura de ponteiro é apenas estado interno (aceita todas as
-variantes/janelas); `displays()` retorna lista vazia (não inventa
-monitores). Usado pelos testes unitários e como fallback em SOs sem
+variantes/janelas); `setPosition` atualiza o slot e emite `move`;
+`displays()` retorna lista vazia (não inventa monitores). Usado pelos
+testes unitários e como fallback em SOs sem
 backend.

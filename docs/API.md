@@ -35,6 +35,7 @@ var w = try platform.createWindow(.{
 try platform.destroyWindow(id);
 platform.isWindowAlive(id) bool
 platform.windowSize(id) WindowSize       // inválido -> {0,0}
+platform.windowPosition(id) WindowPosition // origem da área de cliente; inválido -> {0,0}
 platform.isWindowVisible(id) bool
 platform.isWindowFocused(id) bool
 platform.windowShouldClose(id) bool      // inválido -> true
@@ -42,6 +43,8 @@ platform.requestWindowClose(id) void
 platform.setWindowTitle(id, title) !void
 platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
                                  // nativo confirma via evento; null aplica na hora
+platform.setWindowPosition(id, x, y) !void // origem da área de cliente;
+                                 // X11 confirma via evento `move`
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
 platform.setWindowCursor(id, cursor) !void
@@ -62,6 +65,8 @@ window.setCursor(Cursor) !void   // cursor do sistema, por janela
 window.capturePointer() !void    // captura exclusiva por Platform
 window.releasePointer() void     // idempotente; seguro em defer
 window.size() WindowSize
+window.position() WindowPosition
+window.setPosition(x, y) !void
 ```
 
 ## Displays
@@ -89,12 +94,26 @@ independentes). Win32 usa `EnumDisplayMonitors`. O backend null não
 inventa monitores: retorna lista vazia. Em plataforma fechada a lista
 também é vazia. Não há troca de modo de vídeo.
 
+## Posição de janela
+
+`WindowPosition` é a origem da **área de cliente** em coordenadas de tela
+do backend (não inclui decoração/título). `windowPosition`/`position`
+consultam o recurso nativo quando possível; após `deinit` ou para um id
+inválido retornam `{0,0}`. `setPosition` é uma requisição: o WM pode
+ajustar, restringir ou ignorar a posição, e a confirmação chega pelo
+evento `move` (no X11, no próximo `pollEvents`). X11 usa
+`_NET_MOVERESIZE_WINDOW` com `StaticGravity` quando o WM anuncia suporte
+em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. Win32 posiciona
+a janela externa preservando o delta até a área de cliente. Null aplica
+na hora e emite `move`.
+
 ## Eventos
 
 ```zig
 pub const Event = union(enum) {
     close: CloseEvent,              // { window: WindowId }
     resize: ResizeEvent,            // { window, width, height }
+    move: MoveEvent,                // { window, x, y } origem do cliente
     focus: FocusEvent,               // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
@@ -157,12 +176,12 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
-`version.string` (`"0.1.0-alpha.2"`).
+`MoveEvent`, `version.string` (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
-`WindowCreationFailed`, `CursorCreationFailed`, `PointerCaptureFailed`,
-`InvalidWindow`, `PlatformClosed`.
+`WindowCreationFailed`, `WindowMoveFailed`, `CursorCreationFailed`,
+`PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`.
 
 ## Lifecycle
 

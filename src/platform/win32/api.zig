@@ -113,8 +113,10 @@ pub const PM_REMOVE: UINT = 0x0001;
 pub const GWLP_USERDATA: c_int = -21;
 pub const GWL_STYLE: c_int = -16;
 
+pub const SWP_NOSIZE: UINT = 0x0001;
 pub const SWP_NOMOVE: UINT = 0x0002;
 pub const SWP_NOZORDER: UINT = 0x0004;
+pub const SWP_NOACTIVATE: UINT = 0x0010;
 
 pub const SIZE_MINIMIZED: WPARAM = 1;
 
@@ -133,6 +135,7 @@ pub const IDC_HAND: usize = 32649;
 
 // --- Mensagens ---
 pub const WM_DESTROY: UINT = 0x0002;
+pub const WM_MOVE: UINT = 0x0003;
 pub const WM_SIZE: UINT = 0x0005;
 pub const WM_SETFOCUS: UINT = 0x0007;
 pub const WM_KILLFOCUS: UINT = 0x0008;
@@ -238,6 +241,7 @@ pub extern "user32" fn SetWindowPos(
     height: c_int,
     flags: UINT,
 ) BOOL;
+pub extern "user32" fn GetWindowRect(hwnd: HWND, rect: *RECT) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, cmd: c_int) BOOL;
 pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
 pub extern "user32" fn SetCapture(hwnd: HWND) HWND;
@@ -257,5 +261,6 @@ pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;
 pub extern "user32" fn ScreenToClient(hwnd: HWND, pt: *POINT) BOOL;
+pub extern "user32" fn ClientToScreen(hwnd: HWND, pt: *POINT) BOOL;
 
 pub extern "kernel32" fn GetModuleHandleW(name: LPCWSTR) HINSTANCE;

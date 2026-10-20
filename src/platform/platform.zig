@@ -223,6 +223,16 @@ pub const Platform = struct {
         return .{ .width = slot.width, .height = slot.height };
     }
 
+    /// Posicao atual da origem da area de cliente, em coordenadas de tela.
+    /// Invalido/plataforma fechada -> {0,0} (falha segura).
+    pub fn windowPosition(self: *Platform, id: types.WindowId) types.WindowPosition {
+        if (self.closed) return .{ .x = 0, .y = 0 };
+        const index = self.reg.indexOf(id) orelse return .{ .x = 0, .y = 0 };
+        return switch (self.backend) {
+            inline else => |*b| b.position(&self.reg, index),
+        };
+    }
+
     pub fn isWindowVisible(self: *Platform, id: types.WindowId) bool {
         if (self.closed) return false;
         const slot = self.reg.get(id) orelse return false;
@@ -253,6 +263,24 @@ pub const Platform = struct {
         // CONFIRMADO (via evento nativo ou backend sincrono).
         switch (self.backend) {
             inline else => |*b| try b.setSize(&self.reg, index, width, height),
+        }
+    }
+
+    /// Move a origem da area de cliente para (x, y) em coordenadas de tela.
+    /// X11 confirma via ConfigureNotify (evento `move`); Win32/null
+    /// confirmam de forma sincrona.
+    pub fn setWindowPosition(self: *Platform, id: types.WindowId, x: i32, y: i32) !void {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.setPosition(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                index,
+                x,
+                y,
+            ),
         }
     }
 
@@ -580,6 +608,7 @@ test "invalid ops on dead id return InvalidWindow" {
 
     try std.testing.expectError(error.InvalidWindow, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowSize(id, 10, 10));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowPosition(id, 10, 10));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowCursor(id, .text));
@@ -626,6 +655,33 @@ test "null backend reports no displays" {
     try std.testing.expectEqual(@as(usize, 0), displays.len);
 }
 
+test "window position on null backend updates state and emits move" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+
+    var pos = w.position();
+    try std.testing.expectEqual(@as(i32, 0), pos.x);
+    try std.testing.expectEqual(@as(i32, 0), pos.y);
+
+    try w.setPosition(120, 80);
+    pos = w.position();
+    try std.testing.expectEqual(@as(i32, 120), pos.x);
+    try std.testing.expectEqual(@as(i32, 80), pos.y);
+
+    const event = plat.nextEvent() orelse return error.TestExpectedMoveEvent;
+    try std.testing.expect(event == .move);
+    try std.testing.expect(event.move.window.eql(w.windowId()));
+    try std.testing.expectEqual(@as(i32, 120), event.move.x);
+    try std.testing.expectEqual(@as(i32, 80), event.move.y);
+
+    // Mesma posicao: sem evento duplicado.
+    try w.setPosition(120, 80);
+    try std.testing.expect(plat.nextEvent() == null);
+}
+
 test "double deinit is safe" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     _ = try plat.createWindow(.{});
@@ -642,6 +698,7 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.createWindow(.{}));
     try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowPosition(id, 10, 10));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
     try std.testing.expectError(error.PlatformClosed, plat.captureWindowPointer(id));
     plat.releaseWindowPointer(id); // no-op apos deinit
@@ -650,6 +707,9 @@ test "operations after deinit fail safe" {
     try std.testing.expect(plat.nextEvent() == null);
     try std.testing.expect(plat.windowShouldClose(id));
     try std.testing.expect(!plat.isWindowAlive(id));
+    const closed_pos = plat.windowPosition(id);
+    try std.testing.expectEqual(@as(i32, 0), closed_pos.x);
+    try std.testing.expectEqual(@as(i32, 0), closed_pos.y);
     const displays = try plat.displays(std.testing.allocator);
     defer std.testing.allocator.free(displays);
     try std.testing.expectEqual(@as(usize, 0), displays.len);

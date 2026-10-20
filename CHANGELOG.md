@@ -34,6 +34,17 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   `EnumDisplayMonitors`/`GetMonitorInfoW`; null retorna lista vazia
   (nao inventa monitores). Cobertura live X11 valida geometria e IDs.
   Troca de modo de video permanece fora desta fase.
+- `Window.setPosition`/`position` e
+  `Platform.setWindowPosition`/`windowPosition`, com evento `move`
+  (`MoveEvent`). A posicao e a origem da area de cliente em
+  coordenadas de tela. X11 usa `_NET_MOVERESIZE_WINDOW` com
+  `StaticGravity` quando o WM anuncia o atom em `_NET_SUPPORTED` e cai
+  para `XMoveWindow` sem WM/EWMH; a confirmacao chega via
+  `ConfigureNotify`. Win32 usa `SetWindowPos` preservando o delta da
+  area de cliente e `WM_MOVE`/`ClientToScreen`; null aplica e emite
+  `move`. Falha de posicionamento nativo retorna `WindowMoveFailed`.
+  Cobertura live X11 move uma janela e valida evento/posicao final
+  (EWMH e fallback sem WM).
 
 ## [0.1.0-alpha.2] — 2026-10-19
 

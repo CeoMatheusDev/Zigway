@@ -158,7 +158,8 @@ pub const WindowSize = struct {
     height: u32,
 };
 
-/// Posicao da janela em coordenadas de tela (quando o backend permite).
+/// Posicao da origem da area de cliente em coordenadas de tela do
+/// backend. Para X11/Win32 e consultada no recurso nativo quando possivel.
 pub const WindowPosition = struct {
     x: i32,
     y: i32,

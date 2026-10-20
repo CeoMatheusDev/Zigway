@@ -27,6 +27,8 @@ pub const Slot = struct {
     visible: bool = false,
     width: u32 = 0,
     height: u32 = 0,
+    x: i32 = 0,
+    y: i32 = 0,
     native_ptr: ?*anyopaque = null,
     native_id: u64 = 0,
 };

@@ -19,6 +19,11 @@ pub const Status = c_int;
 pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
+pub const XA_ATOM: Atom = 4;
+
+/// Gravidade "estatica": referencia e o topo-esquerdo da area de cliente
+/// (ICCCM/EWMH). Usada em `_NET_MOVERESIZE_WINDOW`.
+pub const StaticGravity: c_long = 10;
 
 // --- Grab de ponteiro (X.h) ---
 pub const GrabModeAsync: c_int = 1;
@@ -60,6 +65,8 @@ pub const ButtonReleaseMask: c_long = 1 << 3;
 pub const PointerMotionMask: c_long = 1 << 6;
 pub const ExposureMask: c_long = 1 << 15;
 pub const StructureNotifyMask: c_long = 1 << 17;
+pub const SubstructureNotifyMask: c_long = 1 << 19;
+pub const SubstructureRedirectMask: c_long = 1 << 20;
 pub const FocusChangeMask: c_long = 1 << 21;
 
 pub const input_mask: c_long = KeyPressMask | KeyReleaseMask |
@@ -320,6 +327,39 @@ pub extern "X11" fn XSync(display: *Display, discard: XBool) c_int;
 pub extern "X11" fn XInternAtom(display: *Display, name: [*:0]const u8, only_if_exists: XBool) Atom;
 pub extern "X11" fn XSetWMProtocols(display: *Display, window: Window, protocols: [*]Atom, count: c_int) Status;
 pub extern "X11" fn XResizeWindow(display: *Display, window: Window, width: c_uint, height: c_uint) c_int;
+pub extern "X11" fn XMoveWindow(display: *Display, window: Window, x: c_int, y: c_int) c_int;
+pub extern "X11" fn XTranslateCoordinates(
+    display: *Display,
+    src_window: Window,
+    dest_window: Window,
+    src_x: c_int,
+    src_y: c_int,
+    dest_x_return: *c_int,
+    dest_y_return: *c_int,
+    child_return: *Window,
+) XBool;
+pub extern "X11" fn XSendEvent(
+    display: *Display,
+    window: Window,
+    propagate: XBool,
+    event_mask: c_long,
+    event: *XEvent,
+) Status;
+pub extern "X11" fn XGetWindowProperty(
+    display: *Display,
+    window: Window,
+    property: Atom,
+    long_offset: c_long,
+    long_length: c_long,
+    delete: XBool,
+    req_type: Atom,
+    actual_type_return: *Atom,
+    actual_format_return: *c_int,
+    nitems_return: *c_ulong,
+    bytes_after_return: *c_ulong,
+    prop_return: *?[*]u8,
+) c_int;
+pub extern "X11" fn XFree(data: ?*anyopaque) c_int;
 pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to: c_int, time: Time) c_int;
 pub extern "X11" fn XCreateFontCursor(display: *Display, shape: c_uint) Cursor;
 pub extern "X11" fn XDefineCursor(display: *Display, window: Window, cursor: Cursor) c_int;

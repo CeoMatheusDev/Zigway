@@ -43,6 +43,7 @@ pub const Event = events_mod.Event;
 pub const EventQueue = events_mod.EventQueue;
 pub const CloseEvent = events_mod.CloseEvent;
 pub const ResizeEvent = events_mod.ResizeEvent;
+pub const MoveEvent = events_mod.MoveEvent;
 pub const FocusEvent = events_mod.FocusEvent;
 pub const KeyEvent = events_mod.KeyEvent;
 pub const PointerMoveEvent = events_mod.PointerMoveEvent;

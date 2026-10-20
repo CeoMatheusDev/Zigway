@@ -255,6 +255,12 @@ pub const Backend = struct {
 
         try self.entries.append(self.allocator, .{ .slot = slot, .hwnd = hwnd });
         reg.slots.items[slot].native_ptr = hwnd;
+        // CW_USEDEFAULT: a posicao inicial nao e conhecida ate consultar.
+        var client = api.POINT{ .x = 0, .y = 0 };
+        if (api.ClientToScreen(hwnd, &client) != 0) {
+            reg.slots.items[slot].x = client.x;
+            reg.slots.items[slot].y = client.y;
+        }
 
         if (cfg.visible) _ = api.ShowWindow(hwnd, api.SW_SHOW);
     }
@@ -315,6 +321,75 @@ pub const Backend = struct {
             api.SWP_NOMOVE | api.SWP_NOZORDER,
         );
         // Confirmacao chega via WM_SIZE.
+    }
+
+    /// Move a origem da area de cliente para (x, y) em coordenadas de
+    /// tela. `SetWindowPos` posiciona a janela externa; o delta entre a
+    /// origem externa e a origem do cliente e preservado.
+    pub fn setPosition(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        x: i32,
+        y: i32,
+    ) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+        var rect: api.RECT = undefined;
+        if (api.GetWindowRect(hwnd, &rect) == 0) return error.WindowMoveFailed;
+        var client = api.POINT{ .x = 0, .y = 0 };
+        if (api.ClientToScreen(hwnd, &client) == 0) return error.WindowMoveFailed;
+        // Calcula em i64: coordenadas arbitrarias de entrada nao podem
+        // causar overflow ao somar o delta da decoracao.
+        const outer_x_wide: i64 = @as(i64, rect.left) + (@as(i64, x) - @as(i64, client.x));
+        const outer_y_wide: i64 = @as(i64, rect.top) + (@as(i64, y) - @as(i64, client.y));
+        if (outer_x_wide < std.math.minInt(c_int) or outer_x_wide > std.math.maxInt(c_int) or
+            outer_y_wide < std.math.minInt(c_int) or outer_y_wide > std.math.maxInt(c_int))
+        {
+            return error.WindowMoveFailed;
+        }
+        const outer_x: c_int = @intCast(outer_x_wide);
+        const outer_y: c_int = @intCast(outer_y_wide);
+        if (api.SetWindowPos(
+            hwnd,
+            null,
+            outer_x,
+            outer_y,
+            0,
+            0,
+            api.SWP_NOSIZE | api.SWP_NOZORDER | api.SWP_NOACTIVATE,
+        ) == 0) return error.WindowMoveFailed;
+
+        // WM_MOVE durante SetWindowPos pode ter sido ignorado (sem
+        // pending); confirma pela posicao real e evita evento duplicado.
+        if (api.ClientToScreen(hwnd, &client) != 0) {
+            const entry = &reg.slots.items[slot];
+            if (entry.x != client.x or entry.y != client.y) {
+                entry.x = client.x;
+                entry.y = client.y;
+                events.dispatch(queue, state, .{ .move = .{
+                    .window = reg.idOf(slot),
+                    .x = client.x,
+                    .y = client.y,
+                } });
+            }
+        }
+    }
+
+    pub fn position(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) types.WindowPosition {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return .{ .x = 0, .y = 0 };
+        var client = api.POINT{ .x = 0, .y = 0 };
+        if (api.ClientToScreen(self.entries.items[entry_idx].hwnd, &client) == 0) {
+            return .{ .x = 0, .y = 0 };
+        }
+        return .{ .x = client.x, .y = client.y };
     }
 
     pub fn setVisible(
@@ -464,6 +539,24 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                 });
                 if (backend.findEntry(slot)) |i| {
                     _ = backend.entries.swapRemove(i);
+                }
+            }
+            return 0;
+        },
+        api.WM_MOVE => {
+            if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
+                var client = api.POINT{ .x = 0, .y = 0 };
+                if (api.ClientToScreen(hwnd, &client) != 0) {
+                    const entry = &pending.reg.slots.items[slot];
+                    if (entry.x != client.x or entry.y != client.y) {
+                        entry.x = client.x;
+                        entry.y = client.y;
+                        events.dispatch(queue, state, .{ .move = .{
+                            .window = pending.reg.idOf(slot),
+                            .x = client.x,
+                            .y = client.y,
+                        } });
+                    }
                 }
             }
             return 0;

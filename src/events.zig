@@ -36,6 +36,14 @@ pub const ResizeEvent = struct {
     height: u32,
 };
 
+/// Nova posicao confirmada da origem da area de cliente, em coordenadas
+/// de tela do backend.
+pub const MoveEvent = struct {
+    window: WindowId,
+    x: i32,
+    y: i32,
+};
+
 pub const FocusEvent = struct {
     window: WindowId,
     focused: bool,
@@ -74,6 +82,7 @@ pub const ScrollEvent = struct {
 pub const Event = union(enum) {
     close: CloseEvent,
     resize: ResizeEvent,
+    move: MoveEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
     key_up: KeyEvent,
@@ -95,6 +104,7 @@ pub const Event = union(enum) {
         return switch (self) {
             .close => |e| e.window,
             .resize => |e| e.window,
+            .move => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
             .key_up => |e| e.window,
@@ -265,6 +275,7 @@ test "event window accessor covers all variants" {
     const cases = [_]Event{
         .{ .close = .{ .window = id } },
         .{ .resize = .{ .window = id, .width = 1, .height = 1 } },
+        .{ .move = .{ .window = id, .x = 1, .y = 2 } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
         .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

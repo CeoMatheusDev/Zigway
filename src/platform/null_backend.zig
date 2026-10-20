@@ -89,6 +89,37 @@ pub const Backend = struct {
         reg.slots.items[slot].height = height;
     }
 
+    pub fn setPosition(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        slot: u32,
+        x: i32,
+        y: i32,
+    ) !void {
+        _ = self;
+        const entry = &reg.slots.items[slot];
+        if (entry.x == x and entry.y == y) return;
+        entry.x = x;
+        entry.y = y;
+        events.dispatch(queue, state, .{ .move = .{
+            .window = reg.idOf(slot),
+            .x = x,
+            .y = y,
+        } });
+    }
+
+    pub fn position(
+        self: *const Backend,
+        reg: *const registry.Registry,
+        slot: u32,
+    ) types.WindowPosition {
+        _ = self;
+        const entry = &reg.slots.items[slot];
+        return .{ .x = entry.x, .y = entry.y };
+    }
+
     pub fn setVisible(
         self: *Backend,
         reg: *registry.Registry,

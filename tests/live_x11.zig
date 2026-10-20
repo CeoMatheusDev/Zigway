@@ -1017,6 +1017,74 @@ test "live x11: display enumeration returns sane geometry" {
     try std.testing.expect(primary_count <= 1);
 }
 
+test "live x11: window move updates position and emits move" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var window = try plat.createWindow(.{
+        .width = 240,
+        .height = 160,
+        .title = "zigway move test",
+    });
+    defer window.deinit();
+
+    // Deixa o WM mapear e estabilizar antes de pedir posicao absoluta.
+    // 1s cobre WMs que gerenciam a janela de forma assincrona sob carga.
+    var warmup: usize = 0;
+    while (warmup < 100) : (warmup += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+        sleepMs(10);
+    }
+
+    var target_x: i32 = 140;
+    var target_y: i32 = 110;
+    const initial = window.position();
+    if (initial.x == target_x and initial.y == target_y) {
+        target_x = 180;
+        target_y = 140;
+    }
+
+    try window.setPosition(target_x, target_y);
+
+    // X11 confirma via ConfigureNotify; o WM pode aplicar de forma
+    // assincrona. Espera ate 2s.
+    var saw_move = false;
+    var attempts: u32 = 0;
+    while (attempts < 200) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |event| {
+            if (event == .move and event.move.window.eql(window.windowId())) {
+                if (event.move.x == target_x and event.move.y == target_y) {
+                    saw_move = true;
+                }
+            }
+        }
+        const pos = window.position();
+        if (saw_move and pos.x == target_x and pos.y == target_y) break;
+        sleepMs(10);
+    }
+
+    const final = window.position();
+    if (!saw_move) {
+        std.debug.print(
+            "\n[x11-live] move nao confirmado: alvo=({d},{d}) atual=({d},{d})\n",
+            .{ target_x, target_y, final.x, final.y },
+        );
+    }
+    try std.testing.expect(saw_move);
+    try std.testing.expectEqual(target_x, final.x);
+    try std.testing.expectEqual(target_y, final.y);
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —

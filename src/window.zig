@@ -15,6 +15,7 @@ const platform_mod = @import("platform/platform.zig");
 
 pub const WindowId = types.WindowId;
 pub const WindowSize = types.WindowSize;
+pub const WindowPosition = types.WindowPosition;
 pub const Cursor = types.Cursor;
 pub const Platform = platform_mod.Platform;
 
@@ -64,6 +65,11 @@ pub const Window = struct {
         try self.platform.setWindowSize(self.id, width, height);
     }
 
+    /// Move a origem da area de cliente para (x, y) em coordenadas de tela.
+    pub fn setPosition(self: Window, x: i32, y: i32) !void {
+        try self.platform.setWindowPosition(self.id, x, y);
+    }
+
     pub fn setVisible(self: Window, visible: bool) !void {
         try self.platform.setWindowVisible(self.id, visible);
     }
@@ -89,5 +95,9 @@ pub const Window = struct {
 
     pub fn size(self: Window) WindowSize {
         return self.platform.windowSize(self.id);
+    }
+
+    pub fn position(self: Window) WindowPosition {
+        return self.platform.windowPosition(self.id);
     }
 };

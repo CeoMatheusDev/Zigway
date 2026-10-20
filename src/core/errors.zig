@@ -21,6 +21,8 @@ pub const Error = error{
     InvalidConfig,
     /// Falha na criacao da janela nativa.
     WindowCreationFailed,
+    /// Falha ao mover/reposicionar a janela nativa.
+    WindowMoveFailed,
     /// Falha ao criar ou aplicar um cursor do sistema.
     CursorCreationFailed,
     /// Falha ao capturar o ponteiro (janela nao visivel, grab negado ou
