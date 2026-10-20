@@ -23,6 +23,8 @@
 const std = @import("std");
 const api = @import("api.zig");
 const protocol = @import("protocol.zig");
+const xkb = @import("xkb.zig");
+const keysym = @import("../keysym.zig");
 const registry = @import("../registry.zig");
 const events = @import("../../events.zig");
 const input = @import("../../input.zig");
@@ -75,6 +77,14 @@ const PendingScroll = struct {
     dy: f32,
 };
 
+/// Tecla pendente (evento `key_down`/`key_up`).
+const PendingKey = struct {
+    key: types.Key,
+    pressed: bool,
+    /// Repeticao automatica (o Wayland nao informa: o compositor
+    /// reenvia o evento com a tecla ja pressionada).
+    repeat: bool = false,
+};
 /// Estado de uma janela (wl_surface + xdg_surface + xdg_toplevel).
 const WindowEntry = struct {
     /// Slot no registro da plataforma (fonte de verdade da validade).
@@ -139,8 +149,17 @@ const SeatListener = extern struct {
     name: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8) callconv(.c) void,
 };
 
-/// Callbacks do `wl_pointer` (wayland-client-core.h).
-/// As coordenadas e o eixo sao `wl_fixed_t` (int32 em ponto fixo 24.8).
+/// Callbacks do `wl_keyboard` (wayland-client-core.h).
+const KeyboardListener = extern struct {
+    keymap: *const fn (?*anyopaque, ?*api.wl_proxy, u32, i32, u32) callconv(.c) void,
+    enter: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque, ?*anyopaque) callconv(.c) void,
+    leave: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque) callconv(.c) void,
+    key: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, u32, u32) callconv(.c) void,
+    modifiers: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, u32, u32, u32) callconv(.c) void,
+    repeat_info: *const fn (?*anyopaque, ?*api.wl_proxy, i32, i32) callconv(.c) void,
+};
+
+/// Callbacks do `wl_pointer` (wayland-client-core.h)./// As coordenadas e o eixo sao `wl_fixed_t` (int32 em ponto fixo 24.8).
 const PointerListener = extern struct {
     enter: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque, i32, i32) callconv(.c) void,
     leave: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque) callconv(.c) void,
@@ -194,6 +213,7 @@ const Listeners = struct {
     output: OutputListener,
     seat: SeatListener,
     pointer: PointerListener,
+    keyboard: KeyboardListener,
     shm: ShmListener,
     surface: SurfaceListener,
     wm_base: WmBaseListener,
@@ -231,6 +251,20 @@ const State = struct {
     /// capacidade).
     pointer: ?*api.wl_proxy = null,
     pointer_version: u32 = 0,
+    /// Teclado do seat (criado quando o compositor anuncia a
+    /// capacidade).
+    keyboard: ?*api.wl_proxy = null,
+    keyboard_version: u32 = 0,
+    /// Keymap XKB (null quando a libxkbcommon nao esta disponivel).
+    keymap: ?xkb.Keymap = null,
+    /// Superficie com o foco do teclado.
+    keyboard_surface: ?*api.wl_proxy = null,
+    /// Modificadores pressionados (mascara XKB).
+    keyboard_modifiers: u32 = 0,
+    /// Tecla pendente (evento `key_down`/`key_up`).
+    pending_key: ?PendingKey = null,
+    /// Foco do teclado pendente (evento `focus`).
+    pending_focus: ?bool = null,
     /// Superficie com o foco do ponteiro (a que recebe os eventos).
     pointer_surface: ?*api.wl_proxy = null,
     /// Ultima posicao do ponteiro (coordenadas da superficie).
@@ -285,6 +319,14 @@ const State = struct {
             .axis_value120 = onPointerAxisValue120,
             .axis_relative_direction = onPointerAxisRelativeDirection,
             .warp = onPointerWarp,
+        },
+        .keyboard = .{
+            .keymap = onKeyboardKeymap,
+            .enter = onKeyboardEnter,
+            .leave = onKeyboardLeave,
+            .key = onKeyboardKey,
+            .modifiers = onKeyboardModifiers,
+            .repeat_info = onKeyboardRepeatInfo,
         },
         .shm = .{
             .format = onShmFormat,
@@ -438,6 +480,31 @@ const State = struct {
         );
         self.pointer = pointer;
         self.pointer_version = version;
+    }
+
+    /// Cria o `wl_keyboard` do seat (o compositor anuncia a
+    /// capacidade do teclado).
+    fn bindKeyboard(self: *State) void {
+        const seat = self.seat orelse return;
+        const version = @min(
+            self.seat_version,
+            @as(u32, @intCast(protocol.keyboard_interface.version)),
+        );
+        const keyboard = self.symbols.proxy_marshal_flags(
+            seat,
+            api.wl_seat_get_keyboard,
+            &protocol.keyboard_interface,
+            version,
+            0,
+            @as(?*anyopaque, null),
+        ) orelse return;
+        self.symbols.proxy_add_listener(
+            keyboard,
+            @ptrCast(&self.listeners.keyboard),
+            @ptrCast(self),
+        );
+        self.keyboard = keyboard;
+        self.keyboard_version = version;
     }
 
     /// Fecha os descritores ja enviados ao compositor. So pode ser
@@ -604,6 +671,10 @@ pub const Backend = struct {
         errdefer allocator.destroy(state);
         state.* = .{ .allocator = allocator, .symbols = lib.symbols };
 
+        // Keymap XKB: a libxkbcommon e opcional (sem ela o backend
+        // funciona, mas o teclado nao entrega teclas).
+        state.keymap = xkb.Keymap.init() catch null;
+
         // Registry: request `wl_display.get_registry`.
         const display_proxy: *api.wl_proxy = @ptrCast(display);
         const registry_proxy = lib.symbols.proxy_marshal_flags(
@@ -648,6 +719,7 @@ pub const Backend = struct {
         state.windows.deinit(self.allocator);
         state.closePendingFds();
         state.pending_fds.deinit(self.allocator);
+        if (state.keymap) |*keymap| keymap.deinit();
         for (state.outputs.items) |out| self.lib.symbols.proxy_destroy(out.proxy);
         state.outputs.deinit(self.allocator);
         if (state.seat) |seat| self.lib.symbols.proxy_destroy(seat);
@@ -1168,6 +1240,55 @@ pub const Backend = struct {
                 .dy = scroll.dy,
             } });
         }
+
+        // Entrada do teclado (superficie com foco -> janela).
+        const keyboard_slot = self.slotOfSurface(self.state.keyboard_surface);
+        var keyboard_window: ?types.WindowId = null;
+        if (keyboard_slot) |slot| {
+            if (slot < reg.slots.items.len and reg.slots.items[slot].occupied) {
+                keyboard_window = reg.idOf(slot);
+            }
+        }
+        if (self.state.pending_focus) |focused| {
+            self.state.pending_focus = null;
+            if (keyboard_window) |wid| {
+                if (keyboard_slot) |slot| {
+                    reg.slots.items[slot].focused = focused;
+                }
+                events.dispatch(queue, state, .{ .focus = .{
+                    .window = wid,
+                    .focused = focused,
+                } });
+                // Perda de foco libera o que estava pressionado: o SO
+                // nao entregara os key_up/button_up correspondentes.
+                if (!focused) input.releaseAll(wid, queue, state);
+            }
+            if (!focused) self.state.keyboard_surface = null;
+        }
+        if (self.state.pending_key) |key| {
+            self.state.pending_key = null;
+            const modifiers: types.Modifiers = .{
+                .shift = (self.state.keyboard_modifiers & xkb.mod_index_shift) != 0,
+                .control = (self.state.keyboard_modifiers & xkb.mod_index_control) != 0,
+                .alt = (self.state.keyboard_modifiers & xkb.mod_index_alt) != 0,
+                .super = (self.state.keyboard_modifiers & xkb.mod_index_super) != 0,
+            };
+            const event: events.Event = if (key.pressed)
+                .{ .key_down = .{
+                    .window = keyboard_window,
+                    .key = key.key,
+                    .modifiers = modifiers,
+                    .repeat = key.repeat,
+                } }
+            else
+                .{ .key_up = .{
+                    .window = keyboard_window,
+                    .key = key.key,
+                    .modifiers = modifiers,
+                    .repeat = false,
+                } };
+            events.dispatch(queue, state, event);
+        }
         var i: usize = 0;
         while (i < self.state.windows.items.len) : (i += 1) {
             const entry = &self.state.windows.items[i];
@@ -1437,12 +1558,131 @@ fn onSeatCapabilities(data: ?*anyopaque, seat: ?*api.wl_proxy, capabilities: u32
     if ((capabilities & api.wl_seat_capability_pointer) != 0 and state.pointer == null) {
         state.bindPointer();
     }
+    if ((capabilities & api.wl_seat_capability_keyboard) != 0 and state.keyboard == null) {
+        state.bindKeyboard();
+    }
 }
 
 fn onSeatName(data: ?*anyopaque, seat: ?*api.wl_proxy, name: ?[*:0]const u8) callconv(.c) void {
     _ = data;
     _ = seat;
     _ = name;
+}
+
+fn onKeyboardKeymap(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    format: u32,
+    fd: i32,
+    size: u32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = keyboard;
+    // Formato 1 = texto XKB ("xkb"); formato 0 = binario legado, que
+    // nao e suportado.
+    if (format != api.wl_keyboard_keymap_format_xkb_v1) return;
+    if (fd < 0 or size == 0) return;
+
+    // O compositor envia uma copia do descritor: e nossa a partir
+    // daqui.
+    defer _ = linux.close(@intCast(fd));
+
+    const keymap = if (state.keymap) |*k| k else return;
+    const bytes = std.posix.mmap(
+        null,
+        size,
+        .{ .READ = true },
+        .{ .TYPE = .SHARED },
+        @intCast(fd),
+        0,
+    ) catch return;
+    defer std.posix.munmap(bytes);
+    keymap.load(bytes) catch {
+        // Keymap invalido: o teclado fica sem teclas (o resto do
+        // backend continua funcionando).
+    };
+}
+
+fn onKeyboardEnter(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    serial: u32,
+    surface: ?*anyopaque,
+    keys: ?*anyopaque,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = keyboard;
+    _ = serial;
+    _ = keys;
+    state.keyboard_surface = @ptrCast(surface);
+    state.pending_focus = true;
+}
+
+fn onKeyboardLeave(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    serial: u32,
+    surface: ?*anyopaque,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = keyboard;
+    _ = serial;
+    _ = surface;
+    // A superficie e mantida ate o evento de foco ser publicado (o
+    // `focus` perdido pertence a janela que tinha o foco).
+    state.pending_focus = false;
+}
+
+fn onKeyboardKey(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    serial: u32,
+    time: u32,
+    keycode: u32,
+    key_state: u32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = keyboard;
+    _ = serial;
+    _ = time;
+    const keymap = if (state.keymap) |*k| k else return;
+    if (!keymap.ready) return;
+    const pressed = key_state != 0;
+    const sym = keymap.symForKey(keycode, pressed);
+    if (sym == 0) return;
+    const key = keysym.fromKeysym(sym);
+    if (key == .unknown) return;
+    state.pending_key = .{ .key = key, .pressed = pressed };
+}
+
+fn onKeyboardModifiers(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    serial: u32,
+    depressed: u32,
+    latched: u32,
+    locked: u32,
+    group: u32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = keyboard;
+    _ = serial;
+    state.keyboard_modifiers = depressed;
+    if (state.keymap) |*keymap| {
+        keymap.updateModifiers(depressed, latched, locked, group);
+    }
+}
+
+fn onKeyboardRepeatInfo(
+    data: ?*anyopaque,
+    keyboard: ?*api.wl_proxy,
+    rate: i32,
+    delay: i32,
+) callconv(.c) void {
+    _ = data;
+    _ = keyboard;
+    _ = rate;
+    _ = delay;
 }
 
 fn onPointerEnter(

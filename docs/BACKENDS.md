@@ -296,6 +296,25 @@ discretos e, por fim, o valor bruto; a rolagem é publicada no `frame`
 do compositor). As coordenadas `wl_fixed_t` (24.8) são convertidas
 para pixels.
 
+Teclado: o `wl_keyboard` é criado quando o compositor anuncia a
+capacidade no seat. O `keymap` XKB (formato texto, entregue por um
+descritor) é interpretado pela **libxkbcommon**, carregada em runtime
+(`dlopen`): sem ela o teclado não entrega teclas e o resto do backend
+continua funcionando. O keycode vira keysym (com layout e modificadores)
+e depois na tecla lógica da API — o mapeamento é o mesmo do X11
+(`src/platform/keysym.zig`, compartilhado). `enter`/`leave` viram
+`focus` (a perda de foco libera as teclas pressionadas) e `key` vira
+`key_down`/`key_up`, com os modificadores do evento `modifiers` do
+compositor (shift/control/alt/super).
+
+Limitações conhecidas do Wayland:
+
+- O `wl_keyboard` não distingue auto-repeat: o Wayland reenvia o
+  evento da tecla, e o backend marca a tecla como `key_down` (o
+  `repeat` fica `false`).
+- A entrada de texto Unicode (`text_input`) e o `raw_key` (tecla
+  física) ainda não são entregues no Wayland.
+
 Limitações conhecidas:
 
 - O buffer anexado é provisório (cor sólida): a superfície é mapeada e

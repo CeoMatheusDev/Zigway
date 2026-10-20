@@ -131,47 +131,6 @@ pub const ControlMask: c_uint = 1 << 2;
 pub const Mod1Mask: c_uint = 1 << 3; // Alt
 pub const Mod4Mask: c_uint = 1 << 6; // Super
 
-// --- KeySyms (X11/keysymdef.h) ---
-pub const XK_BackSpace: KeySym = 0xff08;
-pub const XK_Tab: KeySym = 0xff09;
-pub const XK_Return: KeySym = 0xff0d;
-pub const XK_Escape: KeySym = 0xff1b;
-pub const XK_Home: KeySym = 0xff50;
-pub const XK_Left: KeySym = 0xff51;
-pub const XK_Up: KeySym = 0xff52;
-pub const XK_Right: KeySym = 0xff53;
-pub const XK_Down: KeySym = 0xff54;
-pub const XK_Page_Up: KeySym = 0xff55;
-pub const XK_Page_Down: KeySym = 0xff56;
-pub const XK_End: KeySym = 0xff57;
-pub const XK_Insert: KeySym = 0xff63;
-pub const XK_Delete: KeySym = 0xffff;
-pub const XK_Shift_L: KeySym = 0xffe1;
-pub const XK_Shift_R: KeySym = 0xffe2;
-pub const XK_Control_L: KeySym = 0xffe3;
-pub const XK_Control_R: KeySym = 0xffe4;
-pub const XK_Caps_Lock: KeySym = 0xffe5;
-pub const XK_Alt_L: KeySym = 0xffe9;
-pub const XK_Alt_R: KeySym = 0xffea;
-pub const XK_Super_L: KeySym = 0xffeb;
-pub const XK_Super_R: KeySym = 0xffec;
-pub const XK_Num_Lock: KeySym = 0xff7f;
-pub const XK_F1: KeySym = 0xffbe;
-// Teclado numerico (keysymdef.h). Com NumLock ligado chegam XK_KP_0..9;
-// desligado, o servidor entrega as chaves de navegacao XK_KP_Home etc.
-pub const XK_KP_Enter: KeySym = 0xff8d;
-pub const XK_KP_Home: KeySym = 0xff95;
-pub const XK_KP_Left: KeySym = 0xff96;
-pub const XK_KP_Up: KeySym = 0xff97;
-pub const XK_KP_Right: KeySym = 0xff98;
-pub const XK_KP_Down: KeySym = 0xff99;
-pub const XK_KP_Prior: KeySym = 0xff9a;
-pub const XK_KP_Next: KeySym = 0xff9b;
-pub const XK_KP_End: KeySym = 0xff9c;
-pub const XK_KP_Insert: KeySym = 0xff9e;
-pub const XK_KP_Delete: KeySym = 0xff9f;
-pub const XK_KP_0: KeySym = 0xffb0;
-
 // --- Estruturas (ordem e tipos identicos a Xlib.h) ---
 
 pub const XAnyEvent = extern struct {

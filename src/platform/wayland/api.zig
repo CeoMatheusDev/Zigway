@@ -219,6 +219,10 @@ pub const wl_seat_capability_touch: u32 = 4;
 pub const wl_pointer_axis_vertical_scroll: u32 = 0;
 pub const wl_pointer_axis_horizontal_scroll: u32 = 1;
 
+/// Formatos do `wl_keyboard.keymap`.
+/// Texto XKB (o unico suportado pelo backend).
+pub const wl_keyboard_keymap_format_xkb_v1: u32 = 1;
+
 /// `struct wl_array` (wayland-util.h): vetor de bytes (usado pelos
 /// estados do xdg_toplevel).
 pub const wl_array = extern struct {

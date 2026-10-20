@@ -7,6 +7,19 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Entrada de teclado no backend Wayland**: o `wl_keyboard` e criado
+  quando o compositor anuncia a capacidade no seat. O `keymap` XKB
+  (formato texto, entregue por um descritor) e interpretado pela
+  **libxkbcommon**, carregada em runtime (`dlopen`), como a
+  libwayland: sem ela o teclado nao entrega teclas e o resto do
+  backend continua funcionando. O keycode vira keysym (com layout e
+  modificadores) e depois na tecla logica da API; `enter`/`leave`
+  viram `focus` (a perda de foco libera as teclas pressionadas) e
+  `key` vira `key_down`/`key_up` com os modificadores do evento
+  `modifiers` do compositor.
+- `src/platform/keysym.zig`: modulo compartilhado com o mapeamento
+  keysym (X11/XKB) -> tecla logica, antes duplicado no backend X11.
+  O backend X11 passou a usa-lo (sem mudanca de comportamento).
 - **Entrada de ponteiro no backend Wayland**: o `wl_pointer` e criado
   quando o compositor anuncia a capacidade no seat. `enter`/`leave`/
   `motion` viram `pointer_move` (com a janela da superficie e as

@@ -69,8 +69,12 @@ outputs e seat implementados e validados contra o KWin em Wayland
 `xdg_toplevel`): título, limites de tamanho, maximização e fullscreen,
 `configure` confirmado com `ack_configure` e buffer `wl_shm` para
 mapear a superfície, com eventos `resize`/`maximized`/`fullscreen`/
-`close`; `xdg_wm_base.ping` respondido com `pong`. Pendentes: input
-(keymap XKB e `wl_pointer`) e clipboard do protocolo.
+`close`; `xdg_wm_base.ping` respondido com `pong`. **Entrada
+implementada**: ponteiro (`wl_pointer` → `pointer_move`/
+`pointer_button`/`scroll`) e teclado (`wl_keyboard` + keymap XKB
+interpretado pela libxkbcommon em runtime → `key_down`/`key_up` e
+`focus`). Pendentes: clipboard do protocolo, entrada de texto Unicode
+(IME) e o `raw_key` (tecla física).
 
 ## v0.6.x — Expansões de input
 

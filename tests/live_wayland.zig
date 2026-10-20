@@ -247,3 +247,42 @@ test "live wayland: the pointer reports the window under the cursor" {
         std.debug.print("\n[wl-live] ponteiro dentro da janela\n", .{});
     }
 }
+
+test "live wayland: the keyboard focuses the window under the cursor" {
+    // O compositor envia `wl_keyboard.enter` quando a janela recebe o
+    // foco do teclado. O keymap XKB tambem e entregue (via fd) e
+    // precisa ser aceito pela libxkbcommon.
+    var plat = (try initPlatform()) orelse return;
+    defer plat.deinit();
+
+    const seat = plat.seatCapabilities() orelse return;
+    if (!seat.keyboard) return;
+
+    var win = plat.createWindow(.{ .width = 240, .height = 180, .title = "teclado" }) catch |err| switch (err) {
+        error.NotImplemented => return,
+        else => return err,
+    };
+    defer win.deinit();
+
+    var saw_focus = false;
+    var attempts: u32 = 0;
+    while (attempts < 100 and !saw_focus) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .focus => |focus| {
+                    if (focus.focused) {
+                        try std.testing.expect(focus.window.eql(win.windowId()));
+                        saw_focus = true;
+                    }
+                },
+                else => {},
+            }
+        }
+        sleepMs(20);
+    }
+
+    if (saw_focus) {
+        std.debug.print("\n[wl-live] teclado com foco na janela\n", .{});
+    }
+}

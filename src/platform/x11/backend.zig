@@ -14,6 +14,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const keysym = @import("../keysym.zig");
 
 const SavedGeometry = struct {
     x: i32,
@@ -1609,170 +1610,27 @@ pub fn latin1ToUtf8(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-/// Converte um keysym X11 em codepoint Unicode.
-///
-/// Faixas do keysym (X11): 0x20-0x7E (ASCII), 0xA0-0xFF (Latin-1) e
-/// 0x01000000-0x0110FFFF (Unicode direto, bit 24 marcado). Teclas sem
-/// caractere (funcoes, modificadores) nao produzem texto.
+/// Converte um keysym X11 em codepoint Unicode (ver
+/// `src/platform/keysym.zig`).
 pub fn keysymToCodepoint(sym: api.KeySym) ?u32 {
-    if (sym == 0) return null;
-    if (sym >= 0x20 and sym <= 0x7E) return @intCast(sym);
-    if (sym >= 0xA0 and sym <= 0xFF) return @intCast(sym);
-    if (sym >= 0x0100_0000 and sym <= 0x0110_FFFF) {
-        return @intCast(sym & 0x00FF_FFFF);
-    }
-    return null;
+    return keysym.toCodepoint(@truncate(sym));
 }
 
+/// Tecla logica de um keysym X11 (ver `src/platform/keysym.zig`).
 pub fn fromKeysym(sym: api.KeySym) types.Key {
-    // Letras (minusculas e maiusculas -> mesma tecla logica).
-    if ((sym >= 0x61 and sym <= 0x7a) or (sym >= 0x41 and sym <= 0x5a)) {
-        const lower = sym | 0x20;
-        return switch (lower) {
-            0x61 => .a,
-            0x62 => .b,
-            0x63 => .c,
-            0x64 => .d,
-            0x65 => .e,
-            0x66 => .f,
-            0x67 => .g,
-            0x68 => .h,
-            0x69 => .i,
-            0x6a => .j,
-            0x6b => .k,
-            0x6c => .l,
-            0x6d => .m,
-            0x6e => .n,
-            0x6f => .o,
-            0x70 => .p,
-            0x71 => .q,
-            0x72 => .r,
-            0x73 => .s,
-            0x74 => .t,
-            0x75 => .u,
-            0x76 => .v,
-            0x77 => .w,
-            0x78 => .x,
-            0x79 => .y,
-            0x7a => .z,
-            else => .unknown,
-        };
-    }
-    if (sym >= 0x30 and sym <= 0x39) {
-        return switch (sym) {
-            0x30 => .n0,
-            0x31 => .n1,
-            0x32 => .n2,
-            0x33 => .n3,
-            0x34 => .n4,
-            0x35 => .n5,
-            0x36 => .n6,
-            0x37 => .n7,
-            0x38 => .n8,
-            0x39 => .n9,
-            else => .unknown,
-        };
-    }
-    if (sym >= api.XK_F1 and sym < api.XK_F1 + 12) {
-        return switch (sym - api.XK_F1) {
-            0 => .f1,
-            1 => .f2,
-            2 => .f3,
-            3 => .f4,
-            4 => .f5,
-            5 => .f6,
-            6 => .f7,
-            7 => .f8,
-            8 => .f9,
-            9 => .f10,
-            10 => .f11,
-            11 => .f12,
-            else => .unknown,
-        };
-    }
-    // Teclado numerico: mesmas teclas logicas do Win32. Com NumLock
-    // ligado, XK_KP_0..9 -> n0..n9; desligado, o servidor entrega as
-    // chaves de navegacao XK_KP_Home etc. `Key` nao distingue numpad da
-    // linha superior (nem o Win32 distingue). Operadores (KP_Add,
-    // KP_Multiply, ...) nao tem variante em `Key` e seguem `.unknown`,
-    // como no Win32 (VK_ADD/VK_MULTIPLY tambem nao mapeados).
-    if (sym >= api.XK_KP_0 and sym <= api.XK_KP_0 + 9) {
-        return switch (sym - api.XK_KP_0) {
-            0 => .n0,
-            1 => .n1,
-            2 => .n2,
-            3 => .n3,
-            4 => .n4,
-            5 => .n5,
-            6 => .n6,
-            7 => .n7,
-            8 => .n8,
-            9 => .n9,
-            else => .unknown,
-        };
-    }
-    return switch (sym) {
-        api.XK_Escape => .escape,
-        api.XK_Tab => .tab,
-        api.XK_Return => .enter,
-        api.XK_BackSpace => .backspace,
-        api.XK_Delete => .delete,
-        api.XK_Insert => .insert,
-        api.XK_Home => .home,
-        api.XK_End => .end,
-        api.XK_Page_Up => .page_up,
-        api.XK_Page_Down => .page_down,
-        api.XK_Left => .left,
-        api.XK_Up => .up,
-        api.XK_Right => .right,
-        api.XK_Down => .down,
-        api.XK_Shift_L => .left_shift,
-        api.XK_Shift_R => .right_shift,
-        api.XK_Control_L => .left_control,
-        api.XK_Control_R => .right_control,
-        api.XK_Caps_Lock => .caps_lock,
-        api.XK_Num_Lock => .num_lock,
-        api.XK_KP_Enter => .enter,
-        api.XK_KP_Home => .home,
-        api.XK_KP_Left => .left,
-        api.XK_KP_Up => .up,
-        api.XK_KP_Right => .right,
-        api.XK_KP_Down => .down,
-        api.XK_KP_Prior => .page_up,
-        api.XK_KP_Next => .page_down,
-        api.XK_KP_End => .end,
-        api.XK_KP_Insert => .insert,
-        api.XK_KP_Delete => .delete,
-        api.XK_Alt_L => .left_alt,
-        api.XK_Alt_R => .right_alt,
-        api.XK_Super_L => .left_super,
-        api.XK_Super_R => .right_super,
-        0x20 => .space,
-        0x2d => .minus,
-        0x3d => .equal,
-        0x5b => .bracket_left,
-        0x5d => .bracket_right,
-        0x3b => .semicolon,
-        0x27 => .apostrophe,
-        0x60 => .grave,
-        0x5c => .backslash,
-        0x2c => .comma,
-        0x2e => .period,
-        0x2f => .slash,
-        else => .unknown,
-    };
+    return keysym.fromKeysym(@truncate(sym));
 }
 
 test "keysym mapping covers basics" {
-    try std.testing.expectEqual(types.Key.escape, fromKeysym(api.XK_Escape));
+    try std.testing.expectEqual(types.Key.escape, fromKeysym(keysym.XK_Escape));
     try std.testing.expectEqual(types.Key.a, fromKeysym(0x61));
     try std.testing.expectEqual(types.Key.a, fromKeysym(0x41));
     try std.testing.expectEqual(types.Key.z, fromKeysym(0x7a));
     try std.testing.expectEqual(types.Key.n5, fromKeysym(0x35));
-    try std.testing.expectEqual(types.Key.f1, fromKeysym(api.XK_F1));
-    try std.testing.expectEqual(types.Key.f12, fromKeysym(api.XK_F1 + 11));
-    try std.testing.expectEqual(types.Key.left, fromKeysym(api.XK_Left));
-    try std.testing.expectEqual(types.Key.left_super, fromKeysym(api.XK_Super_L));
+    try std.testing.expectEqual(types.Key.f1, fromKeysym(keysym.XK_F1));
+    try std.testing.expectEqual(types.Key.f12, fromKeysym(keysym.XK_F1 + 11));
+    try std.testing.expectEqual(types.Key.left, fromKeysym(keysym.XK_Left));
+    try std.testing.expectEqual(types.Key.left_super, fromKeysym(keysym.XK_Super_L));
     try std.testing.expectEqual(types.Key.space, fromKeysym(0x20));
     try std.testing.expectEqual(types.Key.unknown, fromKeysym(0x1234));
 }
@@ -1840,21 +1698,21 @@ test "cursor shapes map to cursorfont constants" {
 
 test "numpad keysyms match win32 logical keys" {
     // Com NumLock: digitos.
-    try std.testing.expectEqual(types.Key.n0, fromKeysym(api.XK_KP_0));
-    try std.testing.expectEqual(types.Key.n5, fromKeysym(api.XK_KP_0 + 5));
-    try std.testing.expectEqual(types.Key.n9, fromKeysym(api.XK_KP_0 + 9));
-    try std.testing.expectEqual(types.Key.enter, fromKeysym(api.XK_KP_Enter));
+    try std.testing.expectEqual(types.Key.n0, fromKeysym(keysym.XK_KP_0));
+    try std.testing.expectEqual(types.Key.n5, fromKeysym(keysym.XK_KP_0 + 5));
+    try std.testing.expectEqual(types.Key.n9, fromKeysym(keysym.XK_KP_0 + 9));
+    try std.testing.expectEqual(types.Key.enter, fromKeysym(keysym.XK_KP_Enter));
     // Sem NumLock: navegacao (mesmo resultado do Win32 com NumLock off).
-    try std.testing.expectEqual(types.Key.home, fromKeysym(api.XK_KP_Home));
-    try std.testing.expectEqual(types.Key.left, fromKeysym(api.XK_KP_Left));
-    try std.testing.expectEqual(types.Key.up, fromKeysym(api.XK_KP_Up));
-    try std.testing.expectEqual(types.Key.right, fromKeysym(api.XK_KP_Right));
-    try std.testing.expectEqual(types.Key.down, fromKeysym(api.XK_KP_Down));
-    try std.testing.expectEqual(types.Key.page_up, fromKeysym(api.XK_KP_Prior));
-    try std.testing.expectEqual(types.Key.page_down, fromKeysym(api.XK_KP_Next));
-    try std.testing.expectEqual(types.Key.end, fromKeysym(api.XK_KP_End));
-    try std.testing.expectEqual(types.Key.insert, fromKeysym(api.XK_KP_Insert));
-    try std.testing.expectEqual(types.Key.delete, fromKeysym(api.XK_KP_Delete));
+    try std.testing.expectEqual(types.Key.home, fromKeysym(keysym.XK_KP_Home));
+    try std.testing.expectEqual(types.Key.left, fromKeysym(keysym.XK_KP_Left));
+    try std.testing.expectEqual(types.Key.up, fromKeysym(keysym.XK_KP_Up));
+    try std.testing.expectEqual(types.Key.right, fromKeysym(keysym.XK_KP_Right));
+    try std.testing.expectEqual(types.Key.down, fromKeysym(keysym.XK_KP_Down));
+    try std.testing.expectEqual(types.Key.page_up, fromKeysym(keysym.XK_KP_Prior));
+    try std.testing.expectEqual(types.Key.page_down, fromKeysym(keysym.XK_KP_Next));
+    try std.testing.expectEqual(types.Key.end, fromKeysym(keysym.XK_KP_End));
+    try std.testing.expectEqual(types.Key.insert, fromKeysym(keysym.XK_KP_Insert));
+    try std.testing.expectEqual(types.Key.delete, fromKeysym(keysym.XK_KP_Delete));
 }
 
 test "repeat detection flags a second key_down of a mapped key" {
