@@ -16,6 +16,7 @@ const platform_mod = @import("platform/platform.zig");
 pub const WindowId = types.WindowId;
 pub const WindowSize = types.WindowSize;
 pub const WindowPosition = types.WindowPosition;
+pub const WindowSizeLimits = types.WindowSizeLimits;
 pub const Cursor = types.Cursor;
 pub const Platform = platform_mod.Platform;
 
@@ -63,6 +64,18 @@ pub const Window = struct {
 
     pub fn setSize(self: Window, width: u32, height: u32) !void {
         try self.platform.setWindowSize(self.id, width, height);
+    }
+
+    /// Define limites minimo/maximo da area de cliente. Zero em `max_*`
+    /// significa sem limite explicito naquele eixo. O WM pode ajustar a
+    /// aplicacao.
+    pub fn setSizeLimits(self: Window, limits: WindowSizeLimits) !void {
+        try self.platform.setWindowSizeLimits(self.id, limits);
+    }
+
+    /// Limites configurados (falha segura: zero para id invalido).
+    pub fn sizeLimits(self: Window) WindowSizeLimits {
+        return self.platform.windowSizeLimits(self.id);
     }
 
     /// Move a origem da area de cliente para (x, y) em coordenadas de tela.

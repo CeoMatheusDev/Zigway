@@ -120,6 +120,18 @@ pub const Backend = struct {
         return .{ .x = entry.x, .y = entry.y };
     }
 
+    pub fn setSizeLimits(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        limits: types.WindowSizeLimits,
+    ) !void {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        _ = limits;
+    }
+
     pub fn setFullscreen(
         self: *Backend,
         reg: *registry.Registry,

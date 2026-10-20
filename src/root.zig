@@ -37,6 +37,7 @@ pub const PlatformOptions = platform_mod.Options;
 pub const window_mod = @import("window.zig");
 pub const Window = window_mod.Window;
 pub const WindowConfig = window_mod.WindowConfig;
+pub const WindowSizeLimits = types.WindowSizeLimits;
 
 pub const events_mod = @import("events.zig");
 pub const Event = events_mod.Event;

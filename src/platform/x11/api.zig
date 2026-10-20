@@ -5,6 +5,8 @@
 //   int -> c_int | unsigned long -> c_ulong | Bool -> c_int
 //   Window/Atom/Time/KeySym -> c_ulong | char -> c_char
 
+const std = @import("std");
+
 pub const Display = opaque {};
 
 pub const Window = c_ulong;
@@ -20,6 +22,36 @@ pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
 pub const XA_ATOM: Atom = 4;
+
+// --- WM_NORMAL_HINTS (Xutil.h) ---
+pub const PMinSize: c_long = 1 << 4;
+pub const PMaxSize: c_long = 1 << 5;
+
+pub const Aspect = extern struct {
+    x: c_int,
+    y: c_int,
+};
+
+/// Layout de `XSizeHints` (Xutil.h). Mantido completo para preservar
+/// hints existentes ao alterar apenas min/max.
+pub const XSizeHints = extern struct {
+    flags: c_long,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    min_width: c_int,
+    min_height: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    width_inc: c_int,
+    height_inc: c_int,
+    min_aspect: Aspect,
+    max_aspect: Aspect,
+    base_width: c_int,
+    base_height: c_int,
+    win_gravity: c_int,
+};
 
 /// Gravidade "estatica": referencia e o topo-esquerdo da area de cliente
 /// (ICCCM/EWMH). Usada em `_NET_MOVERESIZE_WINDOW`.
@@ -334,6 +366,17 @@ pub extern "X11" fn XDestroyWindow(display: *Display, window: Window) c_int;
 pub extern "X11" fn XMapWindow(display: *Display, window: Window) c_int;
 pub extern "X11" fn XUnmapWindow(display: *Display, window: Window) c_int;
 pub extern "X11" fn XStoreName(display: *Display, window: Window, name: [*:0]const u8) c_int;
+pub extern "X11" fn XGetWMNormalHints(
+    display: *Display,
+    window: Window,
+    hints: *XSizeHints,
+    supplied: *c_long,
+) Status;
+pub extern "X11" fn XSetWMNormalHints(
+    display: *Display,
+    window: Window,
+    hints: *XSizeHints,
+) void;
 pub extern "X11" fn XSelectInput(display: *Display, window: Window, event_mask: c_long) c_int;
 pub extern "X11" fn XPending(display: *Display) c_int;
 pub extern "X11" fn XNextEvent(display: *Display, event: *XEvent) c_int;
@@ -410,3 +453,15 @@ pub extern "X11" fn XkbSetDetectableAutoRepeat(
     detectable: XBool,
     supported: ?*XBool,
 ) XBool;
+
+test "XSizeHints layout matches Xutil.h (64-bit)" {
+    if (@sizeOf(usize) != 8) return;
+    try std.testing.expectEqual(@as(usize, 80), @sizeOf(XSizeHints));
+    try std.testing.expectEqual(@as(usize, 0), @offsetOf(XSizeHints, "flags"));
+    try std.testing.expectEqual(@as(usize, 8), @offsetOf(XSizeHints, "x"));
+    try std.testing.expectEqual(@as(usize, 24), @offsetOf(XSizeHints, "min_width"));
+    try std.testing.expectEqual(@as(usize, 40), @offsetOf(XSizeHints, "width_inc"));
+    try std.testing.expectEqual(@as(usize, 48), @offsetOf(XSizeHints, "min_aspect"));
+    try std.testing.expectEqual(@as(usize, 64), @offsetOf(XSizeHints, "base_width"));
+    try std.testing.expectEqual(@as(usize, 72), @offsetOf(XSizeHints, "win_gravity"));
+}

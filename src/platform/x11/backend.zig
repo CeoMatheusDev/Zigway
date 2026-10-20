@@ -337,6 +337,92 @@ pub const Backend = struct {
         // Confirmacao chega via ConfigureNotify.
     }
 
+    /// Aplica limites via `WM_NORMAL_HINTS`; preserva outros hints ja
+    /// definidos. A confirmacao e local (XSetWMNormalHints nao tem erro de
+    /// retorno); o WM pode ajustar a aplicacao conforme suas politicas.
+    pub fn setSizeLimits(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        limits: types.WindowSizeLimits,
+    ) !void {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const win = self.entries.items[entry_idx].win;
+
+        var hints: api.XSizeHints = std.mem.zeroes(api.XSizeHints);
+        var supplied: c_long = 0;
+        if (api.XGetWMNormalHints(self.display, win, &hints, &supplied) == 0) {
+            hints = std.mem.zeroes(api.XSizeHints);
+        }
+        hints.flags &= ~(api.PMinSize | api.PMaxSize);
+
+        if (limits.min_width != 0 or limits.min_height != 0) {
+            const min_width = std.math.cast(c_int, limits.min_width) orelse
+                return error.InvalidConfig;
+            const min_height = std.math.cast(c_int, limits.min_height) orelse
+                return error.InvalidConfig;
+            hints.flags |= api.PMinSize;
+            hints.min_width = min_width;
+            hints.min_height = min_height;
+        } else {
+            hints.min_width = 0;
+            hints.min_height = 0;
+        }
+
+        if (limits.max_width != 0 or limits.max_height != 0) {
+            const max_width = if (limits.max_width == 0)
+                std.math.maxInt(c_int)
+            else
+                std.math.cast(c_int, limits.max_width) orelse
+                    return error.InvalidConfig;
+            const max_height = if (limits.max_height == 0)
+                std.math.maxInt(c_int)
+            else
+                std.math.cast(c_int, limits.max_height) orelse
+                    return error.InvalidConfig;
+            hints.flags |= api.PMaxSize;
+            hints.max_width = max_width;
+            hints.max_height = max_height;
+        } else {
+            hints.max_width = 0;
+            hints.max_height = 0;
+        }
+
+        api.XSetWMNormalHints(self.display, win, &hints);
+
+        // Round-trip: confirma que a propriedade nativa foi gravada com
+        // os limites solicitados (o WM ainda pode ajustar a aplicacao).
+        var verify: api.XSizeHints = std.mem.zeroes(api.XSizeHints);
+        var verify_supplied: c_long = 0;
+        if (api.XGetWMNormalHints(self.display, win, &verify, &verify_supplied) == 0) {
+            return error.WindowStateFailed;
+        }
+        const want_min = limits.min_width != 0 or limits.min_height != 0;
+        const want_max = limits.max_width != 0 or limits.max_height != 0;
+        if (((verify.flags & api.PMinSize) != 0) != want_min) {
+            return error.WindowStateFailed;
+        }
+        if (((verify.flags & api.PMaxSize) != 0) != want_max) {
+            return error.WindowStateFailed;
+        }
+        if (want_min) {
+            if (verify.min_width != hints.min_width or
+                verify.min_height != hints.min_height)
+            {
+                return error.WindowStateFailed;
+            }
+        }
+        if (want_max) {
+            if (verify.max_width != hints.max_width or
+                verify.max_height != hints.max_height)
+            {
+                return error.WindowStateFailed;
+            }
+        }
+        _ = api.XFlush(self.display);
+    }
+
     /// Move a origem da area de cliente para (x, y) em coordenadas de
     /// tela. Se o WM anunciar `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`,
     /// usa EWMH + StaticGravity; caso contrario usa `XMoveWindow`

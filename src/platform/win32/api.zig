@@ -5,6 +5,8 @@
 // `callconv(.winapi)`. Handles sao ponteiros opacos. Tamanhos conferidos
 // para 64-bit: HANDLE=8, UINT=4, DWORD=4(u32), LONG=4(i32).
 
+const std = @import("std");
+
 pub const HWND = ?*anyopaque;
 pub const HINSTANCE = ?*anyopaque;
 pub const HICON = ?*anyopaque;
@@ -76,6 +78,15 @@ pub const RECT = extern struct {
     bottom: LONG,
 };
 
+/// `MINMAXINFO` (winuser.h), usado por `WM_GETMINMAXINFO`.
+pub const MINMAXINFO = extern struct {
+    ptReserved: POINT,
+    ptMaxSize: POINT,
+    ptMaxPosition: POINT,
+    ptMinTrackSize: POINT,
+    ptMaxTrackSize: POINT,
+};
+
 /// `MONITORINFO` (winuser.h): cbSize + retangulo do monitor + area de
 /// trabalho + flags.
 pub const MONITORINFO = extern struct {
@@ -114,6 +125,7 @@ pub const SW_SHOW: c_int = 5;
 pub const PM_REMOVE: UINT = 0x0001;
 pub const GWLP_USERDATA: c_int = -21;
 pub const GWL_STYLE: c_int = -16;
+pub const GWL_EXSTYLE: c_int = -20;
 
 pub const SWP_NOSIZE: UINT = 0x0001;
 pub const SWP_NOMOVE: UINT = 0x0002;
@@ -140,6 +152,7 @@ pub const IDC_HAND: usize = 32649;
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_MOVE: UINT = 0x0003;
 pub const WM_SIZE: UINT = 0x0005;
+pub const WM_GETMINMAXINFO: UINT = 0x0024;
 pub const WM_SETFOCUS: UINT = 0x0007;
 pub const WM_KILLFOCUS: UINT = 0x0008;
 pub const WM_CLOSE: UINT = 0x0010;
@@ -270,3 +283,13 @@ pub extern "user32" fn ScreenToClient(hwnd: HWND, pt: *POINT) BOOL;
 pub extern "user32" fn ClientToScreen(hwnd: HWND, pt: *POINT) BOOL;
 
 pub extern "kernel32" fn GetModuleHandleW(name: LPCWSTR) HINSTANCE;
+
+test "MINMAXINFO layout matches winuser.h" {
+    if (@sizeOf(usize) == 8) {
+        try std.testing.expectEqual(@as(usize, 40), @sizeOf(MINMAXINFO));
+        try std.testing.expectEqual(@as(usize, 0), @offsetOf(MINMAXINFO, "ptReserved"));
+        try std.testing.expectEqual(@as(usize, 8), @offsetOf(MINMAXINFO, "ptMaxSize"));
+        try std.testing.expectEqual(@as(usize, 24), @offsetOf(MINMAXINFO, "ptMinTrackSize"));
+        try std.testing.expectEqual(@as(usize, 32), @offsetOf(MINMAXINFO, "ptMaxTrackSize"));
+    }
+}

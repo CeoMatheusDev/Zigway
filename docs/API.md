@@ -47,6 +47,8 @@ platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
 platform.setWindowPosition(id, x, y) !void // origem da área de cliente;
                                  // X11 confirma via evento `move`
 platform.setWindowFullscreen(id, on) !void // X11/EWMH confirma via evento
+platform.setWindowSizeLimits(id, limits) !void
+platform.windowSizeLimits(id) WindowSizeLimits // inválido -> zeros
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
 platform.setWindowCursor(id, cursor) !void
@@ -71,6 +73,8 @@ window.position() WindowPosition
 window.setPosition(x, y) !void
 window.setFullscreen(on) !void
 window.isFullscreen() bool
+window.setSizeLimits(limits) !void
+window.sizeLimits() WindowSizeLimits
 ```
 
 ## Displays
@@ -136,6 +140,38 @@ No Win32, fullscreen remove a moldura (`WS_POPUP`) e cobre o monitor mais
 próximo da janela, salvando estilo e retângulo para restaurar ao sair.
 O estado é síncrono e controlado pela API. No backend null o estado é
 apenas lógico. `FullscreenEvent` tem `{ window, fullscreen }`.
+
+## Limites de tamanho
+
+`WindowSizeLimits` define mínimos e máximos da **área de cliente** em
+pixels:
+
+```zig
+const limits = zigway.WindowSizeLimits{
+    .min_width = 320,
+    .min_height = 200,
+    .max_width = 1280,  // 0 = sem máximo neste eixo
+    .max_height = 0,
+};
+try window.setSizeLimits(limits);
+const current = window.sizeLimits();
+```
+
+`min_* == 0` significa sem mínimo explícito. `max_* == 0` significa sem
+máximo explícito naquele eixo; se ambos forem zero, a restrição de
+máximo é removida. Valores acima de 16384 ou `min > max` (quando o máximo é
+diferente de zero) retornam `InvalidConfig`. Ids inválidos retornam
+`InvalidWindow` em `setSizeLimits`; `sizeLimits` devolve zeros como falha
+segura.
+
+No X11 os limites são publicados em `WM_NORMAL_HINTS`
+(`PMinSize`/`PMaxSize`), preservando outros hints existentes; o backend
+faz um round-trip com `XGetWMNormalHints` para confirmar a gravação. O
+WM pode ajustar a aplicação. No Win32 os limites são aplicados em
+`WM_GETMINMAXINFO`, com conversão da área de cliente para o tamanho
+externo (`AdjustWindowRectEx`); no backend null o estado é apenas
+lógico. A mudança vale para os próximos redimensionamentos e não força
+um resize imediato.
 
 ## Eventos
 
@@ -211,8 +247,8 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
-`MoveEvent`, `DisplayChangeEvent`, `FullscreenEvent`, `version.string`
-(`"0.1.0-alpha.2"`).
+`WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
+`FullscreenEvent`, `version.string` (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,

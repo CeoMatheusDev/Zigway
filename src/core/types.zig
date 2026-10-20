@@ -158,6 +158,18 @@ pub const WindowSize = struct {
     height: u32,
 };
 
+/// Limites de tamanho da area de cliente em pixels.
+///
+/// `min_* == 0` significa sem minimo explicito. `max_* == 0` significa
+/// sem maximo explicito para aquele eixo. Quando ambos os maximos sao
+/// zero, o backend remove a restricao de tamanho maximo.
+pub const WindowSizeLimits = struct {
+    min_width: u32 = 0,
+    min_height: u32 = 0,
+    max_width: u32 = 0,
+    max_height: u32 = 0,
+};
+
 /// Posicao da origem da area de cliente em coordenadas de tela do
 /// backend. Para X11/Win32 e consultada no recurso nativo quando possivel.
 pub const WindowPosition = struct {

@@ -20,6 +20,8 @@ const Entry = struct {
     slot: u32,
     hwnd: api.HWND,
     cursor: types.Cursor = .default,
+    /// Limites aplicados em `WM_GETMINMAXINFO`.
+    size_limits: types.WindowSizeLimits = .{},
     /// Retangulo externo e estilo anteriores ao fullscreen.
     saved_fullscreen: ?api.RECT = null,
     saved_style: usize = 0,
@@ -381,6 +383,17 @@ pub const Backend = struct {
         }
     }
 
+    pub fn setSizeLimits(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+        limits: types.WindowSizeLimits,
+    ) !void {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        self.entries.items[entry_idx].size_limits = limits;
+    }
+
     /// Fullscreen sem borda sobre o monitor mais proximo. O estado e
     /// controlado pela aplicacao (nao ha notificacao nativa equivalente).
     pub fn setFullscreen(
@@ -662,6 +675,47 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                 if (loadCursor(backend.entries.items[idx].cursor)) |handle| {
                     _ = api.SetCursor(handle);
                     return 1; // TRUE: impede o DefWindowProc de usar a classe.
+                }
+            }
+        }
+        return api.DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
+    // WM_GETMINMAXINFO pode chegar antes de pending (create/SetWindowPos)
+    // e precisa consultar os limites armazenados na entrada nativa.
+    if (msg == api.WM_GETMINMAXINFO) {
+        if (lparam != 0) {
+            if (backend.findEntryByHwnd(hwnd)) |idx| {
+                const limits = backend.entries.items[idx].size_limits;
+                if (limits.min_width > 0 or limits.min_height > 0 or
+                    limits.max_width > 0 or limits.max_height > 0)
+                {
+                    // WM_GETMINMAXINFO trabalha com o tamanho externo
+                    // (tracking size); a API expoe a area de cliente.
+                    const style: api.DWORD = @truncate(@as(usize, @bitCast(
+                        api.GetWindowLongPtrW(hwnd, api.GWL_STYLE),
+                    )));
+                    const ex_style: api.DWORD = @truncate(@as(usize, @bitCast(
+                        api.GetWindowLongPtrW(hwnd, api.GWL_EXSTYLE),
+                    )));
+                    var frame = api.RECT{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+                    if (api.AdjustWindowRectEx(&frame, style, 0, ex_style) != 0) {
+                        const border_x: api.LONG = frame.right - frame.left;
+                        const border_y: api.LONG = frame.bottom - frame.top;
+                        const info: *api.MINMAXINFO = @ptrFromInt(@as(usize, @bitCast(lparam)));
+                        if (limits.min_width > 0) {
+                            info.ptMinTrackSize.x = @as(api.LONG, @intCast(limits.min_width)) + border_x;
+                        }
+                        if (limits.min_height > 0) {
+                            info.ptMinTrackSize.y = @as(api.LONG, @intCast(limits.min_height)) + border_y;
+                        }
+                        if (limits.max_width > 0) {
+                            info.ptMaxTrackSize.x = @as(api.LONG, @intCast(limits.max_width)) + border_x;
+                        }
+                        if (limits.max_height > 0) {
+                            info.ptMaxTrackSize.y = @as(api.LONG, @intCast(limits.max_height)) + border_y;
+                        }
+                    }
                 }
             }
         }

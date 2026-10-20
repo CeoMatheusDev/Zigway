@@ -45,6 +45,15 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   `move`. Falha de posicionamento nativo retorna `WindowMoveFailed`.
   Cobertura live X11 move uma janela e valida evento/posicao final
   (EWMH e fallback sem WM).
+- Limites de tamanho da janela: `Window.setSizeLimits`/`sizeLimits`,
+  `Platform.setWindowSizeLimits`/`windowSizeLimits` e
+  `WindowSizeLimits` (mínimos e máximos da área de cliente; `max_* == 0`
+  significa sem máximo explícito). X11 publica `WM_NORMAL_HINTS`
+  (`PMinSize`/`PMaxSize`) preservando outros hints e confirma com
+  `XGetWMNormalHints`; Win32 aplica em `WM_GETMINMAXINFO`; null mantém
+  estado lógico. Min/max inválidos retornam `InvalidConfig`. Cobertura
+  unitária e live X11 valida o round-trip nativo; Win32 apenas
+  compilação cruzada.
 - Fullscreen de janela: `Window.setFullscreen`/`isFullscreen`,
   `Platform.setWindowFullscreen`/`isWindowFullscreen` e evento
   `FullscreenEvent` (`{ window, fullscreen }`). X11 usa

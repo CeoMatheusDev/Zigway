@@ -1085,6 +1085,52 @@ test "live x11: window move updates position and emits move" {
     try std.testing.expectEqual(target_y, final.y);
 }
 
+test "live x11: size limits round-trip through WM_NORMAL_HINTS" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var window = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-size-limits-live",
+    });
+    defer window.deinit();
+
+    try window.setSizeLimits(.{
+        .min_width = 200,
+        .min_height = 150,
+        .max_width = 800,
+        .max_height = 600,
+    });
+    var limits = window.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 200), limits.min_width);
+    try std.testing.expectEqual(@as(u32, 150), limits.min_height);
+    try std.testing.expectEqual(@as(u32, 800), limits.max_width);
+    try std.testing.expectEqual(@as(u32, 600), limits.max_height);
+
+    // Um eixo sem maximo e um minimo sem maximo explicito.
+    try window.setSizeLimits(.{ .min_width = 100, .max_height = 500 });
+    limits = window.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 100), limits.min_width);
+    try std.testing.expectEqual(@as(u32, 0), limits.max_width);
+    try std.testing.expectEqual(@as(u32, 500), limits.max_height);
+
+    // Remover os limites limpa PMinSize/PMaxSize (round-trip verificado
+    // dentro do backend).
+    try window.setSizeLimits(.{});
+    limits = window.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 0), limits.min_width);
+    try std.testing.expectEqual(@as(u32, 0), limits.max_width);
+}
+
 test "live x11: fullscreen toggles state and emits fullscreen events" {
     var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
         if (err == error.NoDisplay or err == error.ConnectionFailed or

@@ -245,6 +245,20 @@ pub const Platform = struct {
         return slot.focused;
     }
 
+    fn validateSizeLimits(limits: types.WindowSizeLimits) !void {
+        if (limits.min_width > 16384 or limits.min_height > 16384 or
+            limits.max_width > 16384 or limits.max_height > 16384)
+        {
+            return error.InvalidConfig;
+        }
+        if (limits.max_width != 0 and limits.min_width > limits.max_width) {
+            return error.InvalidConfig;
+        }
+        if (limits.max_height != 0 and limits.min_height > limits.max_height) {
+            return error.InvalidConfig;
+        }
+    }
+
     pub fn setWindowTitle(self: *Platform, id: types.WindowId, title: []const u8) !void {
         if (self.closed) return error.PlatformClosed;
         if (title.len > 1024) return error.InvalidConfig;
@@ -252,6 +266,31 @@ pub const Platform = struct {
         switch (self.backend) {
             inline else => |*b| try b.setTitle(&self.reg, index, title),
         }
+    }
+
+    /// Define limites minimo/maximo da area de cliente. `max_* == 0`
+    /// significa sem maximo explicito naquele eixo. X11 aplica
+    /// `WM_NORMAL_HINTS`; Win32 responde a `WM_GETMINMAXINFO`; null
+    /// mantem o estado logico.
+    pub fn setWindowSizeLimits(
+        self: *Platform,
+        id: types.WindowId,
+        limits: types.WindowSizeLimits,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        try validateSizeLimits(limits);
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.setSizeLimits(&self.reg, index, limits),
+        }
+        self.reg.slots.items[index].size_limits = limits;
+    }
+
+    /// Limites configurados para a janela; invalido/fechado -> zero.
+    pub fn windowSizeLimits(self: *Platform, id: types.WindowId) types.WindowSizeLimits {
+        if (self.closed) return .{};
+        const slot = self.reg.get(id) orelse return .{};
+        return slot.size_limits;
     }
 
     pub fn setWindowSize(self: *Platform, id: types.WindowId, width: u32, height: u32) !void {
@@ -635,6 +674,7 @@ test "invalid ops on dead id return InvalidWindow" {
     try std.testing.expectError(error.InvalidWindow, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowSize(id, 10, 10));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowPosition(id, 10, 10));
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowSizeLimits(id, .{}));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowFullscreen(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
@@ -756,6 +796,51 @@ test "fullscreen on null backend updates state and emits fullscreen events" {
     try std.testing.expect(!plat.isWindowFullscreen(.{ .index = 99, .generation = 0 }));
 }
 
+test "size limits on null backend validate and persist" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{});
+    defer w.deinit();
+
+    const initial = w.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 0), initial.min_width);
+
+    try w.setSizeLimits(.{
+        .min_width = 200,
+        .min_height = 150,
+        .max_width = 800,
+        .max_height = 600,
+    });
+    const limits = w.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 200), limits.min_width);
+    try std.testing.expectEqual(@as(u32, 150), limits.min_height);
+    try std.testing.expectEqual(@as(u32, 800), limits.max_width);
+    try std.testing.expectEqual(@as(u32, 600), limits.max_height);
+
+    // Um maximo zero significa "sem limite" naquele eixo.
+    try w.setSizeLimits(.{ .min_width = 100, .max_width = 0, .max_height = 400 });
+    const partial = w.sizeLimits();
+    try std.testing.expectEqual(@as(u32, 100), partial.min_width);
+    try std.testing.expectEqual(@as(u32, 0), partial.max_width);
+    try std.testing.expectEqual(@as(u32, 400), partial.max_height);
+
+    // Validacao antes do backend: estado anterior e preservado.
+    try std.testing.expectError(error.InvalidConfig, w.setSizeLimits(.{
+        .min_width = 500,
+        .max_width = 400,
+    }));
+    try std.testing.expectError(error.InvalidConfig, w.setSizeLimits(.{ .min_height = 500, .max_height = 400 }));
+    try std.testing.expectError(error.InvalidConfig, w.setSizeLimits(.{ .max_width = 20000 }));
+    try std.testing.expectEqual(@as(u32, 100), w.sizeLimits().min_width);
+
+    // Ids invalidos falham de forma segura.
+    const dead: types.WindowId = .{ .index = 99, .generation = 0 };
+    try std.testing.expectError(error.InvalidWindow, plat.setWindowSizeLimits(dead, .{}));
+    const dead_limits = plat.windowSizeLimits(dead);
+    try std.testing.expectEqual(@as(u32, 0), dead_limits.min_width);
+}
+
 test "double deinit is safe" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     _ = try plat.createWindow(.{});
@@ -773,6 +858,7 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowPosition(id, 10, 10));
+    try std.testing.expectError(error.PlatformClosed, plat.setWindowSizeLimits(id, .{}));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowFullscreen(id, true));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
     try std.testing.expectError(error.PlatformClosed, plat.captureWindowPointer(id));
@@ -783,6 +869,8 @@ test "operations after deinit fail safe" {
     try std.testing.expect(plat.windowShouldClose(id));
     try std.testing.expect(!plat.isWindowAlive(id));
     try std.testing.expect(!plat.isWindowFullscreen(id));
+    const closed_limits = plat.windowSizeLimits(id);
+    try std.testing.expectEqual(@as(u32, 0), closed_limits.min_width);
     const closed_pos = plat.windowPosition(id);
     try std.testing.expectEqual(@as(i32, 0), closed_pos.x);
     try std.testing.expectEqual(@as(i32, 0), closed_pos.y);

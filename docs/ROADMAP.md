@@ -16,9 +16,10 @@ implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 
 ## v0.2.x — Display e Cursor
 
-Cursores do SO, captura de ponteiro, enumeração de monitores, posição e
-fullscreen de janela implementados (`Window.setCursor`/`capturePointer`/
-`setPosition`/`setFullscreen`, `Platform.displays` e eventos
+Cursores do SO, captura de ponteiro, enumeração de monitores, posição,
+fullscreen e limites de tamanho de janela implementados
+(`Window.setCursor`/`capturePointer`/`setPosition`/`setFullscreen`/
+`setSizeLimits`, `Platform.displays` e eventos
 `display_change`/`fullscreen`). No X11, monitores físicos usam
 RandR 1.5+ via `libXrandr` opcional em runtime, com fallback para X
 screens, e posição usa EWMH (`_NET_MOVERESIZE_WINDOW`) quando
@@ -26,8 +27,9 @@ disponível; Win32 usa `EnumDisplayMonitors` e
 `SetWindowPos`/`WM_MOVE`; null retorna lista vazia e aplica posição
 localmente. Notificações de mudança de display usam RandR no X11 e
 `WM_DISPLAYCHANGE` no Win32. Fullscreen usa EWMH/`_NET_WM_STATE` no X11
-(com fallback de geometria) e `WS_POPUP` no Win32. Troca de modo de
-vídeo permanece pendente.
+(com fallback de geometria) e `WS_POPUP` no Win32; limites de tamanho
+usam `WM_NORMAL_HINTS` no X11 e `WM_GETMINMAXINFO` no Win32. Troca de
+modo de vídeo permanece pendente.
 
 ## v0.3.x — Text Input e Clipboard
 

@@ -43,6 +43,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
 - **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
+- **Size limits:** Set client-area minimum and maximum dimensions; X11 publishes `WM_NORMAL_HINTS`, Win32 handles `WM_GETMINMAXINFO`, and the null backend keeps the state logical.
 - **Headless operation:** Use the null backend to exercise platform logic without a desktop session.
 - **Rendering freedom:** Integrate your preferred graphics API or UI toolkit without a bundled renderer.
 

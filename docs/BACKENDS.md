@@ -24,7 +24,9 @@ de monitores (`XRRGetMonitors`, RandR 1.5+, com fallback para
 `_NET_MOVERESIZE_WINDOW` (EWMH, `StaticGravity`) quando o WM anuncia o
 atom em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. A leitura
 usa `XTranslateCoordinates` até o root e o evento `move` é emitido a
-partir de `ConfigureNotify` quando a origem do cliente muda. Fullscreen
+partir de `ConfigureNotify` quando a origem do cliente muda. Limites de
+tamanho usam `XGetWMNormalHints`/`XSetWMNormalHints`
+(`PMinSize`/`PMaxSize`) com round-trip de confirmação. Fullscreen
 usa `_NET_WM_STATE_FULLSCREEN` quando o WM anuncia os atoms EWMH;
 `PropertyNotify` confirma o estado. Sem WM/EWMH, aplica
 `XMoveResizeWindow` na tela X padrão e restaura a geometria anterior ao
@@ -70,6 +72,10 @@ Limitações conhecidas:
   `fullscreen` e `isFullscreen()` refletem o estado real. Sem EWMH, o
   fallback cobre a tela X padrão inteira (não escolhe o monitor da
   janela) e pode manter decoração se houver um WM sem EWMH.
+- Limites de tamanho são uma requisição ao WM; ele pode ignorar ou
+  ajustar. A gravação de `WM_NORMAL_HINTS` é confirmada, mas o
+  cumprimento efetivo depende do WM. A mudança não força um resize
+  imediato da janela atual.
 - `setCursor` é validado por ausência de erro de protocolo; o efeito
   visual não é inspecionado pelo teste.
 - Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);
@@ -87,7 +93,8 @@ Limitações conhecidas:
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
 Validado com display real: `zig build test-x11` (inclui fullscreen EWMH
-sob KWin e fallback sem WM em Xwayland aninhado). Mudança de resolução e
+sob KWin, fallback sem WM em Xwayland aninhado e round-trip de
+`WM_NORMAL_HINTS`). Mudança de resolução e
 evento `display_change` validados manualmente em Xwayland; hotplug físico
 não foi testado.
 
@@ -106,7 +113,9 @@ minimize como invisível), posição via `WM_MOVE` + `ClientToScreen`,
 `GetWindowRect`/`SetWindowPos` preservando o delta da área de cliente,
 foco, `WM_CLOSE`→evento sem destruir, `WM_DISPLAYCHANGE`→
 `display_change`, fullscreen sem borda (`WS_POPUP` + `SetWindowPos` no
-monitor mais próximo, com restauração de estilo/retângulo), cursores do
+monitor mais próximo, com restauração de estilo/retângulo), limites de
+tamanho via `WM_GETMINMAXINFO` (convertendo área de cliente para tracking
+size com `AdjustWindowRectEx`), cursores do
 sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por janela),
 captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`, por
 thread), enumeração de monitores
@@ -143,6 +152,10 @@ Limitações conhecidas:
 - Fullscreen usa o monitor mais próximo via `MonitorFromWindow`; o estado
   é controlado pela API (mudanças externas de estilo não são detectadas).
   Sem validação em runtime (apenas compilação cruzada).
+- Limites de tamanho são aplicados em `WM_GETMINMAXINFO` após converter
+  a área de cliente para o tamanho externo com `AdjustWindowRectEx`; um
+  máximo menor que o monitor também limita fullscreen. Sem validação em
+  runtime (apenas compilação cruzada).
 - Captura de mouse é por thread: `SetCapture` pode falhar enquanto outra
   thread detém a captura (`PointerCaptureFailed`); a captura é liberada
   ao destruir a janela e verificada via `GetCapture`.
@@ -160,6 +173,6 @@ Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
 é no-op e a captura de ponteiro é apenas estado interno (aceita todas as
 variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 `displays()` retorna lista vazia (não inventa monitores),
-`display_change` é testável via `injectEvent` e fullscreen é apenas
-estado lógico com evento. Usado pelos testes unitários e como fallback
-em SOs sem backend.
+`display_change` é testável via `injectEvent`, fullscreen é apenas
+estado lógico com evento e limites de tamanho são apenas estado. Usado
+pelos testes unitários e como fallback em SOs sem backend.
