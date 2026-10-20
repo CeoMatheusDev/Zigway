@@ -200,6 +200,85 @@ test "live x11: external destroy emits close once and invalidates operations" {
     try std.testing.expect(!plat.isWindowAlive(id));
 }
 
+test "live x11: multiple windows are independent" {
+    // Valida independencia entre janelas nativas simultaneas: ids
+    // distintos, resize isolado, destroy nao afeta a outra e poda de
+    // eventos da janela destruida.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var w1 = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-live-multi-1",
+    });
+    defer w1.deinit();
+    var w2 = try plat.createWindow(.{
+        .width = 480,
+        .height = 360,
+        .title = "zigway-live-multi-2",
+    });
+    defer w2.deinit();
+
+    const id1 = w1.windowId();
+    const id2 = w2.windowId();
+    try std.testing.expect(!id1.eql(id2));
+
+    // Drena eventos iniciais (MapNotify etc.).
+    var i: usize = 0;
+    while (i < 30) : (i += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+    }
+
+    try std.testing.expect(!w1.shouldClose());
+    try std.testing.expect(!w2.shouldClose());
+    try std.testing.expectEqual(@as(u32, 320), w1.size().width);
+    try std.testing.expectEqual(@as(u32, 480), w2.size().width);
+
+    // Resize em w1 nao afeta w2.
+    try w1.setSize(400, 300);
+    var saw_resize = false;
+    var waited: u32 = 0;
+    while (waited < 3000 and !saw_resize) : (waited += 50) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .resize and ev.resize.window.eql(id1)) saw_resize = true;
+        }
+        if (!saw_resize) sleepMs(50);
+    }
+    try std.testing.expect(saw_resize);
+    try std.testing.expectEqual(@as(u32, 400), w1.size().width);
+    try std.testing.expectEqual(@as(u32, 480), w2.size().width);
+
+    // Destruir w1 nao afeta w2.
+    try plat.destroyWindow(id1);
+    w1.id = zigway.WindowId.invalid;
+    try std.testing.expect(!w1.isValid());
+    try std.testing.expect(w2.isValid());
+    try std.testing.expect(!plat.isWindowAlive(id1));
+    try std.testing.expect(plat.isWindowAlive(id2));
+
+    // Eventos pendentes de w1 sao podados; w2 segue funcional.
+    plat.pollEvents();
+    while (plat.nextEvent()) |ev| {
+        if (ev.window()) |wid| {
+            if (wid.eql(id1)) return error.UnexpectedEvent;
+        }
+    }
+
+    try w2.setTitle("zigway-live-multi-2b");
+    try std.testing.expectEqual(@as(u32, 480), w2.size().width);
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —
