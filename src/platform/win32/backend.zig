@@ -1178,6 +1178,17 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             } else {
                 events.dispatch(queue, state, .{ .key_up = kev });
             }
+            // Input bruto: o scan code (bits 16-23 do lparam) identifica
+            // a tecla fisica (Shift esquerdo/direito, etc.).
+            if (wid) |window_id| {
+                const scancode: u32 = @intCast((bits >> 16) & 0xFF);
+                events.dispatch(queue, state, .{ .raw_key = .{
+                    .window = window_id,
+                    .scancode = scancode,
+                    .pressed = pressed,
+                    .modifiers = currentMods(),
+                } });
+            }
             return 0;
         },
         api.WM_CHAR => {

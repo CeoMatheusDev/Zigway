@@ -75,6 +75,18 @@ pub const TextInputEvent = struct {
     codepoint: u32,
 };
 
+/// Tecla em nivel de hardware ("input bruto"), separada de `Key`.
+///
+/// Permite distinguir teclas fisicas que o `Key` agrupa (Shift
+/// esquerdo/direito) e usar a tecla independentemente do layout.
+pub const RawKeyEvent = struct {
+    window: WindowId,
+    /// Scancode da tecla fisica: keycode do X11 ou scan code do Win32.
+    scancode: u32,
+    pressed: bool,
+    modifiers: Modifiers,
+};
+
 pub const KeyEvent = struct {
     window: ?WindowId,
     key: Key,
@@ -113,6 +125,7 @@ pub const Event = union(enum) {
     fullscreen: FullscreenEvent,
     maximized: MaximizedEvent,
     text_input: TextInputEvent,
+    raw_key: RawKeyEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
     key_up: KeyEvent,
@@ -139,6 +152,7 @@ pub const Event = union(enum) {
             .fullscreen => |e| e.window,
             .maximized => |e| e.window,
             .text_input => |e| e.window,
+            .raw_key => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
             .key_up => |e| e.window,
@@ -332,6 +346,7 @@ test "event window accessor covers all variants" {
         .{ .fullscreen = .{ .window = id, .fullscreen = true } },
         .{ .maximized = .{ .window = id, .maximized = true } },
         .{ .text_input = .{ .window = id, .codepoint = 'a' } },
+        .{ .raw_key = .{ .window = id, .scancode = 30, .pressed = true, .modifiers = .{} } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
         .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

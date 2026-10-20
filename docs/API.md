@@ -148,6 +148,19 @@ do modo e a geometria, para que um snapshot obsoleto seja recusado com
 (`preferred` fica `false`) e a frequência é inteira (Hz). A mudança
 gera `WM_DISPLAYCHANGE` (evento `display_change`).
 
+## Input bruto (tecla física)
+
+O evento `raw_key` (`{ window, scancode, pressed, modifiers }`) traz a
+tecla no **nível de hardware**, separado de `Key` (que é dependente do
+layout). Ele permite distinguir teclas físicas que o `Key` agrupa
+(Shift esquerdo/direito em quebras de layout) e implementar controles
+por posição na tecla.
+
+O `scancode` é o **keycode do X11** (código do evdev + 8 no Linux) ou o
+**scan code do Win32** (bits 16–23 do `lparam`): não há numeração
+comum entre backends, use-o por backend. O evento chega junto do
+`key_down`/`key_up` correspondente.
+
 ## Entrada de texto (Unicode)
 
 O evento `text_input` traz o texto digitado/composto, **separado de
@@ -287,6 +300,7 @@ pub const Event = union(enum) {
     fullscreen: FullscreenEvent,     // { window, fullscreen }
     maximized: MaximizedEvent,       // { window, maximized }
     text_input: TextInputEvent,      // { window, codepoint }
+    raw_key: RawKeyEvent,            // { window, scancode, pressed, modifiers }
     focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
@@ -354,7 +368,8 @@ botões são estado global e não são associados a janela.
 `DisplayModeId` (`eql`, `isValid`, `invalid`), `DisplayInfo`,
 `DisplayMode`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
-`FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `version.string`
+`FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `RawKeyEvent`,
+`version.string`
 (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,

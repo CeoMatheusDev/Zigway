@@ -787,10 +787,81 @@ fn pollTextInput(plat: *zigway.Platform, id: zigway.WindowId) ?u32 {
     return null;
 }
 
+/// Coleta o primeiro `raw_key` da janela (com timeout).
+fn pollRawKey(
+    plat: *zigway.Platform,
+    id: zigway.WindowId,
+    pressed: bool,
+) ?zigway.RawKeyEvent {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .raw_key and
+                ev.raw_key.window.eql(id) and
+                ev.raw_key.pressed == pressed)
+            {
+                return ev.raw_key;
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
 /// Descarta todos os eventos pendentes da fila.
 fn drainEvents(plat: *zigway.Platform) void {
     plat.pollEvents();
     while (plat.nextEvent()) |_| {}
+}
+
+test "live x11: raw key event carries the physical keycode" {
+    // `raw_key` expoe a tecla fisica (keycode do X11), independente do
+    // layout: e o que permite distinguir Shift esquerdo/direito.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const title = "zigway-live-raw-key";
+    var window = try plat.createWindow(.{ .width = 320, .height = 240, .title = title });
+    defer window.deinit();
+    const id = window.windowId();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+
+    var target: ?c_ulong = null;
+    var tries: usize = 0;
+    while (tries < 400 and target == null) : (tries += 1) {
+        _ = XSync(display, 0);
+        target = findClientWindowByTitle(display, root, title, 0);
+        if (target == null) sleepMs(5);
+    }
+    const native = target orelse {
+        std.debug.print("\n[x11-live] janela nativa nao encontrada; pulando.\n", .{});
+        return;
+    };
+
+    const keycode = XKeysymToKeycode(display, 0x61); // XK_a
+    if (keycode == 0) return;
+
+    sendKey(display, native, root, keycode, true);
+    const down = pollRawKey(&plat, id, true) orelse return error.MissingRawKeyEvent;
+    try std.testing.expectEqual(@as(u32, keycode), down.scancode);
+    try std.testing.expect(down.pressed);
+
+    sendKey(display, native, root, keycode, false);
+    const up = pollRawKey(&plat, id, false) orelse return error.MissingRawKeyEvent;
+    try std.testing.expectEqual(@as(u32, keycode), up.scancode);
+    try std.testing.expect(!up.pressed);
 }
 
 test "live x11: pointer move, buttons and wheel update input state" {

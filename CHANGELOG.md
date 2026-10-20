@@ -64,6 +64,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Input bruto de teclado: evento `raw_key` (`{ window, scancode, pressed,
+  modifiers }`) com a tecla no nível de hardware — keycode do X11
+  (evdev + 8 no Linux) ou scan code do Win32 (bits 16-23 do `lparam`).
+  Permite distinguir teclas físicas que o `Key` agrupa e usar a tecla
+  independentemente do layout; chega junto do `key_down`/`key_up`.
 - Entrada de texto Unicode: evento `text_input` (`{ window, codepoint }`),
   um por codepoint, separado de `Key` (que continua sendo o input bruto
   da tecla). No X11 o codepoint vem do keysym (nível 0, ou nível 1 com

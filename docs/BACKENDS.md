@@ -39,6 +39,11 @@ usa `_NET_WM_STATE_FULLSCREEN` quando o WM anuncia os atoms EWMH;
 `XMoveResizeWindow` na tela X padrão e restaura a geometria anterior ao
 sair (caminho síncrono).
 
+Input bruto: `raw_key` traz o keycode do X11 (código do evdev + 8 no
+Linux), que identifica a tecla física independentemente do layout; o
+`Key` continua vindo do keysym (que distingue Shift/Control
+esquerdo/direito).
+
 Entrada de texto: o codepoint Unicode vem do keysym da tecla (nível 0,
 ou nível 1 quando Shift esta pressionado), mapeado para ASCII/Latin-1/
 keysyms Unicode. Não há input method: compose, dead keys e IME real
@@ -212,6 +217,8 @@ Limitações conhecidas:
 - Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
   monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
   snapshot. Não há eventos de hotplug.
+- Input bruto: `raw_key` traz o scan code (bits 16–23 do `lparam`),
+  que identifica a tecla física (Shift esquerdo/direito, etc.).
 - Entrada de texto: `WM_CHAR` (UTF-16) vira codepoint Unicode, com
   pares substitutos combinados; é por esse caminho que o IME confirma o
   texto composto. Sem validação em runtime (apenas compilação cruzada).
@@ -243,6 +250,7 @@ variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 são apenas estado lógico com eventos, e limites de tamanho são apenas
 estado. Modos de vídeo: `displayModes` devolve lista vazia e
 `setDisplayMode` retorna `DisplayModeUnsupported` (sem recursos nativos).
-Entrada de texto: sem teclado nativo (o evento pode ser injetado).
+Entrada de texto e input bruto: sem teclado nativo (os eventos podem ser
+injetados).
 Área de transferência: texto guardado em memória, dentro da plataforma
 (`setClipboardText`/`clipboardText` fazem round-trip). Usado pelos testes unitários e como fallback em SOs sem backend.

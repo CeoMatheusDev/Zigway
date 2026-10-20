@@ -1238,6 +1238,16 @@ pub const Backend = struct {
                 } else {
                     events.dispatch(queue, state, .{ .key_up = kev });
                 }
+                // Input bruto: o keycode do X11 e a tecla fisica
+                // (codigo do evdev + 8 no Linux), independente do layout.
+                if (wid) |window_id| {
+                    events.dispatch(queue, state, .{ .raw_key = .{
+                        .window = window_id,
+                        .scancode = ev.key.keycode,
+                        .pressed = pressed,
+                        .modifiers = mods,
+                    } });
+                }
             },
             api.ButtonPress, api.ButtonRelease => {
                 const pressed = ev.type == api.ButtonPress;

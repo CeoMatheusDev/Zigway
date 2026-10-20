@@ -48,7 +48,9 @@ vazia / `DisplayModeUnsupported`).
 `clipboardText`, UTF-8; no X11 com janela dona da seleção `CLIPBOARD` e
 resposta a `SelectionRequest`; no Win32 com `CF_UNICODETEXT`) e entrada
 de texto Unicode separada de `Key` (evento `text_input` com um codepoint
-por evento; no X11 via keysym, no Win32 via `WM_CHAR`/IME).
+por evento; no X11 via keysym, no Win32 via `WM_CHAR`/IME) e input
+bruto de teclado (evento `raw_key` com a tecla física: keycode do X11
+ou scan code do Win32).
 Pendentes: input method no X11 (compose, dead keys e IME real) e drag &
 drop.
 

@@ -51,6 +51,7 @@ pub const DisplayChangeEvent = events_mod.DisplayChangeEvent;
 pub const FullscreenEvent = events_mod.FullscreenEvent;
 pub const MaximizedEvent = events_mod.MaximizedEvent;
 pub const TextInputEvent = events_mod.TextInputEvent;
+pub const RawKeyEvent = events_mod.RawKeyEvent;
 pub const FocusEvent = events_mod.FocusEvent;
 pub const KeyEvent = events_mod.KeyEvent;
 pub const PointerMoveEvent = events_mod.PointerMoveEvent;
