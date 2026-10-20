@@ -6,7 +6,7 @@
 
 A lightweight, renderer-independent platform layer for desktop applications and GUI toolkits, written in Zig with direct native API bindings.
 
-**Zig 0.17.0** · **v0.1.0-alpha.2** · **Alpha**
+**Zig 0.17.0** · **v0.1.0-alpha.3** · **Alpha**
 
 [![Zig](https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/)
 [![Status](https://img.shields.io/badge/status-alpha-F59E0B)](https://github.com/CeoMatheusDev/Zigway)
@@ -28,7 +28,7 @@ It is designed to sit **below a renderer or GUI toolkit**: Zigway manages window
 The core uses hand-declared native ABI bindings instead of `@cImport` or third-party Zig packages. Platform system libraries are still linked where required (such as X11 on Linux and Win32 libraries on Windows).
 
 > [!IMPORTANT]
-> **Early alpha:** Zigway is currently at `v0.1.0-alpha.2`. Win32 and X11 backends are implemented, but runtime validation is not equivalent across platforms: X11 has been tested with a live display, while Win32 has been cross-compiled but not runtime-tested on Windows. The **native Wayland backend is in progress**: compositor connection, outputs, seat, xdg-shell windows and pointer/keyboard input work, while the Wayland clipboard and Unicode text input are still pending.
+> **Early alpha:** Zigway is currently at `v0.1.0-alpha.3`. Win32 and X11 backends are implemented, but runtime validation is not equivalent across platforms: X11 has been tested with a live display, while Win32 has been cross-compiled but not runtime-tested on Windows. The **native Wayland backend** now covers compositor connection, outputs, seat, xdg-shell windows, pointer/keyboard input and the clipboard; Unicode text input (IME) and video modes are still pending.
 
 ## Why Zigway?
 

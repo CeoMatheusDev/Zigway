@@ -5,6 +5,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+## [0.1.0-alpha.3] — 2026-10-20
+
+Terceira etapa: display (monitores, modos de vídeo), texto/clipboard
+com separação do input bruto de tecla e **backend Wayland nativo**
+(conexão, outputs, seat, janelas xdg-shell, ponteiro, teclado e
+clipboard). Validado com display real no X11 e no Wayland (KWin nativo).
+
 ### Adicionado
 
 - **Entrada de teclado no backend Wayland**: o `wl_keyboard` e criado

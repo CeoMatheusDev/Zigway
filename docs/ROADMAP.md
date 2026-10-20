@@ -9,7 +9,7 @@ entrada de texto/IME. Não há renderer, dispositivo gráfico ou pipeline
 próprio: a integração com GPU entra como extensão de plataforma (ver
 `GRAPHICS.md`).
 
-## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.2)
+## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.3)
 
 - [x] Build Zig 0.17.0, Core, Platform multi-janelas
 - [x] Window, Events (`union(enum)`), Input (teclado/mouse)
