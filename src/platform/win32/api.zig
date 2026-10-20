@@ -99,6 +99,78 @@ pub const MONITORINFO = extern struct {
 pub const MONITORINFOF_PRIMARY: DWORD = 0x00000001;
 pub const MONITOR_DEFAULTTONEAREST: DWORD = 0x00000002;
 
+/// `CCHDEVICENAME` (wingdi.h): tamanho do nome do dispositivo de display.
+pub const CCHDEVICENAME: usize = 32;
+/// `CCHFORMNAME` (wingdi.h): tamanho do nome do modo ("form name").
+pub const CCHFORMNAME: usize = 32;
+
+/// `POINTL` (wingdi.h).
+pub const POINTL = extern struct {
+    x: LONG,
+    y: LONG,
+};
+
+/// `MONITORINFOEXW` (winuser.h): `MONITORINFO` + nome do dispositivo de
+/// display (ex.: `\\.\DISPLAY1`).
+pub const MONITORINFOEXW = extern struct {
+    cbSize: DWORD,
+    rcMonitor: RECT,
+    rcWork: RECT,
+    dwFlags: DWORD,
+    szDevice: [CCHDEVICENAME]u16,
+};
+
+/// `DEVMODEW` (wingdi.h): descricao de um modo de display.
+///
+/// A uniao do header (orientacao de papel x `dmDisplayOrientation`/
+/// `dmDisplayFixedOutput`) e representada pela variante de display, que e
+/// a usada por `EnumDisplaySettings`/`ChangeDisplaySettingsEx`.
+pub const DEVMODEW = extern struct {
+    dmDeviceName: [CCHDEVICENAME]u16,
+    dmSpecVersion: WORD,
+    dmDriverVersion: WORD,
+    dmSize: WORD,
+    dmDriverExtra: WORD,
+    dmFields: DWORD,
+    dmPosition: POINTL,
+    dmDisplayOrientation: DWORD,
+    dmDisplayFixedOutput: DWORD,
+    dmColor: i16,
+    dmDuplex: i16,
+    dmYResolution: i16,
+    dmTTOption: i16,
+    dmCollate: i16,
+    dmFormName: [CCHFORMNAME]u16,
+    dmLogPixels: WORD,
+    dmBitsPerPel: DWORD,
+    dmPelsWidth: DWORD,
+    dmPelsHeight: DWORD,
+    dmDisplayFlags: DWORD,
+    dmDisplayFrequency: DWORD,
+    dmICMMethod: DWORD,
+    dmICMIntent: DWORD,
+    dmMediaType: DWORD,
+    dmDitherType: DWORD,
+    dmReserved1: DWORD,
+    dmReserved2: DWORD,
+    dmPanningWidth: DWORD,
+    dmPanningHeight: DWORD,
+};
+
+/// `ENUM_CURRENT_SETTINGS` (wingdi.h): modo corrente do dispositivo.
+pub const ENUM_CURRENT_SETTINGS: DWORD = 0xFFFFFFFF;
+
+/// Campos validos de `DEVMODEW.dmFields`.
+pub const DM_BITSPERPEL: DWORD = 0x00040000;
+pub const DM_PELSWIDTH: DWORD = 0x00080000;
+pub const DM_PELSHEIGHT: DWORD = 0x00100000;
+pub const DM_DISPLAYFREQUENCY: DWORD = 0x00400000;
+
+/// Retornos de `ChangeDisplaySettingsExW`.
+pub const DISP_CHANGE_SUCCESSFUL: LONG = 0;
+pub const DISP_CHANGE_RESTART: LONG = 1;
+pub const DISP_CHANGE_FAILED: LONG = -1;
+
 /// CREATESTRUCTW parcial: apenas o primeiro campo e lido.
 pub const CREATESTRUCT_HEAD = extern struct {
     lpCreateParams: ?*anyopaque,
@@ -280,6 +352,23 @@ pub extern "user32" fn EnumDisplayMonitors(
     data: LPARAM,
 ) BOOL;
 pub extern "user32" fn GetMonitorInfoW(monitor: HMONITOR, info: *MONITORINFO) BOOL;
+/// `EnumDisplaySettingsW` (wingdi.h): modos de um dispositivo de display.
+/// `iModeNum` = `ENUM_CURRENT_SETTINGS` devolve o modo corrente.
+pub extern "user32" fn EnumDisplaySettingsW(
+    device: LPCWSTR,
+    mode_index: DWORD,
+    dev_mode: *DEVMODEW,
+) BOOL;
+/// `ChangeDisplaySettingsExW` (wingdi.h): aplica um modo de display.
+/// `flags`/`visible` nulos e `param` nulo = troca dinamica (sem gravar no
+/// registro).
+pub extern "user32" fn ChangeDisplaySettingsExW(
+    device: LPCWSTR,
+    dev_mode: *const DEVMODEW,
+    flags: ?[*:0]const u16,
+    param: ?*anyopaque,
+    visible: ?[*:0]const u16,
+) LONG;
 pub extern "user32" fn MonitorFromWindow(hwnd: HWND, flags: DWORD) HMONITOR;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;
@@ -296,5 +385,41 @@ test "MINMAXINFO layout matches winuser.h" {
         try std.testing.expectEqual(@as(usize, 8), @offsetOf(MINMAXINFO, "ptMaxSize"));
         try std.testing.expectEqual(@as(usize, 24), @offsetOf(MINMAXINFO, "ptMinTrackSize"));
         try std.testing.expectEqual(@as(usize, 32), @offsetOf(MINMAXINFO, "ptMaxTrackSize"));
+    }
+}
+
+test "DEVMODEW layout matches wingdi.h" {
+    if (@sizeOf(usize) == 8) {
+        try std.testing.expectEqual(@as(usize, 220), @sizeOf(DEVMODEW));
+        try std.testing.expectEqual(@as(usize, 0), @offsetOf(DEVMODEW, "dmDeviceName"));
+        try std.testing.expectEqual(@as(usize, 64), @offsetOf(DEVMODEW, "dmSpecVersion"));
+        try std.testing.expectEqual(@as(usize, 66), @offsetOf(DEVMODEW, "dmDriverVersion"));
+        try std.testing.expectEqual(@as(usize, 68), @offsetOf(DEVMODEW, "dmSize"));
+        try std.testing.expectEqual(@as(usize, 70), @offsetOf(DEVMODEW, "dmDriverExtra"));
+        try std.testing.expectEqual(@as(usize, 72), @offsetOf(DEVMODEW, "dmFields"));
+        try std.testing.expectEqual(@as(usize, 76), @offsetOf(DEVMODEW, "dmPosition"));
+        try std.testing.expectEqual(@as(usize, 84), @offsetOf(DEVMODEW, "dmDisplayOrientation"));
+        try std.testing.expectEqual(@as(usize, 88), @offsetOf(DEVMODEW, "dmDisplayFixedOutput"));
+        try std.testing.expectEqual(@as(usize, 92), @offsetOf(DEVMODEW, "dmColor"));
+        try std.testing.expectEqual(@as(usize, 100), @offsetOf(DEVMODEW, "dmCollate"));
+        try std.testing.expectEqual(@as(usize, 102), @offsetOf(DEVMODEW, "dmFormName"));
+        try std.testing.expectEqual(@as(usize, 166), @offsetOf(DEVMODEW, "dmLogPixels"));
+        try std.testing.expectEqual(@as(usize, 168), @offsetOf(DEVMODEW, "dmBitsPerPel"));
+        try std.testing.expectEqual(@as(usize, 172), @offsetOf(DEVMODEW, "dmPelsWidth"));
+        try std.testing.expectEqual(@as(usize, 176), @offsetOf(DEVMODEW, "dmPelsHeight"));
+        try std.testing.expectEqual(@as(usize, 180), @offsetOf(DEVMODEW, "dmDisplayFlags"));
+        try std.testing.expectEqual(@as(usize, 184), @offsetOf(DEVMODEW, "dmDisplayFrequency"));
+        try std.testing.expectEqual(@as(usize, 216), @offsetOf(DEVMODEW, "dmPanningHeight"));
+    }
+}
+
+test "MONITORINFOEXW layout matches winuser.h" {
+    if (@sizeOf(usize) == 8) {
+        try std.testing.expectEqual(@as(usize, 104), @sizeOf(MONITORINFOEXW));
+        try std.testing.expectEqual(@as(usize, 0), @offsetOf(MONITORINFOEXW, "cbSize"));
+        try std.testing.expectEqual(@as(usize, 4), @offsetOf(MONITORINFOEXW, "rcMonitor"));
+        try std.testing.expectEqual(@as(usize, 20), @offsetOf(MONITORINFOEXW, "rcWork"));
+        try std.testing.expectEqual(@as(usize, 36), @offsetOf(MONITORINFOEXW, "dwFlags"));
+        try std.testing.expectEqual(@as(usize, 40), @offsetOf(MONITORINFOEXW, "szDevice"));
     }
 }

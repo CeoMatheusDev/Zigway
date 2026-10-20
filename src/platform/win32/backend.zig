@@ -76,6 +76,82 @@ fn collectMonitor(
     return 1;
 }
 
+/// Contexto da enumeracao de dispositivos de display. A ordem e a mesma
+/// de `displays` (ambos usam `EnumDisplayMonitors`), entao o indice do
+/// snapshot corresponde ao indice do dispositivo.
+const DeviceCollector = struct {
+    allocator: std.mem.Allocator,
+    list: std.ArrayList([api.CCHDEVICENAME]u16) = .empty,
+    err: ?anyerror = null,
+};
+
+fn collectDevice(
+    monitor: api.HMONITOR,
+    hdc: api.HDC,
+    rect: *api.RECT,
+    data: api.LPARAM,
+) callconv(.winapi) api.BOOL {
+    _ = hdc;
+    _ = rect;
+    const ctx: *DeviceCollector = @ptrFromInt(@as(usize, @bitCast(data)));
+    var info = api.MONITORINFOEXW{
+        .cbSize = @sizeOf(api.MONITORINFOEXW),
+        .rcMonitor = std.mem.zeroes(api.RECT),
+        .rcWork = std.mem.zeroes(api.RECT),
+        .dwFlags = 0,
+        .szDevice = std.mem.zeroes([api.CCHDEVICENAME]u16),
+    };
+    // `GetMonitorInfoW` preenche `szDevice` quando `cbSize` e o de
+    // `MONITORINFOEXW`; o ponteiro e convertido porque o prefixo e igual.
+    if (api.GetMonitorInfoW(monitor, @ptrCast(&info)) == 0) return 1;
+    // Mesmo filtro de `collectMonitor`: mantendo a mesma ordem e os mesmos
+    // indices, o `DisplayId` do snapshot corresponde ao dispositivo.
+    const width = info.rcMonitor.right - info.rcMonitor.left;
+    const height = info.rcMonitor.bottom - info.rcMonitor.top;
+    if (width <= 0 or height <= 0) return 1;
+    var terminated = false;
+    for (&info.szDevice) |*ch| {
+        if (ch.* == 0) {
+            terminated = true;
+            break;
+        }
+    }
+    if (!terminated) info.szDevice[api.CCHDEVICENAME - 1] = 0;
+    ctx.list.append(ctx.allocator, info.szDevice) catch |err| {
+        ctx.err = err;
+        return 0;
+    };
+    return 1;
+}
+
+/// Identificador de modo do Win32 empacotado em `u64`:
+/// largura (16 bits) | altura (16 bits) | indice do modo (32 bits).
+/// O indice e o de `EnumDisplaySettingsW`, valido enquanto a
+/// configuracao do dispositivo nao mudar.
+const DecodedModeId = struct {
+    width: u32,
+    height: u32,
+    index: u32,
+};
+
+fn packModeId(width: u32, height: u32, index: u32) u64 {
+    return (@as(u64, width & 0xFFFF) << 48) |
+        (@as(u64, height & 0xFFFF) << 32) |
+        @as(u64, index);
+}
+
+fn unpackModeId(raw: u64) ?DecodedModeId {
+    const width = (raw >> 48) & 0xFFFF;
+    const height = (raw >> 32) & 0xFFFF;
+    const index = raw & 0xFFFFFFFF;
+    if (width == 0 or height == 0) return null;
+    return .{
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .index = @intCast(index),
+    };
+}
+
 /// Contador global para nomes de classe unicos por instancia Backend.
 /// Multiplas Platforms no mesmo processo sao suportadas; cada uma
 /// registra sua propria classe (o segundo RegisterClassExW com nome
@@ -185,27 +261,110 @@ pub const Backend = struct {
         return ctx.list.toOwnedSlice(allocator);
     }
 
-    /// Troca de modo de video ainda nao e implementada no Win32.
+    /// Modos de video de um display (`EnumDisplaySettingsW`).
+    ///
+    /// O `DisplayId` precisa vir do snapshot de `displays`; o indice do
+    /// snapshot corresponde ao dispositivo na ordem de `EnumDisplayMonitors`.
     pub fn displayModes(
         self: *const Backend,
         allocator: std.mem.Allocator,
         id: types.DisplayId,
     ) ![]types.DisplayMode {
-        _ = self;
-        _ = id;
-        return allocator.alloc(types.DisplayMode, 0);
+        const devices = try self.displayDevices(allocator);
+        defer allocator.free(devices);
+        if (id.raw >= devices.len) return error.InvalidDisplay;
+        var device = devices[id.raw];
+        const device_ptr: [*:0]const u16 = @ptrCast(&device);
+
+        // Modo corrente: referencia para marcar `current`.
+        var current: api.DEVMODEW = std.mem.zeroes(api.DEVMODEW);
+        current.dmSize = @sizeOf(api.DEVMODEW);
+        const have_current = api.EnumDisplaySettingsW(
+            device_ptr,
+            api.ENUM_CURRENT_SETTINGS,
+            &current,
+        ) != 0;
+
+        var list: std.ArrayList(types.DisplayMode) = .empty;
+        defer list.deinit(allocator);
+
+        var index: api.DWORD = 0;
+        while (index < 512) : (index += 1) {
+            var dm: api.DEVMODEW = std.mem.zeroes(api.DEVMODEW);
+            dm.dmSize = @sizeOf(api.DEVMODEW);
+            if (api.EnumDisplaySettingsW(device_ptr, index, &dm) == 0) break;
+            const width = dm.dmPelsWidth;
+            const height = dm.dmPelsHeight;
+            if (width == 0 or height == 0) continue;
+            // O id empacota 16 bits por eixo.
+            if (width > 0xFFFF or height > 0xFFFF) continue;
+            // 0/1 significam "padrao do driver" (frequencia desconhecida).
+            const refresh_mhz: u32 = if (dm.dmDisplayFrequency > 1)
+                dm.dmDisplayFrequency * 1000
+            else
+                0;
+            const is_current = have_current and
+                dm.dmPelsWidth == current.dmPelsWidth and
+                dm.dmPelsHeight == current.dmPelsHeight and
+                (refresh_mhz == 0 or current.dmDisplayFrequency == dm.dmDisplayFrequency);
+            try list.append(allocator, .{
+                .id = .{ .raw = packModeId(width, height, index) },
+                .width = width,
+                .height = height,
+                .refresh_mhz = refresh_mhz,
+                .current = is_current,
+                // O Win32 nao sinaliza um modo "preferido" no DEVMODE.
+                .preferred = false,
+            });
+        }
+        return try list.toOwnedSlice(allocator);
     }
 
-    /// Troca de modo de video ainda nao e implementada no Win32.
+    /// Aplica um modo de video (`ChangeDisplaySettingsExW`). A troca e
+    /// dinamica: nao grava no registro e vale ate a proxima troca.
     pub fn setDisplayMode(
         self: *const Backend,
         id: types.DisplayId,
         mode: types.DisplayModeId,
     ) !void {
+        const decoded = unpackModeId(mode.raw) orelse return error.InvalidDisplayMode;
+        const devices = try self.displayDevices(self.allocator);
+        defer self.allocator.free(devices);
+        if (id.raw >= devices.len) return error.InvalidDisplay;
+        var device = devices[id.raw];
+        const device_ptr: [*:0]const u16 = @ptrCast(&device);
+
+        var dm: api.DEVMODEW = std.mem.zeroes(api.DEVMODEW);
+        dm.dmSize = @sizeOf(api.DEVMODEW);
+        if (api.EnumDisplaySettingsW(device_ptr, decoded.index, &dm) == 0) {
+            return error.InvalidDisplayMode;
+        }
+        // O indice pode ter mudado de geometria se a configuracao do
+        // dispositivo mudou desde o snapshot.
+        if (dm.dmPelsWidth != decoded.width or dm.dmPelsHeight != decoded.height) {
+            return error.InvalidDisplayMode;
+        }
+        const result = api.ChangeDisplaySettingsExW(device_ptr, &dm, null, null, null);
+        if (result != api.DISP_CHANGE_SUCCESSFUL) return error.DisplayModeFailed;
+    }
+
+    /// Dispositivos de display na ordem do snapshot de `displays`.
+    fn displayDevices(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+    ) ![][api.CCHDEVICENAME]u16 {
         _ = self;
-        _ = id;
-        _ = mode;
-        return error.DisplayModeUnsupported;
+        var ctx = DeviceCollector{ .allocator = allocator };
+        defer ctx.list.deinit(allocator);
+        const ok = api.EnumDisplayMonitors(
+            null,
+            null,
+            collectDevice,
+            @bitCast(@intFromPtr(&ctx)),
+        );
+        if (ctx.err) |err| return err;
+        if (ok == 0) return error.ConnectionFailed;
+        return ctx.list.toOwnedSlice(allocator);
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {
@@ -1249,6 +1408,19 @@ test "win32 struct layouts match win64" {
     try std.testing.expectEqual(@as(usize, 4), @offsetOf(api.MONITORINFO, "rcMonitor"));
     try std.testing.expectEqual(@as(usize, 20), @offsetOf(api.MONITORINFO, "rcWork"));
     try std.testing.expectEqual(@as(usize, 36), @offsetOf(api.MONITORINFO, "dwFlags"));
+}
+
+test "win32 display mode id packs and unpacks" {
+    const encoded = packModeId(1920, 1080, 7);
+    const decoded = unpackModeId(encoded) orelse return error.TestExpectedModeId;
+    try std.testing.expectEqual(@as(u32, 1920), decoded.width);
+    try std.testing.expectEqual(@as(u32, 1080), decoded.height);
+    try std.testing.expectEqual(@as(u32, 7), decoded.index);
+
+    // Largura/altura zero nao formam um id valido.
+    try std.testing.expect(unpackModeId(0) == null);
+    try std.testing.expect(unpackModeId(packModeId(0, 1080, 1)) == null);
+    try std.testing.expect(unpackModeId(packModeId(1920, 0, 1)) == null);
 }
 
 test "class names are unique per counter" {

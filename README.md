@@ -43,7 +43,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
 - **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
-- **Video modes:** List the modes of a display and switch resolution on X11 via RandR (`XRRSetCrtcConfig`), with native readback; Win32 and the null backend report no modes.
+- **Video modes:** List the modes of a display and switch resolution on X11 via RandR (`XRRSetCrtcConfig`, with native readback) and on Windows via `EnumDisplaySettingsW`/`ChangeDisplaySettingsExW`; the null backend reports no modes.
 - **Maximize:** Maximize and restore windows with normalized events; X11 uses EWMH with a geometry fallback, Win32 uses `ShowWindow`/`IsZoomed`, and fullscreen/maximize are mutually exclusive.
 - **Size limits:** Set client-area minimum and maximum dimensions; X11 publishes `WM_NORMAL_HINTS`, Win32 handles `WM_GETMINMAXINFO`, and the null backend keeps the state logical.
 - **Headless operation:** Use the null backend to exercise platform logic without a desktop session.
@@ -111,6 +111,13 @@ zig build test          # Run headless unit tests
 zig build test-x11      # Run live X11 integration tests (requires a display)
 zig build examples      # Build the example programs
 zig fmt --check .       # Check Zig formatting
+```
+
+Two extra steps exist for the Windows backend and for video modes:
+
+```sh
+zig build test-win32-compile  # Compile (do not run) the tests for Windows
+zig build test-x11-modes      # Live video-mode switch (CHANGES the resolution)
 ```
 
 The live X11 test is designed to skip when a display is unavailable. Consult [Building](docs/BUILDING.md) for environment setup and troubleshooting.

@@ -145,6 +145,29 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(exe);
         examples_step.dependOn(b.getInstallStep());
     }
+
+    // Compila (sem executar) os testes para o alvo Windows. Permite
+    // validar o codigo e os testes Win32 a partir de Linux/macOS, onde
+    // nao ha runtime de Windows disponivel.
+    if (os_tag != .windows) {
+        const win_target = b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .windows,
+        });
+        const win_mod = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = win_target,
+            .optimize = optimize,
+        });
+        win_mod.addOptions("build_options", build_opts);
+        linkNative(win_mod, .windows);
+        const win_tests = b.addTest(.{ .root_module = win_mod });
+        const win_step = b.step(
+            "test-win32-compile",
+            "Compila os testes para o alvo Windows (sem executar)",
+        );
+        win_step.dependOn(&win_tests.step);
+    }
 }
 
 fn linkNative(mod: *std.Build.Module, os_tag: std.Target.Os.Tag) void {

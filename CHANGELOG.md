@@ -64,6 +64,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Modos de vídeo no Win32: `EnumDisplaySettingsW` para a lista e
+  `ChangeDisplaySettingsExW` para a troca (dinâmica, sem gravar no
+  registro). O `DisplayModeId` empacota largura, altura e índice do
+  modo, recusando snapshots obsoletos (`InvalidDisplayMode`). Layouts de
+  `DEVMODEW`/`MONITORINFOEXW` conferidos contra os headers reais do
+  Windows; validação apenas por compilação cruzada (sem runtime
+  Windows disponível).
 - Maximização de janela: `Window.setMaximized`/`isMaximized`,
   `Platform.setWindowMaximized`/`isWindowMaximized` e
   `MaximizedEvent` (`{ window, maximized }`). X11 usa EWMH

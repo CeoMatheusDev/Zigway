@@ -190,10 +190,14 @@ Limitações conhecidas:
 - Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
   monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
   snapshot. Não há eventos de hotplug.
-- Modos de vídeo: `displayModes` devolve lista vazia e `setDisplayMode`
-  retorna `DisplayModeUnsupported` (a enumeração por
-  `EnumDisplaySettings`/`ChangeDisplaySettingsEx` está pendente para o
-  Win32). Sem validação em runtime (apenas compilação cruzada).
+- Modos de vídeo: `EnumDisplaySettingsW` (por dispositivo
+  `\\.\DISPLAY<n>`, via `MONITORINFOEXW`) e `ChangeDisplaySettingsExW`
+  (troca dinâmica, sem gravar no registro). O `DisplayModeId` empacota
+  largura, altura e o índice do modo, para recusar snapshots obsoletos.
+  O Windows não sinaliza modo preferido e a frequência é inteira (Hz).
+  A troca gera `WM_DISPLAYCHANGE`. Sem validação em runtime: apenas
+  compilação cruzada e conferência dos layouts de `DEVMODEW`/
+  `MONITORINFOEXW` contra os headers reais do Windows.
 
 ## Wayland
 
@@ -208,4 +212,4 @@ variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 `display_change` é testável via `injectEvent`, fullscreen e maximizado
 são apenas estado lógico com eventos, e limites de tamanho são apenas
 estado. Modos de vídeo: `displayModes` devolve lista vazia e
-`setDisplayMode` retorna `DisplayModeUnsupported`. Usado pelos testes unitários e como fallback em SOs sem backend.
+`setDisplayMode` retorna `DisplayModeUnsupported` (sem recursos nativos). Usado pelos testes unitários e como fallback em SOs sem backend.

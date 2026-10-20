@@ -31,6 +31,10 @@ jobs:
       - run: zig build examples -Doptimize=${{ matrix.optimize }}
       - name: Live X11 integration test (virtual display)
         run: xvfb-run -a zig build test-x11 -Doptimize=${{ matrix.optimize }}
+      # Compila (sem executar) os testes do backend Win32: valida o codigo
+      # Windows sem precisar de uma maquina Windows.
+      - name: Compile Windows tests (cross)
+        run: zig build test-win32-compile -Doptimize=${{ matrix.optimize }}
 
   windows:
     name: windows (Zig ${{ matrix.zig }} ${{ matrix.optimize }})

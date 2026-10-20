@@ -119,8 +119,8 @@ ser injetado. Em plataforma fechada a lista também é vazia.
 display (`DisplayMode`: `id` opaco, `width`, `height`, `refresh_mhz`,
 `current`, `preferred`). A lista é um snapshot: o `DisplayModeId` vale
 enquanto a configuração não mudar. O chamador libera a slice com o mesmo
-alocador. Backend sem suporte (X11 sem RandR 1.5+, Win32, null) devolve
-lista vazia.
+alocador. Backend sem suporte (X11 sem RandR 1.5+ e null) devolve lista
+vazia.
 
 `setDisplayMode(display, mode)` aplica um modo. O `DisplayId` deve vir do
 snapshot atual de `displays()` e o `DisplayModeId` da lista de
@@ -137,6 +137,14 @@ eventos RandR habituais (`display_change`) e é confirmada por readback
 do CRTC. Apenas o primeiro output/CRTC ativo do monitor é afetado;
 monitores com vários outputs ou sem CRTC ativo não podem trocar de
 modo.
+
+No Win32 a lista vem de `EnumDisplaySettingsW` e a troca de
+`ChangeDisplaySettingsExW` (troca dinâmica: não grava no registro e
+vale até a próxima troca). O `DisplayModeId` do Win32 carrega o índice
+do modo e a geometria, para que um snapshot obsoleto seja recusado com
+`InvalidDisplayMode`. O Windows não informa um modo "preferido"
+(`preferred` fica `false`) e a frequência é inteira (Hz). A mudança
+gera `WM_DISPLAYCHANGE` (evento `display_change`).
 
 ## Posição de janela
 

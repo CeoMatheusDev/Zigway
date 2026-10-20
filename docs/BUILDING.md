@@ -21,6 +21,17 @@ zig build examples     # hello_window, multiple_windows, keyboard_input, display
 zig fmt --check .      # formatação (a CI exige limpo)
 ```
 
+Passos extras (não fazem parte do fluxo padrão):
+
+```bash
+zig build test-win32-compile  # compila os testes para o alvo Windows (sem executar)
+zig build test-x11-modes      # troca de modo de vídeo (ALTERA a resolução do display)
+```
+
+`test-x11-modes` é destrutivo: muda a resolução do display e restaura o
+modo original ao final (inclusive em caso de falha). Use um display de
+teste (ex.: `Xwayland :99`) para não afetar a sessão real.
+
 Saídas em `zig-out/` (`bin/`, `lib/`); cache em `.zig-cache/`
 (ambos ignorados pelo git).
 

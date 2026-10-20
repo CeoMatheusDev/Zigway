@@ -38,8 +38,9 @@ EWMH/`_NET_WM_STATE` no X11 (com fallback de geometria); fullscreen usa
 `WS_POPUP` e maximização `ShowWindow` no Win32; limites de tamanho usam
 `WM_NORMAL_HINTS` no X11 e `WM_GETMINMAXINFO` no Win32. Modos de vídeo
 usam RandR no X11 (`XRRSetCrtcConfig`, com readback e reajuste do
-tamanho da tela); no Win32 e no backend null a troca permanece pendente
-(lista vazia / `DisplayModeUnsupported`).
+tamanho da tela) e `EnumDisplaySettingsW`/`ChangeDisplaySettingsExW` no
+Win32 (troca dinâmica); no backend null ficam indisponíveis (lista
+vazia / `DisplayModeUnsupported`).
 
 ## v0.3.x — Text Input e Clipboard
 
