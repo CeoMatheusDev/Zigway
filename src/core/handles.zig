@@ -43,6 +43,22 @@ pub const DisplayId = struct {
     }
 };
 
+/// Identificador opaco de modo de video de um display. Valido apenas para
+/// o snapshot de modos que o produziu; pode mudar em hotplug/reconfiguracao.
+pub const DisplayModeId = struct {
+    raw: u64,
+
+    pub const invalid: DisplayModeId = .{ .raw = std.math.maxInt(u64) };
+
+    pub fn eql(self: DisplayModeId, other: DisplayModeId) bool {
+        return self.raw == other.raw;
+    }
+
+    pub fn isValid(self: DisplayModeId) bool {
+        return self.raw != invalid.raw;
+    }
+};
+
 const std = @import("std");
 
 test "WindowId equality and invalid sentinel" {
@@ -63,4 +79,14 @@ test "DisplayId equality and invalid sentinel" {
     try std.testing.expect(!a.eql(c));
     try std.testing.expect(a.isValid());
     try std.testing.expect(!DisplayId.invalid.isValid());
+}
+
+test "DisplayModeId equality and invalid sentinel" {
+    const a: DisplayModeId = .{ .raw = 0 };
+    const b: DisplayModeId = .{ .raw = 0 };
+    const c: DisplayModeId = .{ .raw = 1 };
+    try std.testing.expect(a.eql(b));
+    try std.testing.expect(!a.eql(c));
+    try std.testing.expect(a.isValid());
+    try std.testing.expect(!DisplayModeId.invalid.isValid());
 }

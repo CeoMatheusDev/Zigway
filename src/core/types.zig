@@ -4,6 +4,7 @@ const handles = @import("handles.zig");
 
 pub const WindowId = handles.WindowId;
 pub const DisplayId = handles.DisplayId;
+pub const DisplayModeId = handles.DisplayModeId;
 
 /// Backend de plataforma. `.auto` resolve em tempo de execucao para o
 /// padrao do alvo (ou para o `-Dplatform` do build, se diferente de auto).
@@ -192,6 +193,21 @@ pub const DisplayInfo = struct {
     /// Monitor primario reportado pelo sistema (false se o servidor nao
     /// marcar nenhum).
     primary: bool,
+};
+
+/// Modo de video oferecido por um display.
+///
+/// `id` e opaco e deve ser usado em `Platform.setDisplayMode`; e valido
+/// apenas enquanto a configuracao de display nao mudar. `refresh_mhz` e a
+/// taxa vertical aproximada em milihertz (0 quando desconhecida).
+/// `current`/`preferred` sao dicas do snapshot, nao garantias.
+pub const DisplayMode = struct {
+    id: DisplayModeId,
+    width: u32,
+    height: u32,
+    refresh_mhz: u32 = 0,
+    current: bool = false,
+    preferred: bool = false,
 };
 
 const std = @import("std");

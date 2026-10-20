@@ -26,5 +26,15 @@ pub fn main() !void {
             "  [{d}] id={d} pos=({d},{d}) size={d}x{d} primary={}\n",
             .{ i, info.id.raw, info.x, info.y, info.width, info.height, info.primary },
         );
+
+        // Modos de video: apenas X11 com RandR 1.5+ expoe lista de modos.
+        const modes = try platform.displayModes(allocator, info.id);
+        defer allocator.free(modes);
+        for (modes) |mode| {
+            std.debug.print(
+                "      mode id={d} {d}x{d}@{d}mhz current={} preferred={}\n",
+                .{ mode.id.raw, mode.width, mode.height, mode.refresh_mhz, mode.current, mode.preferred },
+            );
+        }
     }
 }

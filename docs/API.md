@@ -22,6 +22,8 @@ platform.injectEvent(Event) void         // evento sintético (testes)
 platform.inputState() *const InputState
 platform.droppedEvents() u64             // descartes por overflow (diagnóstico)
 platform.displays(allocator) ![]DisplayInfo // snapshot; liberar com o allocator
+platform.displayModes(allocator, display) ![]DisplayMode // modos do display; liberar
+platform.setDisplayMode(display, mode) !void // troca de modo de video
 ```
 
 Janelas via Platform:
@@ -109,8 +111,32 @@ são emitidas mesmo quando `displays()` cai para X screens; sem a
 biblioteca ou a extensão não há evento nativo. Win32 usa
 `EnumDisplayMonitors` e trata `WM_DISPLAYCHANGE` nas janelas. O backend
 null não inventa monitores: retorna lista vazia; `display_change` pode
-ser injetado. Em plataforma fechada a lista também é vazia. Não há troca
-de modo de vídeo.
+ser injetado. Em plataforma fechada a lista também é vazia.
+
+## Modos de vídeo
+
+`displayModes(allocator, display)` devolve a lista de modos de vídeo do
+display (`DisplayMode`: `id` opaco, `width`, `height`, `refresh_mhz`,
+`current`, `preferred`). A lista é um snapshot: o `DisplayModeId` vale
+enquanto a configuração não mudar. O chamador libera a slice com o mesmo
+alocador. Backend sem suporte (X11 sem RandR 1.5+, Win32, null) devolve
+lista vazia.
+
+`setDisplayMode(display, mode)` aplica um modo. O `DisplayId` deve vir do
+snapshot atual de `displays()` e o `DisplayModeId` da lista de
+`displayModes` do mesmo display; ids obsoletos falham com
+`InvalidDisplay`/`InvalidDisplayMode`. Falhas possíveis:
+`DisplayModeUnsupported` (backend sem suporte), `DisplayModeFailed`
+(servidor recusou a configuração ou o readback não confirmou) e
+`InvalidDisplay`/`InvalidDisplayMode`.
+
+No X11 a troca usa RandR (`XRRSetCrtcConfig`): preserva posição, rotação
+e o conjunto de outputs do CRTC, e reajusta o tamanho da tela para
+envelopar os CRTCs ativos (como o `xrandr` faz). A mudança gera os
+eventos RandR habituais (`display_change`) e é confirmada por readback
+do CRTC. Apenas o primeiro output/CRTC ativo do monitor é afetado;
+monitores com vários outputs ou sem CRTC ativo não podem trocar de
+modo.
 
 ## Posição de janela
 
@@ -271,7 +297,8 @@ botões são estado global e não são associados a janela.
 
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
-`DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
+`DisplayModeId` (`eql`, `isValid`, `invalid`), `DisplayInfo`,
+`DisplayMode`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
 `FullscreenEvent`, `MaximizedEvent`, `version.string`
 (`"0.1.0-alpha.2"`).
@@ -280,7 +307,9 @@ Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
 `WindowCreationFailed`, `WindowMoveFailed`, `WindowStateFailed`,
 `CursorCreationFailed`,
-`PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`.
+`PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`,
+`InvalidDisplay`, `InvalidDisplayMode`, `DisplayModeFailed`,
+`DisplayModeUnsupported`.
 
 ## Lifecycle
 

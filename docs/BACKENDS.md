@@ -26,7 +26,11 @@ atom em `_NET_SUPPORTED`; sem WM/EWMH cai para `XMoveWindow`. A leitura
 usa `XTranslateCoordinates` até o root e o evento `move` é emitido a
 partir de `ConfigureNotify` quando a origem do cliente muda. Limites de
 tamanho usam `XGetWMNormalHints`/`XSetWMNormalHints`
-(`PMinSize`/`PMaxSize`) com round-trip de confirmação. Maximização usa
+(`PMinSize`/`PMaxSize`) com round-trip de confirmação. Modos de vídeo
+usam RandR: a lista vem de `XRRGetOutputInfo` (ids de modo do output) e
+a troca usa `XRRSetCrtcConfig`, preservando posição, rotação e outputs do
+CRTC, com readback do CRTC e reajuste do tamanho da tela
+(`XRRSetScreenSize`) para envelopar os CRTCs ativos. Maximização usa
 `_NET_WM_STATE_MAXIMIZED_HORZ`/`_VERT` via EWMH e confirma por
 `PropertyNotify`; sem esse suporte, aplica geometria de fallback.
 Fullscreen
@@ -94,15 +98,29 @@ Limitações conhecidas:
   `XRRQueryExtension`/`XRRSelectInput`, screen/crtc/output notifications
   são selecionados no root e viram `display_change`; sem a biblioteca, o
   evento nativo não é emitido. Uma mudança pode gerar mais de um evento;
-  reconsultar `displays()` é idempotente. Troca de modo de vídeo não é
-  implementada; `id` é o índice do snapshot (pode mudar em hotplug).
+  reconsultar `displays()` é idempotente. `id` é o índice do snapshot
+  (pode mudar em hotplug).
+- Modos de vídeo: exigem RandR 1.5+ (monitores) e `libXrandr` em
+  runtime; sem isso a lista é vazia e a troca retorna
+  `DisplayModeUnsupported`. O layout de `XRROutputInfo` difere entre
+  versões do Xrandr (`Connection`/`SubpixelOrder` de 2 ou 4 bytes) e é
+  detectado em runtime, com validação contra os ids de modo do
+  servidor. Aplica-se ao primeiro output/CRTC ativo do monitor: monitor
+  sem CRTC ativo, com output desconectado ou com vários outputs tem
+  comportamento limitado (apenas o primeiro output ativo). A taxa
+  (`refresh_mhz`) é derivada de `dotClock` e dos totais de linha/coluna
+  (aproximada). A troca não guarda o modo anterior: o aplicativo deve
+  mantê-lo para poder voltar.
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
 Validado com display real: `zig build test-x11` (inclui fullscreen e
-maximização EWMH sob KWin, fallback sem WM em Xwayland aninhado e
-round-trip de `WM_NORMAL_HINTS`). Mudança de resolução e
-evento `display_change` validados manualmente em Xwayland; hotplug físico
-não foi testado.
+maximização EWMH sob KWin, fallback sem WM em Xwayland aninhado,
+round-trip de `WM_NORMAL_HINTS` e a enumeração de modos de vídeo).
+A troca de modo de vídeo é validada pelo passo separado e destrutivo
+`zig build test-x11-modes` (altera a resolução e restaura o modo
+original), executado em Xwayland aninhado. Evento `display_change` e
+mudança de resolução também validados manualmente em Xwayland; hotplug
+físico não foi testado.
 
 ## Win32 (`src/platform/win32/`)
 
@@ -171,7 +189,11 @@ Limitações conhecidas:
   ao destruir a janela e verificada via `GetCapture`.
 - Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
   monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
-  snapshot. Não há troca de modo de vídeo nem eventos de hotplug.
+  snapshot. Não há eventos de hotplug.
+- Modos de vídeo: `displayModes` devolve lista vazia e `setDisplayMode`
+  retorna `DisplayModeUnsupported` (a enumeração por
+  `EnumDisplaySettings`/`ChangeDisplaySettingsEx` está pendente para o
+  Win32). Sem validação em runtime (apenas compilação cruzada).
 
 ## Wayland
 
@@ -185,4 +207,5 @@ variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 `displays()` retorna lista vazia (não inventa monitores),
 `display_change` é testável via `injectEvent`, fullscreen e maximizado
 são apenas estado lógico com eventos, e limites de tamanho são apenas
-estado. Usado pelos testes unitários e como fallback em SOs sem backend.
+estado. Modos de vídeo: `displayModes` devolve lista vazia e
+`setDisplayMode` retorna `DisplayModeUnsupported`. Usado pelos testes unitários e como fallback em SOs sem backend.

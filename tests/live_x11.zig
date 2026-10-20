@@ -1017,6 +1017,47 @@ test "live x11: display enumeration returns sane geometry" {
     try std.testing.expect(primary_count <= 1);
 }
 
+test "live x11: display modes are enumerated per display" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const displays = try plat.displays(std.testing.allocator);
+    defer std.testing.allocator.free(displays);
+
+    var total: usize = 0;
+    var displays_with_modes: usize = 0;
+    for (displays) |info| {
+        const modes = try plat.displayModes(std.testing.allocator, info.id);
+        defer std.testing.allocator.free(modes);
+        if (modes.len == 0) continue;
+        displays_with_modes += 1;
+
+        var current_count: usize = 0;
+        for (modes) |mode| {
+            try std.testing.expect(mode.id.isValid());
+            try std.testing.expect(mode.width > 0);
+            try std.testing.expect(mode.height > 0);
+            if (mode.current) current_count += 1;
+        }
+        // No maximo um modo corrente por display (outputs clonados
+        // compartilham o mesmo modo e sao deduplicados).
+        try std.testing.expect(current_count <= 1);
+        total += modes.len;
+    }
+    std.debug.print(
+        "\n[x11-live] modos: {d} em {d}/{d} display(s) com RandR 1.5+\n",
+        .{ total, displays_with_modes, displays.len },
+    );
+}
+
 test "live x11: window move updates position and emits move" {
     var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
         if (err == error.NoDisplay or err == error.ConnectionFailed or

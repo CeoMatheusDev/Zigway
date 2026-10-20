@@ -33,6 +33,29 @@ pub const Backend = struct {
         return allocator.alloc(types.DisplayInfo, 0);
     }
 
+    /// Sem modo de video nativo: lista vazia.
+    pub fn displayModes(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+        id: types.DisplayId,
+    ) ![]types.DisplayMode {
+        _ = self;
+        _ = id;
+        return allocator.alloc(types.DisplayMode, 0);
+    }
+
+    /// Troca de modo de video nao e suportada pelo backend null.
+    pub fn setDisplayMode(
+        self: *const Backend,
+        id: types.DisplayId,
+        mode: types.DisplayModeId,
+    ) !void {
+        _ = self;
+        _ = id;
+        _ = mode;
+        return error.DisplayModeUnsupported;
+    }
+
     pub fn createWindow(
         self: *Backend,
         reg: *registry.Registry,

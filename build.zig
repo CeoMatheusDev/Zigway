@@ -105,6 +105,22 @@ pub fn build(b: *std.Build) void {
     const live_step = b.step("test-x11", "Executa o teste live X11 (requer display)");
     live_step.dependOn(&run_live.step);
 
+    // Teste live destrutivo: troca de modo de video (altera a resolucao
+    // do display). Separado do suite padrao de proposito.
+    const live_modes_mod = b.createModule(.{
+        .root_source_file = b.path("tests/live_x11_modes.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "zigway", .module = mod }},
+    });
+    const live_modes_test = b.addTest(.{ .root_module = live_modes_mod });
+    const run_live_modes = b.addRunArtifact(live_modes_test);
+    const live_modes_step = b.step(
+        "test-x11-modes",
+        "Teste live de troca de modo de video (ALTERA a resolucao do display)",
+    );
+    live_modes_step.dependOn(&run_live_modes.step);
+
     // Exemplos.
     const examples_step = b.step("examples", "Compila os exemplos");
     const example_names = [_][]const u8{

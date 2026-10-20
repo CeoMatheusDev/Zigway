@@ -185,6 +185,29 @@ pub const Backend = struct {
         return ctx.list.toOwnedSlice(allocator);
     }
 
+    /// Troca de modo de video ainda nao e implementada no Win32.
+    pub fn displayModes(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+        id: types.DisplayId,
+    ) ![]types.DisplayMode {
+        _ = self;
+        _ = id;
+        return allocator.alloc(types.DisplayMode, 0);
+    }
+
+    /// Troca de modo de video ainda nao e implementada no Win32.
+    pub fn setDisplayMode(
+        self: *const Backend,
+        id: types.DisplayId,
+        mode: types.DisplayModeId,
+    ) !void {
+        _ = self;
+        _ = id;
+        _ = mode;
+        return error.DisplayModeUnsupported;
+    }
+
     fn findEntry(self: *const Backend, slot: u32) ?usize {
         for (self.entries.items, 0..) |entry, i| {
             if (entry.slot == slot) return i;

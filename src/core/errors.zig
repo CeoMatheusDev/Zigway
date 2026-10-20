@@ -32,4 +32,12 @@ pub const Error = error{
     PointerCaptureFailed,
     /// WindowId invalido, expirado ou de outra instancia.
     InvalidWindow,
+    /// DisplayId invalido ou que nao existe no snapshot atual.
+    InvalidDisplay,
+    /// Modo de video invalido ou nao oferecido pelo display.
+    InvalidDisplayMode,
+    /// Falha ao aplicar um modo de video (ex.: recusa do servidor X).
+    DisplayModeFailed,
+    /// O backend nao suporta consulta/troca de modo de video.
+    DisplayModeUnsupported,
 };

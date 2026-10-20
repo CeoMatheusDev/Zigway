@@ -261,6 +261,42 @@ pub const Backend = struct {
         return list;
     }
 
+    /// Modos de video oferecidos por um display (RandR 1.5+). Lista vazia
+    /// quando o backend nao expoe modos (sem libXrandr/RandR 1.5+).
+    pub fn displayModes(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+        id: types.DisplayId,
+    ) ![]types.DisplayMode {
+        if (!self.xrandr_monitors) return allocator.alloc(types.DisplayMode, 0);
+        if (self.xrandr) |*lib| {
+            const modes = try lib.monitorModes(
+                self.display,
+                self.root,
+                id.raw,
+                allocator,
+            ) orelse return allocator.alloc(types.DisplayMode, 0);
+            return modes;
+        }
+        return allocator.alloc(types.DisplayMode, 0);
+    }
+
+    /// Aplica um modo de video via RandR. Requer RandR 1.5+, um CRTC ativo
+    /// no monitor e um modo oferecido pelo output.
+    pub fn setDisplayMode(
+        self: *const Backend,
+        id: types.DisplayId,
+        mode: types.DisplayModeId,
+    ) !void {
+        if (!mode.isValid()) return error.InvalidDisplayMode;
+        if (!self.xrandr_monitors) return error.DisplayModeUnsupported;
+        if (self.xrandr) |*lib| {
+            try lib.setMonitorMode(self.display, self.root, id.raw, mode.raw);
+            return;
+        }
+        return error.DisplayModeUnsupported;
+    }
+
     fn findEntry(self: *const Backend, slot: u32) ?usize {
         for (self.entries.items, 0..) |entry, i| {
             if (entry.slot == slot) return i;

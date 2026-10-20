@@ -54,6 +54,16 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   estado lógico. Min/max inválidos retornam `InvalidConfig`. Cobertura
   unitária e live X11 valida o round-trip nativo; Win32 apenas
   compilação cruzada.
+- Modos de vídeo: `Platform.displayModes`/`setDisplayMode`, com
+  `DisplayMode` (`id`, `width`, `height`, `refresh_mhz`, `current`,
+  `preferred`) e `DisplayModeId` opaco. No X11 usa RandR
+  (`XRRGetOutputInfo` para a lista, `XRRSetCrtcConfig` para a troca,
+  com readback do CRTC e reajuste do tamanho da tela), preservando
+  posição, rotação e outputs do CRTC. O layout de `XRROutputInfo` é
+  detectado em runtime (difiere entre versões do Xrandr). Win32 e null
+  devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
+  (null) e live X11: enumeração no suite padrão e troca de modo em
+  `zig build test-x11-modes` (passo destrutivo, restaura o modo).
 - Maximização de janela: `Window.setMaximized`/`isMaximized`,
   `Platform.setWindowMaximized`/`isWindowMaximized` e
   `MaximizedEvent` (`{ window, maximized }`). X11 usa EWMH

@@ -140,6 +140,36 @@ pub const Platform = struct {
         };
     }
 
+    /// Modos de video oferecidos por um display. O chamador libera a slice
+    /// com o mesmo alocador. Lista vazia quando o backend nao expoe modos
+    /// (sem RandR 1.5+ no X11, Win32 e null).
+    pub fn displayModes(
+        self: *const Platform,
+        allocator: std.mem.Allocator,
+        id: types.DisplayId,
+    ) ![]types.DisplayMode {
+        if (self.closed) return allocator.alloc(types.DisplayMode, 0);
+        return switch (self.backend) {
+            inline else => |*b| b.displayModes(allocator, id),
+        };
+    }
+
+    /// Aplica um modo de video em um display. O `DisplayId` deve vir do
+    /// snapshot atual de `displays()` e o `DisplayModeId` da lista de
+    /// `displayModes` do mesmo display.
+    pub fn setDisplayMode(
+        self: *Platform,
+        id: types.DisplayId,
+        mode: types.DisplayModeId,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        if (!id.isValid()) return error.InvalidDisplay;
+        if (!mode.isValid()) return error.InvalidDisplayMode;
+        switch (self.backend) {
+            inline else => |*b| try b.setDisplayMode(id, mode),
+        }
+    }
+
     pub fn createWindow(self: *Platform, cfg: WindowConfig) !Window {
         if (self.closed) return error.PlatformClosed;
         if (cfg.width == 0 or cfg.height == 0) return error.InvalidConfig;
@@ -788,6 +818,24 @@ test "window position on null backend updates state and emits move" {
     // Mesma posicao: sem evento duplicado.
     try w.setPosition(120, 80);
     try std.testing.expect(plat.nextEvent() == null);
+}
+
+test "display modes are empty on null backend and switching is unsupported" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    const modes = try plat.displayModes(std.testing.allocator, .{ .raw = 0 });
+    defer std.testing.allocator.free(modes);
+    try std.testing.expectEqual(@as(usize, 0), modes.len);
+
+    try std.testing.expectError(
+        error.DisplayModeUnsupported,
+        plat.setDisplayMode(.{ .raw = 0 }, .{ .raw = 42 }),
+    );
+    try std.testing.expectError(
+        error.InvalidDisplayMode,
+        plat.setDisplayMode(.{ .raw = 0 }, types.DisplayModeId.invalid),
+    );
 }
 
 test "fullscreen on null backend updates state and emits fullscreen events" {

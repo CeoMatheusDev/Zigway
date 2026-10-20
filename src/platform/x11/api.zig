@@ -10,6 +10,7 @@ const std = @import("std");
 pub const Display = opaque {};
 
 pub const Window = c_ulong;
+pub const Drawable = c_ulong;
 pub const Atom = c_ulong;
 pub const Time = c_ulong;
 pub const KeySym = c_ulong;
@@ -350,6 +351,21 @@ pub extern "X11" fn XDefaultScreen(display: *Display) c_int;
 pub extern "X11" fn XScreenCount(display: *Display) c_int;
 pub extern "X11" fn XDisplayWidth(display: *Display, screen: c_int) c_int;
 pub extern "X11" fn XDisplayHeight(display: *Display, screen: c_int) c_int;
+pub extern "X11" fn XDisplayWidthMM(display: *Display, screen: c_int) c_int;
+pub extern "X11" fn XDisplayHeightMM(display: *Display, screen: c_int) c_int;
+/// `XGetGeometry` exige ponteiros de saida nao nulos (a libX11 os
+/// desreferencia sem checar). Devolve o status e preenche os campos.
+pub extern "X11" fn XGetGeometry(
+    display: *Display,
+    drawable: Drawable,
+    root_return: *Window,
+    x_return: *c_int,
+    y_return: *c_int,
+    width_return: *c_uint,
+    height_return: *c_uint,
+    border_width_return: *c_uint,
+    depth_return: *c_uint,
+) c_int;
 pub extern "X11" fn XDefaultRootWindow(display: *Display) Window;
 pub extern "X11" fn XCreateSimpleWindow(
     display: *Display,
