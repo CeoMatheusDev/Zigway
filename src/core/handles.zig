@@ -33,6 +33,14 @@ pub const DisplayId = struct {
     raw: u32,
 
     pub const invalid: DisplayId = .{ .raw = std.math.maxInt(u32) };
+
+    pub fn eql(self: DisplayId, other: DisplayId) bool {
+        return self.raw == other.raw;
+    }
+
+    pub fn isValid(self: DisplayId) bool {
+        return self.raw != invalid.raw;
+    }
 };
 
 const std = @import("std");
@@ -45,4 +53,14 @@ test "WindowId equality and invalid sentinel" {
     try std.testing.expect(!a.eql(c));
     try std.testing.expect(!WindowId.invalid.isValid());
     try std.testing.expect(a.isValid());
+}
+
+test "DisplayId equality and invalid sentinel" {
+    const a: DisplayId = .{ .raw = 0 };
+    const b: DisplayId = .{ .raw = 0 };
+    const c: DisplayId = .{ .raw = 1 };
+    try std.testing.expect(a.eql(b));
+    try std.testing.expect(!a.eql(c));
+    try std.testing.expect(a.isValid());
+    try std.testing.expect(!DisplayId.invalid.isValid());
 }

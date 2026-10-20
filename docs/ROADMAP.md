@@ -16,9 +16,12 @@ implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 
 ## v0.2.x — Display e Cursor
 
-Cursores do SO e captura de ponteiro implementados
-(`Window.setCursor`/`capturePointer`); monitores/modos de vídeo
-permanecem pendentes.
+Cursores do SO, captura de ponteiro e enumeração de monitores
+implementados (`Window.setCursor`/`capturePointer`,
+`Platform.displays`). No X11, monitores físicos usam RandR 1.5+ via
+`libXrandr` opcional em runtime, com fallback para X screens; Win32 usa
+`EnumDisplayMonitors`; null retorna lista vazia. Troca de modo de vídeo
+permanece pendente.
 
 ## v0.3.x — Text Input e Clipboard
 

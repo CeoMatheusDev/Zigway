@@ -24,6 +24,15 @@ pub const Backend = struct {
         _ = self;
     }
 
+    /// Sem display nativo: lista vazia (nao inventa monitores).
+    pub fn displays(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.DisplayInfo {
+        _ = self;
+        return allocator.alloc(types.DisplayInfo, 0);
+    }
+
     pub fn createWindow(
         self: *Backend,
         reg: *registry.Registry,

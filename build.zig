@@ -111,6 +111,7 @@ pub fn build(b: *std.Build) void {
         "hello_window",
         "multiple_windows",
         "keyboard_input",
+        "displays",
     };
     inline for (example_names) |name| {
         const exe = b.addExecutable(.{

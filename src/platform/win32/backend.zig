@@ -28,6 +28,49 @@ const Pending = struct {
     state: ?*input.InputState,
 };
 
+/// Contexto da enumeracao de monitores. O callback do user32 nao pode
+/// propagar erros; a falha de alocacao fica em `err` e interrompe a
+/// enumeracao.
+const DisplayCollector = struct {
+    allocator: std.mem.Allocator,
+    list: std.ArrayList(types.DisplayInfo) = .empty,
+    err: ?anyerror = null,
+};
+
+fn collectMonitor(
+    monitor: api.HMONITOR,
+    hdc: api.HDC,
+    rect: *api.RECT,
+    data: api.LPARAM,
+) callconv(.winapi) api.BOOL {
+    _ = hdc;
+    _ = rect;
+    const ctx: *DisplayCollector = @ptrFromInt(@as(usize, @bitCast(data)));
+    var info = api.MONITORINFO{
+        .cbSize = @sizeOf(api.MONITORINFO),
+        .rcMonitor = std.mem.zeroes(api.RECT),
+        .rcWork = std.mem.zeroes(api.RECT),
+        .dwFlags = 0,
+    };
+    if (api.GetMonitorInfoW(monitor, &info) == 0) return 1;
+    const width = info.rcMonitor.right - info.rcMonitor.left;
+    const height = info.rcMonitor.bottom - info.rcMonitor.top;
+    if (width <= 0 or height <= 0) return 1;
+    const display = types.DisplayInfo{
+        .id = .{ .raw = @intCast(ctx.list.items.len) },
+        .x = info.rcMonitor.left,
+        .y = info.rcMonitor.top,
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .primary = (info.dwFlags & api.MONITORINFOF_PRIMARY) != 0,
+    };
+    ctx.list.append(ctx.allocator, display) catch |err| {
+        ctx.err = err;
+        return 0;
+    };
+    return 1;
+}
+
 /// Contador global para nomes de classe unicos por instancia Backend.
 /// Multiplas Platforms no mesmo processo sao suportadas; cada uma
 /// registra sua propria classe (o segundo RegisterClassExW com nome
@@ -115,6 +158,26 @@ pub const Backend = struct {
         }
         self.entries.deinit(self.allocator);
         _ = api.UnregisterClassW(@ptrCast(&self.class_name), self.instance);
+    }
+
+    /// Snapshot dos monitores via EnumDisplayMonitors/GetMonitorInfoW.
+    /// Retorna OutOfMemory se a lista nao puder ser construida.
+    pub fn displays(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.DisplayInfo {
+        _ = self;
+        var ctx = DisplayCollector{ .allocator = allocator };
+        defer ctx.list.deinit(allocator);
+        const ok = api.EnumDisplayMonitors(
+            null,
+            null,
+            collectMonitor,
+            @bitCast(@intFromPtr(&ctx)),
+        );
+        if (ctx.err) |err| return err;
+        if (ok == 0) return error.ConnectionFailed;
+        return ctx.list.toOwnedSlice(allocator);
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {
@@ -779,6 +842,10 @@ test "getkeystate high bit decodes as pressed" {
 test "win32 struct layouts match win64" {
     try std.testing.expectEqual(@as(usize, 80), @sizeOf(api.WNDCLASSEXW));
     try std.testing.expectEqual(@as(usize, 48), @sizeOf(api.MSG));
+    try std.testing.expectEqual(@as(usize, 40), @sizeOf(api.MONITORINFO));
+    try std.testing.expectEqual(@as(usize, 4), @offsetOf(api.MONITORINFO, "rcMonitor"));
+    try std.testing.expectEqual(@as(usize, 20), @offsetOf(api.MONITORINFO, "rcWork"));
+    try std.testing.expectEqual(@as(usize, 36), @offsetOf(api.MONITORINFO, "dwFlags"));
 }
 
 test "class names are unique per counter" {

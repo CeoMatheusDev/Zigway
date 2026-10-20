@@ -21,6 +21,7 @@ platform.nextEvent() ?Event              // consome a fila
 platform.injectEvent(Event) void         // evento sintético (testes)
 platform.inputState() *const InputState
 platform.droppedEvents() u64             // descartes por overflow (diagnóstico)
+platform.displays(allocator) ![]DisplayInfo // snapshot; liberar com o allocator
 ```
 
 Janelas via Platform:
@@ -62,6 +63,31 @@ window.capturePointer() !void    // captura exclusiva por Platform
 window.releasePointer() void     // idempotente; seguro em defer
 window.size() WindowSize
 ```
+
+## Displays
+
+```zig
+const displays = try platform.displays(allocator);
+defer allocator.free(displays);
+
+for (displays) |info| {
+    _ = info.id;      // DisplayId (eql/isValid)
+    _ = info.x;       // i32, relativo ao espaço de tela do backend
+    _ = info.y;       // i32
+    _ = info.width;   // u32, pixels
+    _ = info.height;  // u32, pixels
+    _ = info.primary; // bool, conforme reportado pelo sistema
+}
+```
+
+`DisplayInfo` é um snapshot: cada chamada consulta o estado atual, então
+hotplug/reconfiguração pode mudar a quantidade, a ordem e os `id`s. Não
+há eventos de mudança de monitor nesta fase. X11 usa RandR 1.5+ quando
+`libXrandr.so.2` está disponível em runtime; sem ela (ou sem RandR 1.5)
+reporta X screens, cada uma com origem `(0,0)` (espaços de coordenadas
+independentes). Win32 usa `EnumDisplayMonitors`. O backend null não
+inventa monitores: retorna lista vazia. Em plataforma fechada a lista
+também é vazia. Não há troca de modo de vídeo.
 
 ## Eventos
 
@@ -129,9 +155,9 @@ botões são estado global e não são associados a janela.
 ## Tipos e erros
 
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
-`eqlOpt`, `invalid`), `DisplayId` (reservado, Fase 2), `Modifiers`
-(1 byte), `WindowSize`, `WindowPosition`, `version.string`
-(`"0.1.0-alpha.2"`).
+`eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
+`DisplayInfo`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
+`version.string` (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
@@ -143,7 +169,8 @@ Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 - `Platform` tem ownership único e intransferível (não copiar o valor).
 - `deinit` é idempotente; após ele, mutações retornam
   `error.PlatformClosed`, `pollEvents`/`injectEvent` são no-ops,
-  `nextEvent` retorna `null` e consultas usam falha segura.
+  `nextEvent` retorna `null`, `displays` retorna lista vazia e
+  consultas usam falha segura.
 - `Window.deinit` após `deinit` da plataforma é ignorado com segurança.
 - Ordem correta: `defer window.deinit()` registrado **depois** do
   `defer platform.deinit()` (LIFO garante janela antes da plataforma).

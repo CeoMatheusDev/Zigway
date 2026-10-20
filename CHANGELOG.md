@@ -26,6 +26,14 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   infalivel.
 - Cobertura live X11: captura bloqueia grab de outra conexao, transfere
   entre janelas e libera o grab ao soltar a detentora.
+- `Platform.displays(allocator) ![]DisplayInfo`: snapshot dos
+  monitores/display outputs, com `DisplayId.eql`/`isValid`. X11 usa
+  RandR 1.5+ via `libXrandr` carregada dinamicamente em runtime
+  (opcional, sem dependencia de link) e cai para X screens quando a
+  biblioteca/extensao nao esta disponivel; Win32 usa
+  `EnumDisplayMonitors`/`GetMonitorInfoW`; null retorna lista vazia
+  (nao inventa monitores). Cobertura live X11 valida geometria e IDs.
+  Troca de modo de video permanece fora desta fase.
 
 ## [0.1.0-alpha.2] — 2026-10-19
 

@@ -4,7 +4,9 @@
 
 ABI Xlib declarada manualmente (`api.zig`), layouts conferidos contra o
 header do sistema. Link dinâmico com `libX11.so` (dependência de sistema
-documentada — não é pacote Zig, não usa `@cImport`).
+documentada — não é pacote Zig, não usa `@cImport`). `libXrandr.so.2` é
+opcional em runtime para monitores físicos (RandR 1.5+), carregada via
+`dlopen`; não é dependência de link nem exige headers no build.
 
 Cobertura: abrir/fechar display, criar/destruir, mapear/desmapear,
 título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
@@ -13,7 +15,9 @@ título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
 (Shift/Ctrl/Alt/Super), multi-janelas, cursores do sistema
 (`XCreateFontCursor` + `XDefineCursor`, cache por backend liberado no
 `deinit`), captura de ponteiro (`XGrabPointer`/`XUngrabPointer`,
-exclusiva por conexão, com transferência entre janelas).
+exclusiva por conexão, com transferência entre janelas) e enumeração
+de monitores (`XRRGetMonitors`, RandR 1.5+, com fallback para
+`XScreenCount`/`XDisplayWidth`/`XDisplayHeight`).
 
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
@@ -54,6 +58,12 @@ Limitações conhecidas:
 - Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);
   o grab é liberado pelo servidor ao desmapear/destruir e o estado local
   acompanha. Não há confinamento do ponteiro (`confine_to = None`).
+- Monitores: RandR 1.5+ é opcional em runtime. Sem `libXrandr.so.2`,
+  sem a extensão, ou com versão <1.5, `displays()` reporta X screens
+  (cada uma com origem `(0,0)`; são espaços independentes). Com RandR,
+  apenas a tela padrão é consultada. Não há eventos de hotplug: cada
+  chamada reflete o estado no momento. Troca de modo de vídeo não é
+  implementada; `id` é o índice do snapshot (pode mudar em hotplug).
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
 Validado com display real: `zig build test-x11`.
@@ -72,7 +82,8 @@ estado autoritativo via `GetKeyState` (mouse e teclado), mouse
 minimize como invisível), foco, `WM_CLOSE`→evento sem destruir,
 cursores do sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por
 janela), captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`,
-por thread), multi-janelas.
+por thread), enumeração de monitores
+(`EnumDisplayMonitors`/`GetMonitorInfoW`), multi-janelas.
 
 Destruição externa: como no X11, a entrada nativa é removida e
 operações seguintes retornam `InvalidWindow`; o slot segue ocupado
@@ -98,6 +109,9 @@ Limitações conhecidas:
 - Captura de mouse é por thread: `SetCapture` pode falhar enquanto outra
   thread detém a captura (`PointerCaptureFailed`); a captura é liberada
   ao destruir a janela e verificada via `GetCapture`.
+- Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
+  monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
+  snapshot. Não há troca de modo de vídeo nem eventos de hotplug.
 
 ## Wayland
 
@@ -107,5 +121,6 @@ Não implementado. Ver `src/platform/wayland/README.md`.
 
 Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
 é no-op e a captura de ponteiro é apenas estado interno (aceita todas as
-variantes/janelas). Usado pelos testes unitários e como fallback em SOs
-sem backend.
+variantes/janelas); `displays()` retorna lista vazia (não inventa
+monitores). Usado pelos testes unitários e como fallback em SOs sem
+backend.

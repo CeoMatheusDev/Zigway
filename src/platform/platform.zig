@@ -127,6 +127,19 @@ pub const Platform = struct {
         return caps.RuntimeCaps.forBackend(self.active);
     }
 
+    /// Snapshot dos monitores/display outputs ativos. O chamador libera a
+    /// slice com o mesmo alocador. Plataforma fechada retorna lista vazia.
+    /// O backend null nao inventa monitores (lista vazia).
+    pub fn displays(
+        self: *const Platform,
+        allocator: std.mem.Allocator,
+    ) ![]types.DisplayInfo {
+        if (self.closed) return allocator.alloc(types.DisplayInfo, 0);
+        return switch (self.backend) {
+            inline else => |*b| b.displays(allocator),
+        };
+    }
+
     pub fn createWindow(self: *Platform, cfg: WindowConfig) !Window {
         if (self.closed) return error.PlatformClosed;
         if (cfg.width == 0 or cfg.height == 0) return error.InvalidConfig;
@@ -604,6 +617,15 @@ test "pointer capture on null backend succeeds" {
     second.releasePointer(); // idempotente
 }
 
+test "null backend reports no displays" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    const displays = try plat.displays(std.testing.allocator);
+    defer std.testing.allocator.free(displays);
+    try std.testing.expectEqual(@as(usize, 0), displays.len);
+}
+
 test "double deinit is safe" {
     var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
     _ = try plat.createWindow(.{});
@@ -628,6 +650,9 @@ test "operations after deinit fail safe" {
     try std.testing.expect(plat.nextEvent() == null);
     try std.testing.expect(plat.windowShouldClose(id));
     try std.testing.expect(!plat.isWindowAlive(id));
+    const displays = try plat.displays(std.testing.allocator);
+    defer std.testing.allocator.free(displays);
+    try std.testing.expectEqual(@as(usize, 0), displays.len);
     // Window.deinit apos platform.deinit: erro ignorado, handle invalida.
     w.deinit();
     try std.testing.expect(!w.isValid());

@@ -8,6 +8,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const api = @import("api.zig");
+const xrandr = @import("xrandr.zig");
 const registry = @import("../registry.zig");
 const events = @import("../../events.zig");
 const input = @import("../../input.zig");
@@ -46,6 +47,11 @@ pub const Backend = struct {
     /// houver. O servidor libera o grab quando a janela fica nao-visivel
     /// ou e destruida; os handlers de evento limpam o estado nesses casos.
     captured: ?u32 = null,
+    /// libXrandr carregada em runtime (opcional). Mantida viva ate depois
+    /// de XCloseDisplay: a biblioteca registra extensoes na Xlib.
+    xrandr: ?xrandr.Lib = null,
+    /// RandR 1.5+ disponivel, com `XRRGetMonitors` utilizavel.
+    xrandr_monitors: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -65,12 +71,22 @@ pub const Backend = struct {
         if (wm_delete == 0) return error.ConnectionFailed;
         const wm_protocols = api.XInternAtom(display, "WM_PROTOCOLS", 0);
         if (wm_protocols == 0) return error.ConnectionFailed;
+        // Opcional e sem dependencia de link. Carregado por ultimo: nao ha
+        // mais operacoes faliveis no init, entao o errdefer do display
+        // continua correto em qualquer falha anterior.
+        const xrandr_lib = xrandr.Lib.load();
+        var xrandr_monitors = false;
+        if (xrandr_lib) |*lib| {
+            xrandr_monitors = lib.supportsMonitors(display);
+        }
         return .{
             .allocator = allocator,
             .display = display,
             .root = root,
             .wm_delete = wm_delete,
             .wm_protocols = wm_protocols,
+            .xrandr = xrandr_lib,
+            .xrandr_monitors = xrandr_monitors,
         };
     }
 
@@ -81,6 +97,54 @@ pub const Backend = struct {
         }
         self.entries.deinit(self.allocator);
         _ = api.XCloseDisplay(self.display);
+        // So depois do display: dlclose antes de XCloseDisplay deixa
+        // callbacks da extensao apontando para codigo descarregado.
+        if (self.xrandr) |*lib| lib.deinit();
+    }
+
+    /// Snapshot dos monitores. Com RandR 1.5+ usa `XRRGetMonitors`; caso
+    /// contrario cai para as X screens (cada uma com origem 0,0). O
+    /// chamador libera a slice com o mesmo alocador.
+    pub fn displays(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.DisplayInfo {
+        if (self.xrandr_monitors) {
+            if (self.xrandr) |*lib| {
+                if (try lib.monitors(self.display, self.root, allocator)) |list| {
+                    return list;
+                }
+            }
+        }
+        return self.screenDisplays(allocator);
+    }
+
+    fn screenDisplays(
+        self: *const Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.DisplayInfo {
+        const count = api.XScreenCount(self.display);
+        if (count <= 0) return allocator.alloc(types.DisplayInfo, 0);
+        const n: usize = @intCast(count);
+        const list = try allocator.alloc(types.DisplayInfo, n);
+        errdefer allocator.free(list);
+        const default_screen = api.XDefaultScreen(self.display);
+        for (list, 0..) |*info, i| {
+            const screen: c_int = @intCast(i);
+            const width = api.XDisplayWidth(self.display, screen);
+            const height = api.XDisplayHeight(self.display, screen);
+            info.* = .{
+                .id = .{ .raw = @intCast(i) },
+                // X screens tem espacos de coordenadas independentes;
+                // nao ha posicao global combinada.
+                .x = 0,
+                .y = 0,
+                .width = std.math.cast(u32, width) orelse 0,
+                .height = std.math.cast(u32, height) orelse 0,
+                .primary = screen == default_screen,
+            };
+        }
+        return list;
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {

@@ -6,6 +6,9 @@
 - Linux/X11: headers + lib de desenvolvimento:
   - Fedora: `sudo dnf install libX11-devel`
   - Debian/Ubuntu: `sudo apt install libx11-dev`
+  - Opcional em runtime (sem impacto no build): `libXrandr.so.2`
+    (RandR 1.5+) para enumeração de monitores físicos; sem ela,
+    `Platform.displays` cai para X screens.
 - Windows: SDK padrão (nada extra além do Zig).
 
 ## Comandos
@@ -14,7 +17,7 @@
 zig build              # compila a biblioteca estática
 zig build test         # testes unitários (headless; backend null)
 zig build test-x11     # integração X11 (display real; pula sem display)
-zig build examples     # hello_window, multiple_windows, keyboard_input
+zig build examples     # hello_window, multiple_windows, keyboard_input, displays
 zig fmt --check .      # formatação (a CI exige limpo)
 ```
 

@@ -12,6 +12,7 @@ pub const HCURSOR = ?*anyopaque;
 pub const HBRUSH = ?*anyopaque;
 pub const HMENU = ?*anyopaque;
 pub const HDC = ?*anyopaque;
+pub const HMONITOR = ?*anyopaque;
 
 pub const UINT = c_uint;
 pub const DWORD = u32;
@@ -30,6 +31,13 @@ pub const WNDPROC = *const fn (
     wparam: WPARAM,
     lparam: LPARAM,
 ) callconv(.winapi) LRESULT;
+
+pub const MONITORENUMPROC = *const fn (
+    monitor: HMONITOR,
+    hdc: HDC,
+    rect: *RECT,
+    data: LPARAM,
+) callconv(.winapi) BOOL;
 
 pub const WNDCLASSEXW = extern struct {
     cbSize: UINT,
@@ -67,6 +75,17 @@ pub const RECT = extern struct {
     right: LONG,
     bottom: LONG,
 };
+
+/// `MONITORINFO` (winuser.h): cbSize + retangulo do monitor + area de
+/// trabalho + flags.
+pub const MONITORINFO = extern struct {
+    cbSize: DWORD,
+    rcMonitor: RECT,
+    rcWork: RECT,
+    dwFlags: DWORD,
+};
+
+pub const MONITORINFOF_PRIMARY: DWORD = 0x00000001;
 
 /// CREATESTRUCTW parcial: apenas o primeiro campo e lido.
 pub const CREATESTRUCT_HEAD = extern struct {
@@ -227,6 +246,13 @@ pub extern "user32" fn GetCapture() HWND;
 /// Estado sincrono das teclas virtuais (SHORT). Bit 0x8000 = pressionada
 /// no momento em que a mensagem atual foi retirada da fila.
 pub extern "user32" fn GetKeyState(vk: c_int) i16;
+pub extern "user32" fn EnumDisplayMonitors(
+    hdc: HDC,
+    clip: ?*const RECT,
+    callback: MONITORENUMPROC,
+    data: LPARAM,
+) BOOL;
+pub extern "user32" fn GetMonitorInfoW(monitor: HMONITOR, info: *MONITORINFO) BOOL;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;

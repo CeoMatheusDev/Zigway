@@ -293,6 +293,9 @@ pub const XEvent = extern union {
 pub extern "X11" fn XOpenDisplay(name: ?[*:0]const u8) ?*Display;
 pub extern "X11" fn XCloseDisplay(display: *Display) c_int;
 pub extern "X11" fn XDefaultScreen(display: *Display) c_int;
+pub extern "X11" fn XScreenCount(display: *Display) c_int;
+pub extern "X11" fn XDisplayWidth(display: *Display, screen: c_int) c_int;
+pub extern "X11" fn XDisplayHeight(display: *Display, screen: c_int) c_int;
 pub extern "X11" fn XDefaultRootWindow(display: *Display) Window;
 pub extern "X11" fn XCreateSimpleWindow(
     display: *Display,

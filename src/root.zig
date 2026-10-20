@@ -20,6 +20,7 @@ pub const caps = @import("core/caps.zig");
 pub const types = @import("core/types.zig");
 pub const WindowId = types.WindowId;
 pub const DisplayId = types.DisplayId;
+pub const DisplayInfo = types.DisplayInfo;
 pub const BackendKind = types.BackendKind;
 pub const ActiveBackend = types.ActiveBackend;
 pub const Key = types.Key;

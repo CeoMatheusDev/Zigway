@@ -39,6 +39,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Backend-neutral input:** Consume normalized keyboard, mouse, focus, resize, and close events.
 - **Native cursors:** Apply standard system cursors per window without depending on a renderer.
 - **Pointer capture:** Keep receiving pointer input for a window beyond its bounds, with explicit release.
+- **Monitor enumeration:** Query active display outputs and their geometry through one allocator-aware API, with native backends and a headless empty result.
 - **Headless operation:** Use the null backend to exercise platform logic without a desktop session.
 - **Rendering freedom:** Integrate your preferred graphics API or UI toolkit without a bundled renderer.
 
@@ -91,7 +92,7 @@ The repository keeps the implementation in focused modules:
 ### Requirements
 
 - **Zig 0.17.0**
-- **Linux/X11:** X11 development headers and system libraries for building and linking
+- **Linux/X11:** X11 development headers and system libraries for building and linking. At runtime, `libXrandr.so.2` (RandR 1.5+) is optional for physical monitor enumeration; without it, Zigway reports X screens.
 - **Windows:** the Win32 system libraries and toolchain support needed by the target
 
 ### Build and test

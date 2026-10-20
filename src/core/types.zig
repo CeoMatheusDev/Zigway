@@ -164,6 +164,23 @@ pub const WindowPosition = struct {
     y: i32,
 };
 
+/// Monitor/display logico enumerado pelo backend.
+///
+/// `id` e um identificador opaco valido para o snapshot retornado por
+/// `Platform.displays`; pode mudar se a configuracao de monitores mudar
+/// (hotplug/reconfiguracao). As coordenadas sao relativas ao espaco de
+/// tela do backend.
+pub const DisplayInfo = struct {
+    id: DisplayId,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    /// Monitor primario reportado pelo sistema (false se o servidor nao
+    /// marcar nenhum).
+    primary: bool,
+};
+
 const std = @import("std");
 
 test "Key ordinals are dense from zero" {

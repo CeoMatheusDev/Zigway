@@ -987,6 +987,36 @@ test "live x11: pointer capture is exclusive, transferable and releasable" {
     try std.testing.expectEqual(GrabSuccess, status);
 }
 
+test "live x11: display enumeration returns sane geometry" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const displays = try plat.displays(std.testing.allocator);
+    defer std.testing.allocator.free(displays);
+
+    // Xvfb e desktops reais sempre tem ao menos uma tela/monitor.
+    try std.testing.expect(displays.len >= 1);
+    var primary_count: usize = 0;
+    for (displays, 0..) |info, i| {
+        // IDs sao indices do snapshot e nao podem se repetir.
+        try std.testing.expectEqual(@as(u32, @intCast(i)), info.id.raw);
+        try std.testing.expect(info.id.isValid());
+        try std.testing.expect(info.width > 0);
+        try std.testing.expect(info.height > 0);
+        if (info.primary) primary_count += 1;
+    }
+    // No maximo um primario; servidores sem primario reportam zero.
+    try std.testing.expect(primary_count <= 1);
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —
