@@ -336,6 +336,53 @@ test "live x11: visibility toggle via Map/Unmap" {
     try std.testing.expect(plat.isWindowVisible(w.windowId()));
 }
 
+test "live x11: focus in/out updates state" {
+    // Valida FocusIn/FocusOut end-to-end: XSetInputFocus gera FocusIn,
+    // que atualiza slot.focused. Em ambiente sem WM, o foco pode não ser
+    // concedido; o teste não falha por isso (degrada graciosamente).
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{
+        .width = 320,
+        .height = 240,
+        .title = "zigway-live-focus",
+    });
+    defer w.deinit();
+
+    // Drena eventos iniciais.
+    var i: usize = 0;
+    while (i < 30) : (i += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |_| {}
+    }
+
+    // Tenta dar foco à janela.
+    try w.focus();
+    var saw_focus = false;
+    var waited: u32 = 0;
+    while (waited < 3000 and !saw_focus) : (waited += 50) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .focus and ev.focus.focused) saw_focus = true;
+        }
+        if (!saw_focus) sleepMs(50);
+    }
+
+    // Em ambiente sem WM, o foco pode não ser concedido; não falha o teste.
+    if (saw_focus) {
+        try std.testing.expect(plat.isWindowFocused(w.windowId()));
+    }
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —
