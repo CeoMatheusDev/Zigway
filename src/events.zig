@@ -76,7 +76,8 @@ pub const TextInputEvent = struct {
 };
 
 /// Inicio de uma composicao de texto (IME): o texto que o usuario esta
-/// escrevendo aparece em `composition_update` ate a confirmacao.
+/// escrevendo e consultado com `Platform.compositionText` ate a
+/// confirmacao.
 pub const CompositionStartEvent = struct {
     window: WindowId,
 };
