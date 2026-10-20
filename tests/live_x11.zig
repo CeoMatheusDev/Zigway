@@ -240,6 +240,28 @@ fn sendKey(
     );
 }
 
+/// Igual a `sendKey`, mas com modificadores no campo `state`.
+fn sendKeyWithState(
+    display: *anyopaque,
+    window: c_ulong,
+    root: c_ulong,
+    keycode: u8,
+    pressed: bool,
+    state: c_uint,
+) void {
+    sendDeviceEvent(
+        display,
+        window,
+        root,
+        if (pressed) KeyPress else KeyRelease,
+        if (pressed) KeyPressMask else KeyReleaseMask,
+        keycode,
+        state,
+        0,
+        0,
+    );
+}
+
 extern "X11" fn XGetWMProtocols(
     display: *anyopaque,
     window: c_ulong,
@@ -687,6 +709,88 @@ test "live x11: auto-repeat is flagged on repeated KeyPress" {
     try std.testing.expectEqual(expected, release.key);
     try std.testing.expect(!release.repeat);
     try std.testing.expect(!plat.inputState().isKeyDown(expected));
+}
+
+test "live x11: text input produces unicode codepoints" {
+    // Entrada de texto separada de `Key`: um KeyPress gera tambem um
+    // `text_input` com o codepoint Unicode correspondente.
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const title = "zigway-live-text-input";
+    var window = try plat.createWindow(.{ .width = 320, .height = 240, .title = title });
+    defer window.deinit();
+    const id = window.windowId();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+
+    var target: ?c_ulong = null;
+    var tries: usize = 0;
+    while (tries < 400 and target == null) : (tries += 1) {
+        _ = XSync(display, 0);
+        target = findClientWindowByTitle(display, root, title, 0);
+        if (target == null) sleepMs(5);
+    }
+    const native = target orelse {
+        std.debug.print("\n[x11-live] janela nativa nao encontrada; pulando.\n", .{});
+        return;
+    };
+
+    const keycode = XKeysymToKeycode(display, 0x61); // XK_a
+    if (keycode == 0) return;
+    const sym = XKeycodeToKeysym(display, keycode, 0);
+    if (sym < 0x20 or sym > 0x7E) {
+        std.debug.print("\n[x11-live] layout sem tecla ASCII; pulando.\n", .{});
+        return;
+    }
+
+    // Sem Shift: o texto e o keysym do nivel 0.
+    sendKey(display, native, root, keycode, true);
+    const plain = pollTextInput(&plat, id) orelse return error.MissingTextInputEvent;
+    try std.testing.expectEqual(@as(u32, @intCast(sym)), plain);
+    sendKey(display, native, root, keycode, false);
+    drainEvents(&plat);
+
+    // Com Shift: o texto e o keysym do nivel 1 (shifted).
+    const shifted = XKeycodeToKeysym(display, keycode, 1);
+    if (shifted >= 0x20 and shifted <= 0x7E) {
+        sendKeyWithState(display, native, root, keycode, true, ShiftMask);
+        const upper = pollTextInput(&plat, id) orelse return error.MissingTextInputEvent;
+        try std.testing.expectEqual(@as(u32, @intCast(shifted)), upper);
+        sendKeyWithState(display, native, root, keycode, false, ShiftMask);
+        drainEvents(&plat);
+    }
+}
+
+/// Coleta o primeiro `text_input` da janela (com timeout).
+fn pollTextInput(plat: *zigway.Platform, id: zigway.WindowId) ?u32 {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            if (ev == .text_input and ev.text_input.window.eql(id)) {
+                return ev.text_input.codepoint;
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
+/// Descarta todos os eventos pendentes da fila.
+fn drainEvents(plat: *zigway.Platform) void {
+    plat.pollEvents();
+    while (plat.nextEvent()) |_| {}
 }
 
 test "live x11: pointer move, buttons and wheel update input state" {

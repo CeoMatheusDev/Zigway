@@ -1222,6 +1222,19 @@ pub const Backend = struct {
                 };
                 if (pressed) {
                     events.dispatch(queue, state, .{ .key_down = kev });
+                    // Texto: o keysym shifted (Shift) vira codepoint
+                    // Unicode. Sem IM (compose/dead keys) nao ha texto
+                    // para teclas sem caractere.
+                    if (wid) |window_id| {
+                        const index: c_int = if (ev.key.state & api.ShiftMask != 0) 1 else 0;
+                        const text_sym = api.XLookupKeysym(&ev.key, index);
+                        if (keysymToCodepoint(text_sym)) |codepoint| {
+                            events.dispatch(queue, state, .{ .text_input = .{
+                                .window = window_id,
+                                .codepoint = codepoint,
+                            } });
+                        }
+                    }
                 } else {
                     events.dispatch(queue, state, .{ .key_up = kev });
                 }
@@ -1447,6 +1460,21 @@ pub fn fromState(state: c_uint) types.Modifiers {
     };
 }
 
+/// Converte um keysym X11 em codepoint Unicode.
+///
+/// Faixas do keysym (X11): 0x20-0x7E (ASCII), 0xA0-0xFF (Latin-1) e
+/// 0x01000000-0x0110FFFF (Unicode direto, bit 24 marcado). Teclas sem
+/// caractere (funcoes, modificadores) nao produzem texto.
+pub fn keysymToCodepoint(sym: api.KeySym) ?u32 {
+    if (sym == 0) return null;
+    if (sym >= 0x20 and sym <= 0x7E) return @intCast(sym);
+    if (sym >= 0xA0 and sym <= 0xFF) return @intCast(sym);
+    if (sym >= 0x0100_0000 and sym <= 0x0110_FFFF) {
+        return @intCast(sym & 0x00FF_FFFF);
+    }
+    return null;
+}
+
 pub fn fromKeysym(sym: api.KeySym) types.Key {
     // Letras (minusculas e maiusculas -> mesma tecla logica).
     if ((sym >= 0x61 and sym <= 0x7a) or (sym >= 0x41 and sym <= 0x5a)) {
@@ -1598,6 +1626,25 @@ test "keysym mapping covers basics" {
     try std.testing.expectEqual(types.Key.left_super, fromKeysym(api.XK_Super_L));
     try std.testing.expectEqual(types.Key.space, fromKeysym(0x20));
     try std.testing.expectEqual(types.Key.unknown, fromKeysym(0x1234));
+}
+
+test "keysym to codepoint covers ascii, latin1 and unicode" {
+    // Sem texto.
+    try std.testing.expectEqual(@as(?u32, null), keysymToCodepoint(0));
+    try std.testing.expectEqual(@as(?u32, null), keysymToCodepoint(0xFF0B)); // XK_F1
+    try std.testing.expectEqual(@as(?u32, null), keysymToCodepoint(0x0100_0000 - 1));
+
+    // ASCII.
+    try std.testing.expectEqual(@as(?u32, 0x20), keysymToCodepoint(0x20)); // espaco
+    try std.testing.expectEqual(@as(?u32, 0x61), keysymToCodepoint(0x61)); // 'a'
+    try std.testing.expectEqual(@as(?u32, 0x7E), keysymToCodepoint(0x7E)); // '~'
+
+    // Latin-1.
+    try std.testing.expectEqual(@as(?u32, 0xE4), keysymToCodepoint(0xE4)); // a-dieresis
+
+    // Unicode direto (bit 24).
+    try std.testing.expectEqual(@as(?u32, 0x4E2D), keysymToCodepoint(0x0100_0000 | 0x4E2D));
+    try std.testing.expectEqual(@as(?u32, 0x10FFFF), keysymToCodepoint(0x0110_FFFF));
 }
 
 test "cursor shapes map to cursorfont constants" {

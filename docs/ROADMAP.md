@@ -46,8 +46,11 @@ vazia / `DisplayModeUnsupported`).
 
 Área de transferência implementada (`Platform.setClipboardText`/
 `clipboardText`, UTF-8; no X11 com janela dona da seleção `CLIPBOARD` e
-resposta a `SelectionRequest`; no Win32 com `CF_UNICODETEXT`).
-Pendentes: Unicode/IME separado de `Key` e drag & drop.
+resposta a `SelectionRequest`; no Win32 com `CF_UNICODETEXT`) e entrada
+de texto Unicode separada de `Key` (evento `text_input` com um codepoint
+por evento; no X11 via keysym, no Win32 via `WM_CHAR`/IME).
+Pendentes: input method no X11 (compose, dead keys e IME real) e drag &
+drop.
 
 ## v0.4.x — Graphics Integration
 

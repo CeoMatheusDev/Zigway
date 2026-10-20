@@ -65,6 +65,16 @@ pub const MaximizedEvent = struct {
     maximized: bool,
 };
 
+/// Texto digitado/composto (entrada Unicode), separado de `Key`.
+///
+/// Um evento por codepoint Unicode: um IME que confirma uma frase
+/// produz varios eventos, na ordem do texto.
+pub const TextInputEvent = struct {
+    window: WindowId,
+    /// Codepoint Unicode (U+0000..U+10FFFF).
+    codepoint: u32,
+};
+
 pub const KeyEvent = struct {
     window: ?WindowId,
     key: Key,
@@ -102,6 +112,7 @@ pub const Event = union(enum) {
     display_change: DisplayChangeEvent,
     fullscreen: FullscreenEvent,
     maximized: MaximizedEvent,
+    text_input: TextInputEvent,
     focus: FocusEvent,
     key_down: KeyEvent,
     key_up: KeyEvent,
@@ -127,6 +138,7 @@ pub const Event = union(enum) {
             .display_change => null,
             .fullscreen => |e| e.window,
             .maximized => |e| e.window,
+            .text_input => |e| e.window,
             .focus => |e| e.window,
             .key_down => |e| e.window,
             .key_up => |e| e.window,
@@ -319,6 +331,7 @@ test "event window accessor covers all variants" {
         .{ .display_change = .{} },
         .{ .fullscreen = .{ .window = id, .fullscreen = true } },
         .{ .maximized = .{ .window = id, .maximized = true } },
+        .{ .text_input = .{ .window = id, .codepoint = 'a' } },
         .{ .focus = .{ .window = id, .focused = true } },
         .{ .key_down = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },
         .{ .key_up = .{ .window = id, .key = .a, .modifiers = .{}, .repeat = false } },

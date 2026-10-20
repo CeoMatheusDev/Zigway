@@ -148,6 +148,24 @@ do modo e a geometria, para que um snapshot obsoleto seja recusado com
 (`preferred` fica `false`) e a frequência é inteira (Hz). A mudança
 gera `WM_DISPLAYCHANGE` (evento `display_change`).
 
+## Entrada de texto (Unicode)
+
+O evento `text_input` traz o texto digitado/composto, **separado de
+`Key`**: `{ window, codepoint }`, um evento por codepoint Unicode. Um IME
+que confirma uma frase produz vários eventos, na ordem do texto. Os
+eventos `key_down`/`key_up` continuam sendo o input bruto da tecla
+(teclas de função, modificadores, auto-repeat).
+
+No X11 o codepoint vem do keysym da tecla (nível 0, ou nível 1 com
+Shift) mapeado para Unicode (ASCII, Latin-1 e keysyms Unicode
+diretos). **Não há compose/dead keys**: isso exige um input method
+(XIM) e a libX11 local não fornece input context (`XCreateIC` falha),
+então o suporte a IM/XIM no X11 fica pendente.
+
+No Win32 o texto chega por `WM_CHAR` (UTF-16) — o caminho pelo qual o
+IME confirma o texto composto; pares substitutos são combinados em um
+único codepoint.
+
 ## Área de transferência (clipboard)
 
 `setClipboardText(text)` publica um texto **UTF-8** na área de
@@ -268,6 +286,7 @@ pub const Event = union(enum) {
     display_change: DisplayChangeEvent, // sem payload; reconsultar displays()
     fullscreen: FullscreenEvent,     // { window, fullscreen }
     maximized: MaximizedEvent,       // { window, maximized }
+    text_input: TextInputEvent,      // { window, codepoint }
     focus: FocusEvent,              // { window, focused }
     key_down / key_up: KeyEvent,     // { window: ?WindowId, key, modifiers, repeat }
     pointer_move: PointerMoveEvent,  // { window: ?WindowId, x, y }
@@ -335,7 +354,7 @@ botões são estado global e não são associados a janela.
 `DisplayModeId` (`eql`, `isValid`, `invalid`), `DisplayInfo`,
 `DisplayMode`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
-`FullscreenEvent`, `MaximizedEvent`, `version.string`
+`FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `version.string`
 (`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,

@@ -242,6 +242,9 @@ pub const WM_SETCURSOR: UINT = 0x0020;
 pub const WM_DISPLAYCHANGE: UINT = 0x007E;
 pub const WM_NCCREATE: UINT = 0x0081;
 pub const WM_KEYDOWN: UINT = 0x0100;
+/// `WM_CHAR`: caractere (UTF-16) ja composto — e por aqui que o IME
+/// entrega o texto confirmado.
+pub const WM_CHAR: UINT = 0x0102;
 pub const WM_KEYUP: UINT = 0x0101;
 pub const WM_SYSKEYDOWN: UINT = 0x0104;
 pub const WM_SYSKEYUP: UINT = 0x0105;

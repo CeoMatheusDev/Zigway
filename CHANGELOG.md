@@ -64,6 +64,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Entrada de texto Unicode: evento `text_input` (`{ window, codepoint }`),
+  um por codepoint, separado de `Key` (que continua sendo o input bruto
+  da tecla). No X11 o codepoint vem do keysym (nível 0, ou nível 1 com
+  Shift); no Win32 vem de `WM_CHAR` (UTF-16, com pares substitutos
+  combinados), caminho pelo qual o IME confirma o texto composto.
+  Compose/dead keys no X11 dependem de um input method (XIM) e ficam
+  pendentes: a libX11 local não cria input context.
 - Área de transferência: `Platform.setClipboardText`/`clipboardText`
   (UTF-8; o chamador libera a slice lida). No X11, a plataforma mantém
   uma janela oculta como dona da seleção `CLIPBOARD` e responde a

@@ -25,6 +25,8 @@ const Entry = struct {
     /// Retangulo externo e estilo anteriores ao fullscreen.
     saved_fullscreen: ?api.RECT = null,
     saved_style: usize = 0,
+    /// Surrogate alto (UTF-16) aguardando a parte baixa.
+    pending_high_surrogate: u16 = 0,
 };
 
 const Pending = struct {
@@ -150,6 +152,25 @@ fn unpackModeId(raw: u64) ?DecodedModeId {
         .height = @intCast(height),
         .index = @intCast(index),
     };
+}
+
+/// Converte uma unidade UTF-16 em codepoint Unicode, combinando pares
+/// substitutos. `pending_high` guarda o surrogate alto entre chamadas.
+/// Retorna null quando a unidade nao completa um texto (surrogate alto
+/// ou baixo sem par).
+fn utf16ToCodepoint(unit: u16, pending_high: *u16) ?u32 {
+    if (unit >= 0xD800 and unit <= 0xDBFF) {
+        pending_high.* = unit;
+        return null;
+    }
+    if (unit >= 0xDC00 and unit <= 0xDFFF) {
+        const high = pending_high.*;
+        pending_high.* = 0;
+        if (high == 0) return null;
+        return 0x10000 + ((@as(u32, high - 0xD800) << 10) | @as(u32, unit - 0xDC00));
+    }
+    pending_high.* = 0;
+    return unit;
 }
 
 /// Contador global para nomes de classe unicos por instancia Backend.
@@ -1159,6 +1180,22 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             }
             return 0;
         },
+        api.WM_CHAR => {
+            // Texto ja composto (o IME confirma por aqui). O valor e
+            // UTF-16: pares substitutos formam um codepoint.
+            const unit: u16 = @truncate(wparam);
+            const entry_idx = backend.findEntryByHwnd(hwnd) orelse return 0;
+            const entry = &backend.entries.items[entry_idx];
+            const slot = entry.slot;
+
+            if (utf16ToCodepoint(unit, &entry.pending_high_surrogate)) |cp| {
+                events.dispatch(queue, state, .{ .text_input = .{
+                    .window = pending.reg.idOf(slot),
+                    .codepoint = cp,
+                } });
+            }
+            return 0;
+        },
         api.WM_MOUSEMOVE => {
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
                 const pos = mousePos(lparam);
@@ -1470,6 +1507,23 @@ test "win32 struct layouts match win64" {
     try std.testing.expectEqual(@as(usize, 4), @offsetOf(api.MONITORINFO, "rcMonitor"));
     try std.testing.expectEqual(@as(usize, 20), @offsetOf(api.MONITORINFO, "rcWork"));
     try std.testing.expectEqual(@as(usize, 36), @offsetOf(api.MONITORINFO, "dwFlags"));
+}
+
+test "utf16 units combine into unicode codepoints" {
+    var pending: u16 = 0;
+    // BMP: direto.
+    try std.testing.expectEqual(@as(?u32, 'a'), utf16ToCodepoint('a', &pending));
+    try std.testing.expectEqual(@as(?u32, 0x00E9), utf16ToCodepoint(0x00E9, &pending)); // e-acento
+    try std.testing.expectEqual(@as(?u32, 0x4E2D), utf16ToCodepoint(0x4E2D, &pending)); // CJK
+
+    // Par substituto: a parte alta nao produz texto sozinha.
+    try std.testing.expectEqual(@as(?u32, null), utf16ToCodepoint(0xD83D, &pending));
+    try std.testing.expectEqual(@as(u16, 0xD83D), pending);
+    try std.testing.expectEqual(@as(?u32, 0x1F600), utf16ToCodepoint(0xDE00, &pending)); // emoji
+    try std.testing.expectEqual(@as(u16, 0), pending);
+
+    // Parte baixa sem par: sem texto.
+    try std.testing.expectEqual(@as(?u32, null), utf16ToCodepoint(0xDE00, &pending));
 }
 
 test "win32 display mode id packs and unpacks" {

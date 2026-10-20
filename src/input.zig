@@ -65,6 +65,7 @@ pub const InputState = struct {
             .display_change => {},
             .fullscreen => {},
             .maximized => {},
+            .text_input => {},
             .close => {},
         }
     }

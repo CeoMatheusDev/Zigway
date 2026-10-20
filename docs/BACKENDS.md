@@ -39,6 +39,12 @@ usa `_NET_WM_STATE_FULLSCREEN` quando o WM anuncia os atoms EWMH;
 `XMoveResizeWindow` na tela X padrão e restaura a geometria anterior ao
 sair (caminho síncrono).
 
+Entrada de texto: o codepoint Unicode vem do keysym da tecla (nível 0,
+ou nível 1 quando Shift esta pressionado), mapeado para ASCII/Latin-1/
+keysyms Unicode. Não há input method: compose, dead keys e IME real
+exigem um XIM e a libX11 local não cria input context (`XCreateIC`
+falha), então esse suporte fica pendente.
+
 Área de transferência: a plataforma cria uma janela oculta (1x1, nunca
 mapeada) que possui a seleção `CLIPBOARD`; `setClipboardText` publica o
 texto (UTF-8) e responde a `SelectionRequest` com `TARGETS` e
@@ -206,6 +212,9 @@ Limitações conhecidas:
 - Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
   monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
   snapshot. Não há eventos de hotplug.
+- Entrada de texto: `WM_CHAR` (UTF-16) vira codepoint Unicode, com
+  pares substitutos combinados; é por esse caminho que o IME confirma o
+  texto composto. Sem validação em runtime (apenas compilação cruzada).
 - Área de transferência: `OpenClipboard`/`EmptyClipboard`/
   `SetClipboardData` com `CF_UNICODETEXT` (UTF-16 convertido de UTF-8)
   e `GetClipboardData` na leitura. A área é aberta/fechada a cada
@@ -234,5 +243,6 @@ variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 são apenas estado lógico com eventos, e limites de tamanho são apenas
 estado. Modos de vídeo: `displayModes` devolve lista vazia e
 `setDisplayMode` retorna `DisplayModeUnsupported` (sem recursos nativos).
+Entrada de texto: sem teclado nativo (o evento pode ser injetado).
 Área de transferência: texto guardado em memória, dentro da plataforma
 (`setClipboardText`/`clipboardText` fazem round-trip). Usado pelos testes unitários e como fallback em SOs sem backend.
