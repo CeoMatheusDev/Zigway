@@ -7,6 +7,16 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Entrada de ponteiro no backend Wayland**: o `wl_pointer` e criado
+  quando o compositor anuncia a capacidade no seat. `enter`/`leave`/
+  `motion` viram `pointer_move` (com a janela da superficie e as
+  coordenadas em pixels, convertidas de `wl_fixed_t`), `button` vira
+  `pointer_button` (codigos Linux `BTN_LEFT`..`BTN_EXTRA` mapeados para
+  `left`/`right`/`middle`/`back`/`forward`) e `axis` vira `scroll`
+  (valor em 120avos de grau tem precedencia, depois os passos discretos
+  e, por fim, o valor bruto; publicado no `frame` do compositor).
+  Cobertura unitaria do mapeamento e live (o `wl_pointer.enter`
+  identifica a janela sob o cursor).
 - **Janelas no backend Wayland nativo** (xdg-shell): `createWindow`
   cria `wl_surface` + `xdg_surface` + `xdg_toplevel` via
   `wl_compositor`/`xdg_wm_base`, com titulo (`xdg_toplevel.set_title`),
@@ -45,7 +55,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   Anexar buffer antes do `ack` (ou com tamanho diferente do aceito)
   fazia o compositor encerrar a conexao ("unconfigured_buffer" /
   "invalid_size").
-
+- `xdg_wm_base` sem listener: o `ping` do compositor era descartado
+  (sem `pong` o compositor considera o cliente travado e encerra a
+  conexao). O listener foi registrado no bind do `xdg_wm_base`.
 - `Window.setCursor(Cursor)` / `Platform.setWindowCursor`: cursores do
   sistema por janela (`default`, `text`, `crosshair`, `hand`,
   `resize_horizontal`, `resize_vertical`, `resize_all`, `not_allowed`,

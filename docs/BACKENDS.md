@@ -278,13 +278,23 @@ considera o cliente travado). O `wl_shm.format` do compositor é lido
 para escolher o formato do buffer. Esconder a janela usa o buffer nulo
 (commit sem buffer), como manda o protocolo.
 
-Ainda não implementado (retornam `NotImplemented`): input (teclado
-exige keymap XKB; ponteiro exige `wl_pointer`), clipboard
-(`wl_data_device`) e modos de vídeo. Também não há equivalente Wayland
-para `setSize` (o compositor decide o tamanho), `setPosition` (a posição
-não é exposta ao cliente), `focus` (o foco é do compositor) e cursor do
-sistema (exige `wl_pointer` e o tema do compositor). A captura
-exclusiva de ponteiro também não existe no protocolo base.
+Ainda não implementado (retornam `NotImplemented`): input de teclado
+(exige o keymap XKB), clipboard (`wl_data_device`) e modos de vídeo.
+Também não há equivalente Wayland para `setSize` (o compositor decide
+o tamanho), `setPosition` (a posição não é exposta ao cliente), `focus`
+(o foco é do compositor) e cursor do sistema (exige `wl_pointer` e o
+tema do compositor). A captura exclusiva de ponteiro também não existe
+no protocolo base.
+
+Ponteiro: o `wl_pointer` é criado quando o compositor anuncia a
+capacidade no seat. `enter`/`leave`/`motion` viram `pointer_move`
+(janela = a superfície sob o cursor, coordenadas da superfície),
+`button` vira `pointer_button` (códigos Linux `BTN_LEFT`..`BTN_EXTRA`
+mapeados para `left`/`right`/`middle`/`back`/`forward`) e `axis` vira
+`scroll` (o valor em 120avos de grau tem precedência, depois os passos
+discretos e, por fim, o valor bruto; a rolagem é publicada no `frame`
+do compositor). As coordenadas `wl_fixed_t` (24.8) são convertidas
+para pixels.
 
 Limitações conhecidas:
 

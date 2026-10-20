@@ -27,7 +27,10 @@ não está disponível (`error.UnsupportedBackend`).
   e `close`.
 - **Ping**: `xdg_wm_base.ping` é respondido com `pong` (sem isso o
   compositor considera o cliente travado).
-- **Despacho assíncrono**: leitura do socket sem bloquear
+- **Ponteiro**: o `wl_pointer` é criado quando o compositor anuncia a
+  capacidade no seat. `enter`/`leave`/`motion` viram `pointer_move`
+  (com a janela da superfície), `button` vira `pointer_button` e `axis`
+  vira `scroll` (publicado no `frame`).- **Despacho assíncrono**: leitura do socket sem bloquear
   (`wl_display_prepare_read`/`read_events`/`dispatch_pending`), com
   flush das requisições pendentes.
 - **Tabelas de interface**: o equivalente Zig do código gerado por
@@ -37,8 +40,9 @@ não está disponível (`error.UnsupportedBackend`).
 
 ## Ainda NÃO implementado
 
-- **Input**: teclado (exige o keymap XKB) e ponteiro (exige
-  `wl_pointer`).
+- **Input de teclado**: exige o keymap XKB (o `wl_keyboard` entrega o
+  keymap por um descritor; a conversao keycode → tecla logica precisa
+  de um interpretador XKB).
 - **Clipboard**: `wl_data_device_manager`/`wl_data_source`/`wl_data_offer`.
 - **Modos de vídeo**: o Wayland delega a troca ao compositor.
 - **Equivalentes do X11/Win32 sem contraparte no protocolo base**:

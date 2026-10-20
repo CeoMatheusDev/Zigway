@@ -172,8 +172,7 @@ test "live wayland: window state requests do not break the connection" {
     while (plat.nextEvent()) |_| {}
 }
 
-test "live wayland: creating and destroying many windows keeps the connection" {
-    // Regressao: o protocolo exige `ack_configure` antes de anexar
+test "live wayland: creating and destroying many windows keeps the connection" { // Regressao: o protocolo exige `ack_configure` antes de anexar
     // buffer. Uma janela nova ainda nao configurada nao pode receber
     // buffer (o compositor responde "attached a buffer before
     // configure event").
@@ -200,5 +199,51 @@ test "live wayland: creating and destroying many windows keeps the connection" {
         win.deinit();
         plat.pollEvents();
         while (plat.nextEvent()) |_| {}
+    }
+}
+
+test "live wayland: the pointer reports the window under the cursor" {
+    // O compositor so envia `wl_pointer.enter` quando o ponteiro entra
+    // na superficie. Uma janela em fullscreen cobre a saida, entao o
+    // ponteiro (que esta em algum output) acaba dentro dela.
+    var plat = (try initPlatform()) orelse return;
+    defer plat.deinit();
+
+    // O seat precisa anunciar ponteiro.
+    const seat = plat.seatCapabilities() orelse return;
+    if (!seat.pointer) return;
+
+    var win = plat.createWindow(.{ .width = 200, .height = 150, .title = "ponteiro" }) catch |err| switch (err) {
+        error.NotImplemented => return,
+        else => return err,
+    };
+    defer win.deinit();
+
+    win.setFullscreen(true) catch {};
+
+    var saw_pointer_in_window = false;
+    var attempts: u32 = 0;
+    while (attempts < 100 and !saw_pointer_in_window) : (attempts += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .pointer_move => |move| {
+                    if (move.window) |wid| {
+                        // O evento do ponteiro deve apontar para a janela
+                        // criada (e nao para outra).
+                        try std.testing.expect(wid.eql(win.windowId()));
+                        saw_pointer_in_window = true;
+                    }
+                },
+                else => {},
+            }
+        }
+        sleepMs(20);
+    }
+
+    // O ponteiro pode estar em outra saida (a tela do compositor): o
+    // teste nao falha por isso, apenas registra o que viu.
+    if (saw_pointer_in_window) {
+        std.debug.print("\n[wl-live] ponteiro dentro da janela\n", .{});
     }
 }

@@ -215,6 +215,10 @@ pub const wl_seat_capability_pointer: u32 = 1;
 pub const wl_seat_capability_keyboard: u32 = 2;
 pub const wl_seat_capability_touch: u32 = 4;
 
+/// Eixos do `wl_pointer.axis`.
+pub const wl_pointer_axis_vertical_scroll: u32 = 0;
+pub const wl_pointer_axis_horizontal_scroll: u32 = 1;
+
 /// `struct wl_array` (wayland-util.h): vetor de bytes (usado pelos
 /// estados do xdg_toplevel).
 pub const wl_array = extern struct {

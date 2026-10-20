@@ -63,6 +63,18 @@ const OutputState = struct {
     has_mode: bool = false,
 };
 
+/// Botao de ponteiro pendente (evento `pointer_button`).
+const PendingButton = struct {
+    button: types.MouseButton,
+    pressed: bool,
+};
+
+/// Rolagem pendente (evento `scroll`).
+const PendingScroll = struct {
+    dx: f32,
+    dy: f32,
+};
+
 /// Estado de uma janela (wl_surface + xdg_surface + xdg_toplevel).
 const WindowEntry = struct {
     /// Slot no registro da plataforma (fonte de verdade da validade).
@@ -127,6 +139,23 @@ const SeatListener = extern struct {
     name: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8) callconv(.c) void,
 };
 
+/// Callbacks do `wl_pointer` (wayland-client-core.h).
+/// As coordenadas e o eixo sao `wl_fixed_t` (int32 em ponto fixo 24.8).
+const PointerListener = extern struct {
+    enter: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque, i32, i32) callconv(.c) void,
+    leave: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*anyopaque) callconv(.c) void,
+    motion: *const fn (?*anyopaque, ?*api.wl_proxy, u32, i32, i32) callconv(.c) void,
+    button: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, u32, u32) callconv(.c) void,
+    axis: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, i32) callconv(.c) void,
+    frame: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    axis_source: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+    axis_stop: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32) callconv(.c) void,
+    axis_discrete: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, i32) callconv(.c) void,
+    axis_value120: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, i32) callconv(.c) void,
+    axis_relative_direction: *const fn (?*anyopaque, ?*api.wl_proxy, u32, u32, u32) callconv(.c) void,
+    warp: *const fn (?*anyopaque, ?*api.wl_proxy, u32, i32, i32) callconv(.c) void,
+};
+
 /// Callbacks do `wl_shm` (wayland-client-core.h).
 const ShmListener = extern struct {
     format: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
@@ -164,6 +193,7 @@ const Listeners = struct {
     registry: RegistryListener,
     output: OutputListener,
     seat: SeatListener,
+    pointer: PointerListener,
     shm: ShmListener,
     surface: SurfaceListener,
     wm_base: WmBaseListener,
@@ -176,6 +206,8 @@ const State = struct {
     allocator: std.mem.Allocator,
     outputs: std.ArrayList(OutputState) = .empty,
     seat: ?*api.wl_proxy = null,
+    /// Versao negociada do seat (define a versao do ponteiro).
+    seat_version: u32 = 0,
     /// Capacidades do seat (bits de `wl_seat_capability_*`).
     seat_capabilities: u32 = 0,
     /// A conexao foi encerrada por erro de protocolo.
@@ -195,6 +227,29 @@ const State = struct {
     shm_format_count: usize = 0,
     /// Janelas criadas por este backend.
     windows: std.ArrayList(WindowEntry) = .empty,
+    /// Ponteiro do seat (criado quando o compositor anuncia a
+    /// capacidade).
+    pointer: ?*api.wl_proxy = null,
+    pointer_version: u32 = 0,
+    /// Superficie com o foco do ponteiro (a que recebe os eventos).
+    pointer_surface: ?*api.wl_proxy = null,
+    /// Ultima posicao do ponteiro (coordenadas da superficie).
+    pointer_x: i32 = 0,
+    pointer_y: i32 = 0,
+    /// Eixo acumulado do frame atual (roda).
+    axis_vertical: f32 = 0,
+    axis_horizontal: f32 = 0,
+    /// Valor do eixo em 120avos de grau (quando o compositor envia).
+    axis_vertical_120: ?i32 = null,
+    axis_horizontal_120: ?i32 = null,
+    /// Passos discretos do eixo (quando o compositor envia).
+    axis_vertical_discrete: ?i32 = null,
+    axis_horizontal_discrete: ?i32 = null,
+    /// Eventos de entrada pendentes (convertidos em eventos da
+    /// plataforma no `poll`).
+    pending_move: bool = false,
+    pending_button: ?PendingButton = null,
+    pending_scroll: ?PendingScroll = null,
     /// Descritores de arquivo ja enviados ao compositor via SCM_RIGHTS:
     /// so podem ser fechados depois que a requisicao foi enviada (flush).
     pending_fds: std.ArrayList(i32) = .empty,
@@ -216,6 +271,20 @@ const State = struct {
         .seat = .{
             .capabilities = onSeatCapabilities,
             .name = onSeatName,
+        },
+        .pointer = .{
+            .enter = onPointerEnter,
+            .leave = onPointerLeave,
+            .motion = onPointerMotion,
+            .button = onPointerButton,
+            .axis = onPointerAxis,
+            .frame = onPointerFrame,
+            .axis_source = onPointerAxisSource,
+            .axis_stop = onPointerAxisStop,
+            .axis_discrete = onPointerAxisDiscrete,
+            .axis_value120 = onPointerAxisValue120,
+            .axis_relative_direction = onPointerAxisRelativeDirection,
+            .warp = onPointerWarp,
         },
         .shm = .{
             .format = onShmFormat,
@@ -271,6 +340,7 @@ const State = struct {
                 @ptrCast(self),
             );
             self.seat = proxy;
+            self.seat_version = bind_version;
         } else if (std.mem.eql(u8, iface, api.interface_wl_compositor)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.compositor_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.compositor_interface) orelse return;
@@ -289,6 +359,13 @@ const State = struct {
         } else if (std.mem.eql(u8, iface, api.interface_xdg_wm_base)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.xdg_wm_base_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.xdg_wm_base_interface) orelse return;
+            // O `ping` precisa de listener: sem `pong` o compositor
+            // considera o cliente travado e encerra a conexao.
+            lib.proxy_add_listener(
+                proxy,
+                @ptrCast(&self.listeners.wm_base),
+                @ptrCast(self),
+            );
             self.wm_base = proxy;
             self.wm_base_version = bind_version;
         }
@@ -336,6 +413,31 @@ const State = struct {
             if (self.shm_formats[i] == api.wl_shm_format_xrgb8888) return api.wl_shm_format_xrgb8888;
         }
         return api.wl_shm_format_argb8888;
+    }
+
+    /// Cria o `wl_pointer` do seat (o compositor anuncia a capacidade
+    /// do ponteiro).
+    fn bindPointer(self: *State) void {
+        const seat = self.seat orelse return;
+        const version = @min(
+            self.seat_version,
+            @as(u32, @intCast(protocol.pointer_interface.version)),
+        );
+        const pointer = self.symbols.proxy_marshal_flags(
+            seat,
+            api.wl_seat_get_pointer,
+            &protocol.pointer_interface,
+            version,
+            0,
+            @as(?*anyopaque, null),
+        ) orelse return;
+        self.symbols.proxy_add_listener(
+            pointer,
+            @ptrCast(&self.listeners.pointer),
+            @ptrCast(self),
+        );
+        self.pointer = pointer;
+        self.pointer_version = version;
     }
 
     /// Fecha os descritores ja enviados ao compositor. So pode ser
@@ -1011,6 +1113,16 @@ pub const Backend = struct {
         self.emitPending(reg, queue, state);
     }
 
+    /// Slot da janela associada a uma superficie (o ponteiro e o
+    /// teclado reportam a superficie, nao o id da janela).
+    fn slotOfSurface(self: *const Backend, surface: ?*api.wl_proxy) ?u32 {
+        const proxy = surface orelse return null;
+        for (self.state.windows.items) |entry| {
+            if (entry.surface == proxy) return entry.slot;
+        }
+        return null;
+    }
+
     /// Converte o estado acumulado pelos callbacks em eventos da
     /// plataforma (resize, close, fullscreen, maximized).
     fn emitPending(
@@ -1020,6 +1132,42 @@ pub const Backend = struct {
         state: *input.InputState,
     ) void {
         if (self.state.failed) return;
+
+        // Entrada do ponteiro (superficie -> janela).
+        const pointer_slot = self.slotOfSurface(self.state.pointer_surface);
+        var pointer_window: ?types.WindowId = null;
+        if (pointer_slot) |slot| {
+            if (slot < reg.slots.items.len and reg.slots.items[slot].occupied) {
+                pointer_window = reg.idOf(slot);
+            }
+        }
+        if (self.state.pending_move) {
+            self.state.pending_move = false;
+            events.dispatch(queue, state, .{ .pointer_move = .{
+                .window = pointer_window,
+                .x = self.state.pointer_x,
+                .y = self.state.pointer_y,
+            } });
+        }
+        if (self.state.pending_button) |button| {
+            self.state.pending_button = null;
+            events.dispatch(queue, state, .{ .pointer_button = .{
+                .window = pointer_window,
+                .button = button.button,
+                .pressed = button.pressed,
+                .x = self.state.pointer_x,
+                .y = self.state.pointer_y,
+                .modifiers = state.modifiers,
+            } });
+        }
+        if (self.state.pending_scroll) |scroll| {
+            self.state.pending_scroll = null;
+            events.dispatch(queue, state, .{ .scroll = .{
+                .window = pointer_window,
+                .dx = scroll.dx,
+                .dy = scroll.dy,
+            } });
+        }
         var i: usize = 0;
         while (i < self.state.windows.items.len) : (i += 1) {
             const entry = &self.state.windows.items[i];
@@ -1283,12 +1431,198 @@ fn onSeatCapabilities(data: ?*anyopaque, seat: ?*api.wl_proxy, capabilities: u32
     const state = stateFrom(data) orelse return;
     _ = seat;
     state.seat_capabilities = capabilities;
+    // O compositor pode anunciar capacidades depois do bind do seat:
+    // o ponteiro e criado aqui (o teclado exige o keymap XKB e vem
+    // na proxima etapa).
+    if ((capabilities & api.wl_seat_capability_pointer) != 0 and state.pointer == null) {
+        state.bindPointer();
+    }
 }
 
 fn onSeatName(data: ?*anyopaque, seat: ?*api.wl_proxy, name: ?[*:0]const u8) callconv(.c) void {
     _ = data;
     _ = seat;
     _ = name;
+}
+
+fn onPointerEnter(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    serial: u32,
+    surface: ?*anyopaque,
+    x: i32,
+    y: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = serial;
+    state.pointer_surface = @ptrCast(surface);
+    state.pointer_x = fixedToPixels(x);
+    state.pointer_y = fixedToPixels(y);
+    state.pending_move = true;
+}
+
+fn onPointerLeave(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    serial: u32,
+    surface: ?*anyopaque,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = serial;
+    _ = surface;
+    state.pointer_surface = null;
+}
+
+fn onPointerMotion(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    x: i32,
+    y: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = time;
+    state.pointer_x = fixedToPixels(x);
+    state.pointer_y = fixedToPixels(y);
+    state.pending_move = true;
+}
+
+fn onPointerButton(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    serial: u32,
+    time: u32,
+    button: u32,
+    state: u32,
+) callconv(.c) void {
+    const state_ptr = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = serial;
+    _ = time;
+    const mapped = buttonFromLinux(button) orelse return;
+    state_ptr.pending_button = .{
+        .button = mapped,
+        .pressed = state != 0,
+    };
+}
+
+fn onPointerAxis(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    axis: u32,
+    value: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = time;
+    const amount: f32 = @as(f32, @floatFromInt(value)) / 256.0;
+    if (axis == api.wl_pointer_axis_vertical_scroll) {
+        state.axis_vertical += amount;
+    } else {
+        state.axis_horizontal += amount;
+    }
+}
+
+fn onPointerFrame(data: ?*anyopaque, pointer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    // O `frame` fecha o lote de eventos do ponteiro: e a hora de
+    // publicar a rolagem acumulada.
+    const vertical = axisScroll(state.axis_vertical, state.axis_vertical_120, state.axis_vertical_discrete);
+    const horizontal = axisScroll(state.axis_horizontal, state.axis_horizontal_120, state.axis_horizontal_discrete);
+    state.axis_vertical = 0;
+    state.axis_horizontal = 0;
+    state.axis_vertical_120 = null;
+    state.axis_horizontal_120 = null;
+    state.axis_vertical_discrete = null;
+    state.axis_horizontal_discrete = null;
+    if (vertical == 0 and horizontal == 0) return;
+    state.pending_scroll = .{ .dx = horizontal, .dy = vertical };
+}
+
+fn onPointerAxisSource(data: ?*anyopaque, pointer: ?*api.wl_proxy, source: u32) callconv(.c) void {
+    _ = data;
+    _ = pointer;
+    _ = source;
+}
+
+fn onPointerAxisStop(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    axis: u32,
+) callconv(.c) void {
+    _ = data;
+    _ = pointer;
+    _ = time;
+    _ = axis;
+}
+
+fn onPointerAxisDiscrete(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    axis: u32,
+    value: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = time;
+    if (axis == api.wl_pointer_axis_vertical_scroll) {
+        state.axis_vertical_discrete = value;
+    } else {
+        state.axis_horizontal_discrete = value;
+    }
+}
+
+fn onPointerAxisValue120(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    axis: u32,
+    value: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = time;
+    if (axis == api.wl_pointer_axis_vertical_scroll) {
+        state.axis_vertical_120 = value;
+    } else {
+        state.axis_horizontal_120 = value;
+    }
+}
+
+fn onPointerAxisRelativeDirection(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    axis: u32,
+    direction: u32,
+) callconv(.c) void {
+    _ = data;
+    _ = pointer;
+    _ = time;
+    _ = axis;
+    _ = direction;
+}
+
+fn onPointerWarp(
+    data: ?*anyopaque,
+    pointer: ?*api.wl_proxy,
+    time: u32,
+    x: i32,
+    y: i32,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = pointer;
+    _ = time;
+    state.pointer_x = fixedToPixels(x);
+    state.pointer_y = fixedToPixels(y);
+    state.pending_move = true;
 }
 
 fn onShmFormat(data: ?*anyopaque, shm: ?*api.wl_proxy, format: u32) callconv(.c) void {
@@ -1425,6 +1759,43 @@ fn onXdgToplevelWmCapabilities(
     _ = capabilities;
 }
 
+/// Converte um valor `wl_fixed_t` (ponto fixo 24.8) em pixels.
+fn fixedToPixels(value: i32) i32 {
+    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) / 256.0));
+}
+
+/// Codigos de botao do Linux (input-event-codes.h), usados pelo
+/// `wl_pointer.button`.
+const linux_btn_left: u32 = 0x110;
+const linux_btn_right: u32 = 0x111;
+const linux_btn_middle: u32 = 0x112;
+const linux_btn_side: u32 = 0x113;
+const linux_btn_extra: u32 = 0x114;
+
+/// Mapeia o codigo de botao do Linux para o botao da API.
+fn buttonFromLinux(code: u32) ?types.MouseButton {
+    return switch (code) {
+        linux_btn_left => .left,
+        linux_btn_right => .right,
+        linux_btn_middle => .middle,
+        linux_btn_side => .back,
+        linux_btn_extra => .forward,
+        else => null,
+    };
+}
+
+/// Converte o valor do eixo em "passos" de rolagem.
+///
+/// Prefere o valor em 120avos de grau (v8+), depois o numero de passos
+/// discretos (v5+) e, por fim, o valor bruto (aproximacao: 120 pixels
+/// por passo).
+fn axisScroll(raw: f32, value120: ?i32, discrete: ?i32) f32 {
+    if (value120) |v| return @as(f32, @floatFromInt(v)) / 120.0;
+    if (discrete) |v| return @floatFromInt(v);
+    if (raw == 0) return 0;
+    return raw / 120.0;
+}
+
 /// Copia uma string C para um buffer fixo (sem terminador).
 fn copyString(dest: []u8, src: [*:0]const u8) void {
     @memset(dest, 0);
@@ -1432,4 +1803,55 @@ fn copyString(dest: []u8, src: [*:0]const u8) void {
     while (i + 1 < dest.len and src[i] != 0) : (i += 1) {
         dest[i] = src[i];
     }
+}
+
+test "fixed point converts to pixels" {
+    try std.testing.expectEqual(@as(i32, 0), fixedToPixels(0));
+    try std.testing.expectEqual(@as(i32, 1), fixedToPixels(256));
+    try std.testing.expectEqual(@as(i32, 1), fixedToPixels(300));
+    try std.testing.expectEqual(@as(i32, -1), fixedToPixels(-256));
+}
+
+test "linux button codes map to the public buttons" {
+    try std.testing.expectEqual(types.MouseButton.left, buttonFromLinux(0x110).?);
+    try std.testing.expectEqual(types.MouseButton.right, buttonFromLinux(0x111).?);
+    try std.testing.expectEqual(types.MouseButton.middle, buttonFromLinux(0x112).?);
+    try std.testing.expectEqual(types.MouseButton.back, buttonFromLinux(0x113).?);
+    try std.testing.expectEqual(types.MouseButton.forward, buttonFromLinux(0x114).?);
+    // Botoes desconhecidos nao viram evento.
+    try std.testing.expect(buttonFromLinux(0x115) == null);
+    try std.testing.expect(buttonFromLinux(0) == null);
+}
+
+test "axis scroll prefers the 120ths value" {
+    try std.testing.expectEqual(@as(f32, 1.0), axisScroll(0, 120, null));
+    try std.testing.expectEqual(@as(f32, -1.0), axisScroll(0, -120, null));
+    // Sem 120ths, usa os passos discretos.
+    try std.testing.expectEqual(@as(f32, 2.0), axisScroll(0, null, 2));
+    // Sem nenhum deles, aproxima pelo valor bruto.
+    try std.testing.expectEqual(@as(f32, 1.0), axisScroll(120, null, null));
+    try std.testing.expectEqual(@as(f32, 0.0), axisScroll(0, null, null));
+}
+
+test "pointer callbacks record pending events" {
+    var state = State{ .allocator = std.testing.allocator };
+    defer state.windows.deinit(std.testing.allocator);
+
+    onPointerMotion(@ptrCast(&state), null, 0, 256 * 10, 256 * 20);
+    try std.testing.expect(state.pending_move);
+    try std.testing.expectEqual(@as(i32, 10), state.pointer_x);
+    try std.testing.expectEqual(@as(i32, 20), state.pointer_y);
+
+    onPointerButton(@ptrCast(&state), null, 0, 0, 0x110, 1);
+    try std.testing.expect(state.pending_button != null);
+    try std.testing.expectEqual(types.MouseButton.left, state.pending_button.?.button);
+    try std.testing.expect(state.pending_button.?.pressed);
+
+    // A rolagem so e publicada no `frame` do compositor.
+    onPointerAxis(@ptrCast(&state), null, 0, api.wl_pointer_axis_vertical_scroll, 256 * 120);
+    try std.testing.expect(state.pending_scroll == null);
+    onPointerFrame(@ptrCast(&state), null);
+    try std.testing.expect(state.pending_scroll != null);
+    try std.testing.expectEqual(@as(f32, 1.0), state.pending_scroll.?.dy);
+    try std.testing.expectEqual(@as(f32, 0.0), state.pending_scroll.?.dx);
 }
