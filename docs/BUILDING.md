@@ -29,6 +29,25 @@ zig build test-x11-modes      # troca de modo de vídeo (ALTERA a resolução do
 zig build test-wayland        # integração Wayland (pula sem compositor nativo)
 ```
 
+### Métricas do loop de eventos
+
+`zig build examples` compila `bench_loop`, que mede o custo interno do
+loop (metodologia e resultados abaixo):
+
+```bash
+./zig-out/bin/bench_loop
+```
+
+Metodologia: a latência de `wakeup` é medida com uma thread auxiliar
+que sinaliza o loop — o tempo inclui o despertar da thread, então é um
+**limite superior** do custo interno (não mede a latência do
+compositor). O custo de `poll` e de `waitEvents(0)` é medido com a fila
+vazia. Resultados de referência (X11, kernel deste ambiente, build
+Debug): wakeup mediana 10 µs (min 4 µs, max 37 µs, n=200), `poll`
+≈1,4 µs por chamada, `waitEvents(0)` ≈1,4 µs por chamada. Os números
+variam com a máquina e com o compositor; servem como referência
+relativa, não como garantia.
+
 `test-x11-modes` é destrutivo: muda a resolução do display e restaura o
 modo original ao final (inclusive em caso de falha). Use um display de
 teste (ex.: `Xwayland :99`) para não afetar a sessão real.

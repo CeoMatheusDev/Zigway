@@ -7,6 +7,9 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Métricas do loop de eventos**: novo exemplo `bench_loop`
+  (latência de `wakeup`, custo de `poll` e de `waitEvents(0)`), com a
+  metodologia documentada em `docs/BUILDING.md`.
 - **Escala e DPI (sistema generico)**: novo tipo `Scale` (fracao
   `numerator/denominator`), `Window.scale()`, `Window.bufferSize()`
   (tamanho fisico do buffer) e `Platform.displayScale()`, com o evento
