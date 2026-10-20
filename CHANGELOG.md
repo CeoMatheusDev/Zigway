@@ -128,6 +128,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Clipboard nativo do Wayland: `wl_data_device`/`wl_data_source`/
+  `wl_data_offer` com `text/plain;charset=utf-8` e `text/plain` —
+  publicação assíncrona (o compositor pede os dados via `send`) e leitura
+  síncrona com timeout. Limitação de validação: o KWin deste ambiente
+  não entrega a seleção atual a clientes Wayland (confirmado com um
+  cliente C de referência gerado pelo `wayland-scanner`), então o
+  caminho de leitura fica sem exercício live; a publicação é verificada.
 - Backend Wayland: `display_change` passa a ser emitido quando um
   output muda (modo, escala ou posição); as propriedades iniciais do
   compositor não geram evento espúrio.

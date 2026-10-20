@@ -202,8 +202,11 @@ outros aplicativos, o aplicativo precisa bombear eventos
 (`pollEvents`) — o `SelectionRequest` é atendido no loop de eventos.
 
 No Win32 o conteúdo vai para `CF_UNICODETEXT` (UTF-16) e a área é
-aberta/fechada a cada operação. No backend null o texto fica em
-memória, dentro da plataforma.
+aberta/fechada a cada operação. No Wayland a publicação usa
+`wl_data_source` (com `text/plain;charset=utf-8` e `text/plain`) e a
+leitura usa `wl_data_offer`; a leitura é síncrona e a publicação é
+assíncrona (o compositor pede os dados depois). No backend null o texto
+fica em memória, dentro da plataforma.
 
 Falhas: `ClipboardFailed` (a área não pôde ser aberta/escrita) e
 `PlatformClosed` após `deinit`.

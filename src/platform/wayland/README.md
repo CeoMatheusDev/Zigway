@@ -52,7 +52,8 @@ não está disponível (`error.UnsupportedBackend`).
 
 ## Ainda NÃO implementado
 
-- **Clipboard**: `wl_data_device_manager`/`wl_data_source`/`wl_data_offer`.
+- **Clipboard**: `wl_data_device_manager`/`wl_data_source`/`wl_data_offer`
+  (publicação e leitura de texto UTF-8).
 - **Modos de vídeo**: o Wayland delega a troca ao compositor.
 - **Equivalentes do X11/Win32 sem contraparte no protocolo base**:
   `setSize` (o compositor decide o tamanho), `setPosition` (a posição

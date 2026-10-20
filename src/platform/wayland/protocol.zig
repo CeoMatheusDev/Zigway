@@ -504,6 +504,112 @@ pub const xdg_popup_interface = Interface{
     .events = &xdg_popup_events,
 };
 
+// --- wl_data_device_manager (v4) ---
+const manager_source_types = [_]?*const Interface{&data_source_interface};
+const manager_device_types = [_]?*const Interface{ &data_device_interface, &seat_interface };
+const manager_methods: [3]Message = .{
+    .{ .name = "create_data_source", .signature = "n", .types = &manager_source_types },
+    .{ .name = "get_data_device", .signature = "no", .types = &manager_device_types },
+    .{ .name = "release", .signature = "4", .types = null },
+};
+
+pub const data_device_manager_interface = Interface{
+    .name = "wl_data_device_manager",
+    .version = 4,
+    .method_count = 3,
+    .methods = &manager_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- wl_data_device (v4) ---
+const device_drag_types = [_]?*const Interface{
+    null,
+    &data_source_interface,
+    &surface_interface,
+    &surface_interface,
+    &seat_interface,
+};
+const device_selection_types = [_]?*const Interface{ &data_source_interface, null };
+const device_offer_types = [_]?*const Interface{&data_offer_interface};
+const device_selection_event_types = [_]?*const Interface{&data_offer_interface};
+const device_enter_types = [_]?*const Interface{
+    null,
+    null,
+    null,
+    null,
+    &surface_interface,
+};
+const device_methods: [3]Message = .{
+    .{ .name = "start_drag", .signature = "?oo?ou", .types = &device_drag_types },
+    .{ .name = "set_selection", .signature = "?ou", .types = &device_selection_types },
+    .{ .name = "release", .signature = "2", .types = null },
+};
+const device_events: [6]Message = .{
+    .{ .name = "data_offer", .signature = "n", .types = &device_offer_types },
+    .{ .name = "enter", .signature = "uoff?o", .types = &device_enter_types },
+    .{ .name = "leave", .signature = "", .types = null },
+    .{ .name = "motion", .signature = "uff", .types = null },
+    .{ .name = "drop", .signature = "", .types = null },
+    .{ .name = "selection", .signature = "?o", .types = &device_selection_event_types },
+};
+
+pub const data_device_interface = Interface{
+    .name = "wl_data_device",
+    .version = 4,
+    .method_count = 3,
+    .methods = &device_methods,
+    .event_count = 6,
+    .events = &device_events,
+};
+
+// --- wl_data_source (v4) ---
+const source_methods: [3]Message = .{
+    .{ .name = "offer", .signature = "s", .types = null },
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_actions", .signature = "3u", .types = null },
+};
+const source_events: [6]Message = .{
+    .{ .name = "target", .signature = "?s", .types = null },
+    .{ .name = "send", .signature = "sh", .types = null },
+    .{ .name = "cancelled", .signature = "", .types = null },
+    .{ .name = "dnd_drop_performed", .signature = "3", .types = null },
+    .{ .name = "dnd_finished", .signature = "3", .types = null },
+    .{ .name = "action", .signature = "3u", .types = null },
+};
+
+pub const data_source_interface = Interface{
+    .name = "wl_data_source",
+    .version = 4,
+    .method_count = 3,
+    .methods = &source_methods,
+    .event_count = 6,
+    .events = &source_events,
+};
+
+// --- wl_data_offer (v4) ---
+const offer_methods: [5]Message = .{
+    .{ .name = "accept", .signature = "u?s", .types = null },
+    .{ .name = "receive", .signature = "sh", .types = null },
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "finish", .signature = "3", .types = null },
+    .{ .name = "set_actions", .signature = "3uu", .types = null },
+};
+const offer_events: [3]Message = .{
+    .{ .name = "offer", .signature = "s", .types = null },
+    .{ .name = "source_actions", .signature = "3u", .types = null },
+    .{ .name = "action", .signature = "3u", .types = null },
+};
+
+pub const data_offer_interface = Interface{
+    .name = "wl_data_offer",
+    .version = 4,
+    .method_count = 5,
+    .methods = &offer_methods,
+    .event_count = 3,
+    .events = &offer_events,
+};
+
 test "interface layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(Interface));
@@ -528,6 +634,14 @@ test "protocol tables match the generated reference" {
     try std.testing.expectEqualStrings("2s", std.mem.span(seat_events[1].signature));
     try std.testing.expectEqual(@as(c_int, 4), output_interface.version);
     try std.testing.expectEqual(@as(c_int, 6), output_interface.event_count);
+    // Clipboard (data device).
+    try std.testing.expectEqualStrings("n", std.mem.span(manager_methods[0].signature));
+    try std.testing.expectEqualStrings("no", std.mem.span(manager_methods[1].signature));
+    try std.testing.expectEqualStrings("?ou", std.mem.span(device_methods[1].signature));
+    try std.testing.expectEqualStrings("?o", std.mem.span(device_events[5].signature));
+    try std.testing.expectEqualStrings("sh", std.mem.span(source_events[1].signature));
+    try std.testing.expectEqualStrings("u?s", std.mem.span(offer_methods[0].signature));
+    try std.testing.expectEqualStrings("sh", std.mem.span(offer_methods[1].signature));
 }
 
 test "xdg-shell tables match the generated reference" {

@@ -160,6 +160,30 @@ pub const Lib = struct {
     }
 };
 
+// --- Requests: wl_data_device_manager (clipboard) ---
+pub const wl_data_device_manager_create_data_source: u32 = 0;
+pub const wl_data_device_manager_get_data_device: u32 = 1;
+
+// --- Requests: wl_data_device ---
+pub const wl_data_device_set_selection: u32 = 1;
+
+// --- Requests: wl_data_source ---
+pub const wl_data_source_offer: u32 = 0;
+
+// --- Requests: wl_data_offer ---
+pub const wl_data_offer_accept: u32 = 0;
+pub const wl_data_offer_receive: u32 = 1;
+
+// --- Pipes (transferencia de dados do clipboard) ---
+/// `pipe2` (glibc): cria um pipe; `fds[0]` le, `fds[1]` escreve.
+pub extern "c" fn pipe2(fds: *[2]c_int, flags: c_uint) c_int;
+/// `write`/`close` (glibc): a camada `std.posix` do Zig 0.17 nao expoe
+/// `write`/`close`.
+pub extern "c" fn write(fd: c_int, buf: [*]const u8, count: usize) isize;
+pub extern "c" fn close(fd: c_int) c_int;
+/// `O_NONBLOCK` (Linux).
+pub const O_NONBLOCK: c_uint = 0o4000;
+
 // --- Tipos de argumento (wayland-client.h) ---
 pub const wl_argument_null: u32 = 0;
 pub const wl_argument_int: u32 = 1;
@@ -237,6 +261,7 @@ pub const interface_wl_output = "wl_output";
 pub const interface_wl_seat = "wl_seat";
 pub const interface_wl_surface = "wl_surface";
 pub const interface_wl_shm = "wl_shm";
+pub const interface_wl_data_device_manager = "wl_data_device_manager";
 pub const interface_xdg_wm_base = "xdg_wm_base";
 
 /// Interfaces do protocolo estavel (para binds futuros).

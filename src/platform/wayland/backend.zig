@@ -213,6 +213,33 @@ const XdgToplevelListener = extern struct {
     wm_capabilities: *const fn (?*anyopaque, ?*api.wl_proxy, ?*api.wl_array) callconv(.c) void,
 };
 
+/// Callbacks do `wl_data_device` (wayland-client-core.h).
+const DataDeviceListener = extern struct {
+    data_offer: *const fn (?*anyopaque, ?*api.wl_proxy, ?*api.wl_proxy) callconv(.c) void,
+    enter: *const fn (?*anyopaque, ?*api.wl_proxy, u32, ?*api.wl_proxy, i32, i32, ?*api.wl_proxy) callconv(.c) void,
+    leave: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    motion: *const fn (?*anyopaque, ?*api.wl_proxy, u32, i32, i32) callconv(.c) void,
+    drop: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    selection: *const fn (?*anyopaque, ?*api.wl_proxy, ?*api.wl_proxy) callconv(.c) void,
+};
+
+/// Callbacks do `wl_data_offer`.
+const DataOfferListener = extern struct {
+    offer: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8) callconv(.c) void,
+    source_actions: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+    action: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+};
+
+/// Callbacks do `wl_data_source`.
+const DataSourceListener = extern struct {
+    target: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8) callconv(.c) void,
+    send: *const fn (?*anyopaque, ?*api.wl_proxy, ?[*:0]const u8, c_int) callconv(.c) void,
+    cancelled: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    dnd_drop_performed: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    dnd_finished: *const fn (?*anyopaque, ?*api.wl_proxy) callconv(.c) void,
+    action: *const fn (?*anyopaque, ?*api.wl_proxy, u32) callconv(.c) void,
+};
+
 /// Listeners do protocolo (endereco estavel: a libwayland guarda o
 /// ponteiro).
 const Listeners = struct {
@@ -226,6 +253,9 @@ const Listeners = struct {
     wm_base: WmBaseListener,
     xdg_surface: XdgSurfaceListener,
     xdg_toplevel: XdgToplevelListener,
+    data_device: DataDeviceListener,
+    data_offer: DataOfferListener,
+    data_source: DataSourceListener,
 };
 
 /// Estado mutavel do backend (heap, endereco estavel para os callbacks).
@@ -300,6 +330,19 @@ const State = struct {
     /// Um output mudou (modo/escala/posicao): o aplicativo precisa
     /// reconsultar `displays()`.
     pending_display_change: bool = false,
+    /// Gerenciador de data device (clipboard do protocolo Wayland).
+    data_device_manager: ?*api.wl_proxy = null,
+    data_device_manager_version: u32 = 0,
+    data_device: ?*api.wl_proxy = null,
+    data_device_version: u32 = 0,
+    /// Texto publicado na selecao (UTF-8) e o source correspondente.
+    clipboard_text: ?[]u8 = null,
+    clipboard_source: ?*api.wl_proxy = null,
+    /// Offer da selecao atual (evento `selection`) e seus tipos MIME.
+    selection_offer: ?*api.wl_proxy = null,
+    selection_mimes: std.ArrayList([64]u8) = .empty,
+    /// Pipe de escrita pendente (o compositor pediu os dados).
+    pending_send_fd: ?c_int = null,
     /// Listeners: a libwayland guarda o ponteiro, entao precisam de
     /// endereco estavel.
     listeners: Listeners = .{
@@ -318,6 +361,27 @@ const State = struct {
         .seat = .{
             .capabilities = onSeatCapabilities,
             .name = onSeatName,
+        },
+        .data_device = .{
+            .data_offer = onDeviceDataOffer,
+            .enter = onDeviceEnter,
+            .leave = onDeviceLeave,
+            .motion = onDeviceMotion,
+            .drop = onDeviceDrop,
+            .selection = onDeviceSelection,
+        },
+        .data_offer = .{
+            .offer = onOfferMime,
+            .source_actions = onOfferSourceActions,
+            .action = onOfferAction,
+        },
+        .data_source = .{
+            .target = onSourceTarget,
+            .send = onSourceSend,
+            .cancelled = onSourceCancelled,
+            .dnd_drop_performed = onSourceDndDropPerformed,
+            .dnd_finished = onSourceDndFinished,
+            .action = onSourceAction,
         },
         .pointer = .{
             .enter = onPointerEnter,
@@ -396,11 +460,18 @@ const State = struct {
             );
             self.seat = proxy;
             self.seat_version = bind_version;
+            self.ensureDataDevice();
         } else if (std.mem.eql(u8, iface, api.interface_wl_compositor)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.compositor_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.compositor_interface) orelse return;
             self.compositor = proxy;
             self.compositor_version = bind_version;
+        } else if (std.mem.eql(u8, iface, api.interface_wl_data_device_manager)) {
+            const bind_version = @min(version, @as(u32, @intCast(protocol.data_device_manager_interface.version)));
+            const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.data_device_manager_interface) orelse return;
+            self.data_device_manager = proxy;
+            self.data_device_manager_version = bind_version;
+            self.ensureDataDevice();
         } else if (std.mem.eql(u8, iface, api.interface_wl_shm)) {
             const bind_version = @min(version, @as(u32, @intCast(protocol.shm_interface.version)));
             const proxy = bindGlobal(lib, registry_proxy, name, interface, bind_version, &protocol.shm_interface) orelse return;
@@ -424,6 +495,83 @@ const State = struct {
             self.wm_base = proxy;
             self.wm_base_version = bind_version;
         }
+    }
+
+    /// Cria o `wl_data_device` (precisa do gerenciador e do seat).
+    fn ensureDataDevice(self: *State) void {
+        if (self.data_device != null) return;
+        const manager = self.data_device_manager orelse return;
+        const seat = self.seat orelse return;
+        const proxy = self.symbols.proxy_marshal_flags(
+            manager,
+            api.wl_data_device_manager_get_data_device,
+            &protocol.data_device_interface,
+            self.data_device_manager_version,
+            0,
+            // A assinatura e "no": primeiro o slot do new_id, depois o seat.
+            @as(?*anyopaque, null),
+            @as(?*anyopaque, @ptrCast(seat)),
+        ) orelse return;
+        self.symbols.proxy_add_listener(
+            proxy,
+            @ptrCast(&self.listeners.data_device),
+            @ptrCast(self),
+        );
+        self.data_device = proxy;
+    }
+
+    /// Cria um `wl_data_source` com os tipos MIME de texto.
+    fn createDataSource(self: *State) ?*api.wl_proxy {
+        const manager = self.data_device_manager orelse return null;
+        const source = self.symbols.proxy_marshal_flags(
+            manager,
+            api.wl_data_device_manager_create_data_source,
+            &protocol.data_source_interface,
+            self.data_device_manager_version,
+            0,
+            @as(?*anyopaque, null),
+        ) orelse return null;
+        self.symbols.proxy_add_listener(
+            source,
+            @ptrCast(&self.listeners.data_source),
+            @ptrCast(self),
+        );
+        for ([_][:0]const u8{ "text/plain;charset=utf-8", "text/plain" }) |mime| {
+            _ = self.symbols.proxy_marshal_flags(
+                source,
+                api.wl_data_source_offer,
+                null,
+                0,
+                0,
+                mime.ptr,
+            );
+        }
+        return source;
+    }
+
+    /// Publica o source como selecao atual.
+    fn setSelection(self: *State, source: *api.wl_proxy) void {
+        const device = self.data_device orelse return;
+        _ = self.symbols.proxy_marshal_flags(
+            device,
+            api.wl_data_device_set_selection,
+            null,
+            0,
+            0,
+            @as(?*anyopaque, @ptrCast(source)),
+            @as(u32, 0),
+        );
+    }
+
+    /// Tipo MIME preferido da selecao atual (string terminada em NUL).
+    fn selectionMime(self: *const State) ?[*:0]const u8 {
+        for (self.selection_mimes.items) |*mime| {
+            if (std.mem.eql(u8, mime, "text/plain;charset=utf-8")) return @ptrCast(mime);
+        }
+        for (self.selection_mimes.items) |*mime| {
+            if (std.mem.eql(u8, mime, "text/plain")) return @ptrCast(mime);
+        }
+        return null;
     }
 
     fn outputByProxy(self: *State, proxy: *api.wl_proxy) ?*OutputState {
@@ -740,6 +888,17 @@ pub const Backend = struct {
         if (state.keymap) |*keymap| keymap.deinit();
         for (state.outputs.items) |out| self.lib.symbols.proxy_destroy(out.proxy);
         state.outputs.deinit(self.allocator);
+        state.selection_mimes.deinit(self.allocator);
+        if (state.clipboard_text) |text| self.allocator.free(text);
+        state.clipboard_text = null;
+        if (state.selection_offer) |offer| self.lib.symbols.proxy_destroy(offer);
+        state.selection_offer = null;
+        if (state.clipboard_source) |source| self.lib.symbols.proxy_destroy(source);
+        state.clipboard_source = null;
+        if (state.data_device) |device| self.lib.symbols.proxy_destroy(device);
+        state.data_device = null;
+        if (state.data_device_manager) |manager| self.lib.symbols.proxy_destroy(manager);
+        state.data_device_manager = null;
         if (state.seat) |seat| self.lib.symbols.proxy_destroy(seat);
         self.lib.symbols.proxy_destroy(self.registry);
         self.lib.symbols.display_disconnect(self.display);
@@ -809,12 +968,22 @@ pub const Backend = struct {
         };
     }
 
+    /// Publica texto (UTF-8) na selecao do clipboard do protocolo
+    /// Wayland (`wl_data_device.set_selection`).
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
-        _ = self;
-        _ = text;
-        return error.NotImplemented;
+        const st = self.state;
+        if (st.data_device == null) return error.ClipboardFailed;
+        const source = st.createDataSource() orelse return error.ClipboardFailed;
+        if (st.clipboard_text) |old| st.allocator.free(old);
+        st.clipboard_text = try st.allocator.dupe(u8, text);
+        st.clipboard_source = source;
+        st.setSelection(source);
+        _ = st.symbols.display_flush(self.display);
     }
 
+    /// Le o texto (UTF-8) da selecao atual do clipboard do protocolo
+    /// Wayland. `null` quando nao ha selecao, nenhum tipo MIME de texto
+    /// ou o compositor nao respondeu a tempo.
     pub fn clipboardText(
         self: *const Backend,
         reg: *registry.Registry,
@@ -822,12 +991,65 @@ pub const Backend = struct {
         state: *input.InputState,
         allocator: std.mem.Allocator,
     ) !?[]u8 {
-        _ = self;
         _ = reg;
         _ = queue;
         _ = state;
-        _ = allocator;
-        return null;
+        const st = self.state;
+        const offer = st.selection_offer orelse return null;
+        const mime = st.selectionMime() orelse return null;
+
+        // Pipe: o compositor escreve os dados na ponta de leitura.
+        var fds: [2]c_int = undefined;
+        if (api.pipe2(&fds, api.O_NONBLOCK) != 0) return null;
+        // `accept` + `receive`: o compositor envia o fd pela conexao.
+        _ = st.symbols.proxy_marshal_flags(
+            offer,
+            api.wl_data_offer_accept,
+            null,
+            0,
+            0,
+            @as(u32, 0),
+            mime,
+        );
+        _ = st.symbols.proxy_marshal_flags(
+            offer,
+            api.wl_data_offer_receive,
+            null,
+            0,
+            0,
+            mime,
+            @as(c_int, fds[1]),
+        );
+        _ = st.symbols.display_flush(self.display);
+        // Fecha a ponta de escrita: o compositor tem a copia (SCM_RIGHTS).
+        _ = api.close(fds[1]);
+
+        var out: std.ArrayList(u8) = .empty;
+        errdefer out.deinit(allocator);
+        var buf: [4096]u8 = undefined;
+        var attempts: u32 = 0;
+        while (attempts < 50) : (attempts += 1) {
+            const n = std.posix.read(fds[0], &buf) catch |err| switch (err) {
+                error.WouldBlock => {
+                    var pfds = [_]std.posix.pollfd{.{
+                        .fd = fds[0],
+                        .events = std.posix.POLL.IN,
+                        .revents = 0,
+                    }};
+                    _ = std.posix.poll(&pfds, 10) catch {};
+                    continue;
+                },
+                else => break,
+            };
+            if (n == 0) break; // EOF
+            try out.appendSlice(allocator, buf[0..n]);
+        }
+        _ = api.close(fds[0]);
+
+        st.symbols.proxy_destroy(offer);
+        st.selection_offer = null;
+        if (out.items.len == 0) return null;
+        return try out.toOwnedSlice(allocator);
     }
 
     /// Janela via xdg-shell: `wl_surface` + `xdg_surface` +
@@ -1584,6 +1806,146 @@ fn onOutputName(data: ?*anyopaque, proxy: ?*api.wl_proxy, name: ?[*:0]const u8) 
     const state = stateFrom(data) orelse return;
     const out = state.outputByProxy(proxy orelse return) orelse return;
     if (name) |n| copyString(&out.name, n);
+}
+
+// --- Clipboard (wl_data_device) ---
+
+fn onDeviceDataOffer(data: ?*anyopaque, device: ?*api.wl_proxy, offer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = device;
+    const proxy = offer orelse return;
+    state.selection_mimes.clearRetainingCapacity();
+    state.symbols.proxy_add_listener(
+        proxy,
+        @ptrCast(&state.listeners.data_offer),
+        @ptrCast(state),
+    );
+}
+
+fn onDeviceEnter(
+    data: ?*anyopaque,
+    device: ?*api.wl_proxy,
+    serial: u32,
+    surface: ?*api.wl_proxy,
+    x: i32,
+    y: i32,
+    icon: ?*api.wl_proxy,
+) callconv(.c) void {
+    // Drag & drop nao e suportado nesta etapa.
+    _ = data;
+    _ = device;
+    _ = serial;
+    _ = surface;
+    _ = x;
+    _ = y;
+    _ = icon;
+}
+
+fn onDeviceLeave(data: ?*anyopaque, device: ?*api.wl_proxy) callconv(.c) void {
+    _ = data;
+    _ = device;
+}
+
+fn onDeviceMotion(data: ?*anyopaque, device: ?*api.wl_proxy, time: u32, x: i32, y: i32) callconv(.c) void {
+    _ = data;
+    _ = device;
+    _ = time;
+    _ = x;
+    _ = y;
+}
+
+fn onDeviceDrop(data: ?*anyopaque, device: ?*api.wl_proxy) callconv(.c) void {
+    _ = data;
+    _ = device;
+}
+
+fn onDeviceSelection(data: ?*anyopaque, device: ?*api.wl_proxy, offer: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = device;
+    if (state.selection_offer) |old| {
+        if (old != offer) state.symbols.proxy_destroy(old);
+    }
+    state.selection_offer = offer;
+}
+
+fn onOfferMime(data: ?*anyopaque, offer: ?*api.wl_proxy, mime: ?[*:0]const u8) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = offer;
+    const name = mime orelse return;
+    var buf: [64]u8 = @splat(0);
+    var i: usize = 0;
+    while (i + 1 < buf.len and name[i] != 0) : (i += 1) buf[i] = name[i];
+    state.selection_mimes.append(state.allocator, buf) catch return;
+}
+
+fn onOfferSourceActions(data: ?*anyopaque, offer: ?*api.wl_proxy, actions: u32) callconv(.c) void {
+    _ = data;
+    _ = offer;
+    _ = actions;
+}
+
+fn onOfferAction(data: ?*anyopaque, offer: ?*api.wl_proxy, action: u32) callconv(.c) void {
+    _ = data;
+    _ = offer;
+    _ = action;
+}
+
+fn onSourceTarget(data: ?*anyopaque, source: ?*api.wl_proxy, mime: ?[*:0]const u8) callconv(.c) void {
+    _ = data;
+    _ = source;
+    _ = mime;
+}
+
+fn onSourceSend(
+    data: ?*anyopaque,
+    source: ?*api.wl_proxy,
+    mime: ?[*:0]const u8,
+    fd: c_int,
+) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = source;
+    _ = mime;
+    // O compositor pediu os dados: escrevemos o texto no fd enviado.
+    const text = state.clipboard_text orelse "";
+    writeAll(fd, text);
+    _ = api.close(fd);
+}
+
+fn onSourceCancelled(data: ?*anyopaque, source: ?*api.wl_proxy) callconv(.c) void {
+    const state = stateFrom(data) orelse return;
+    _ = source;
+    // Perdemos a selecao: o texto guardado nao e mais nosso.
+    if (state.clipboard_text) |old| {
+        state.allocator.free(old);
+        state.clipboard_text = null;
+    }
+    state.clipboard_source = null;
+}
+
+fn onSourceDndDropPerformed(data: ?*anyopaque, source: ?*api.wl_proxy) callconv(.c) void {
+    _ = data;
+    _ = source;
+}
+
+fn onSourceDndFinished(data: ?*anyopaque, source: ?*api.wl_proxy) callconv(.c) void {
+    _ = data;
+    _ = source;
+}
+
+fn onSourceAction(data: ?*anyopaque, source: ?*api.wl_proxy, action: u32) callconv(.c) void {
+    _ = data;
+    _ = source;
+    _ = action;
+}
+
+/// Escreve todo o conteudo no fd (escritas parciais sao repetidas).
+fn writeAll(fd: c_int, bytes: []const u8) void {
+    var written: usize = 0;
+    while (written < bytes.len) {
+        const n = api.write(fd, bytes[written..].ptr, bytes.len - written);
+        if (n <= 0) break;
+        written += @intCast(n);
+    }
 }
 
 fn onOutputDescription(

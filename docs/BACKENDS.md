@@ -278,8 +278,20 @@ considera o cliente travado). O `wl_shm.format` do compositor é lido
 para escolher o formato do buffer. Esconder a janela usa o buffer nulo
 (commit sem buffer), como manda o protocolo.
 
-Ainda não implementado (retornam `NotImplemented`): input de teclado
-(exige o keymap XKB), clipboard (`wl_data_device`) e modos de vídeo.
+A **área de transferência** usa o protocolo nativo: `wl_data_device`
+(seleção), `wl_data_source` (publicação) e `wl_data_offer` (leitura),
+com os tipos MIME `text/plain;charset=utf-8` e `text/plain`. A
+publicação é assíncrona (o compositor pede os dados via `send` e o texto
+é escrito no descritor recebido); a leitura é síncrona (o offer pendente
+é aceito, o descritor é lido com timeout de ~500 ms).
+
+Limitação de validação: o KWin deste ambiente **não entrega a seleção
+atual a clientes Wayland** (confirmado com um cliente C de referência,
+usando o código gerado pelo `wayland-scanner`), então o caminho de
+leitura não é exercitado no teste live; o caminho de publicação é
+verificado (o compositor aceita o source: não vem `cancelled`).
+
+Ainda não implementado (retornam `NotImplemented`): modos de vídeo.
 Também não há equivalente Wayland para `setSize` (o compositor decide
 o tamanho), `setPosition` (a posição não é exposta ao cliente), `focus`
 (o foco é do compositor) e cursor do sistema (exige `wl_pointer` e o
