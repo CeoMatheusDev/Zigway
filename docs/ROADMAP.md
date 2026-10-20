@@ -3,7 +3,7 @@
 Intenção de evolução, não compromisso de entrega nem declaração de
 implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 
-## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.1)
+## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.2)
 
 - [x] Build Zig 0.17.0, Core, Platform multi-janelas
 - [x] Window, Events (`union(enum)`), Input (teclado/mouse)

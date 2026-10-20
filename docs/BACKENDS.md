@@ -1,4 +1,4 @@
-# Backends — cobertura e limitações (v0.1.0-alpha.1)
+# Backends — cobertura e limitações (v0.1.0-alpha.2)
 
 ## X11 (`src/platform/x11/`)
 

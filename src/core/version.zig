@@ -6,9 +6,9 @@
 pub const major: u32 = 0;
 pub const minor: u32 = 1;
 pub const patch: u32 = 0;
-pub const prerelease: []const u8 = "alpha.1";
+pub const prerelease: []const u8 = "alpha.2";
 
-pub const string: []const u8 = "0.1.0-alpha.1";
+pub const string: []const u8 = "0.1.0-alpha.2";
 
 /// Versao do Zig exigida para compilar esta release.
 pub const required_zig: []const u8 = "0.17.0";

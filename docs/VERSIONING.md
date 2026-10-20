@@ -12,8 +12,8 @@ SemVer 2.0.0: `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`.
 
 | Versão | Critério de saída |
 |---|---|
-| v0.1.0-alpha.1 | fundação compila, testa e abre janelas (esta) |
-| v0.1.0-alpha.2 | lifecycle + CI |
+| v0.1.0-alpha.1 | fundação compila, testa e abre janelas |
+| v0.1.0-alpha.2 | lifecycle + CI (esta) |
 | v0.1.0-beta.1 | Win32 e X11 funcionais (Windows real validado) |
 | v0.1.0-beta.2 | input e eventos completos |
 | v0.1.0-rc.1 | testes/estabilização |

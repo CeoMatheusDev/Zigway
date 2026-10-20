@@ -5,6 +5,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+## [0.1.0-alpha.2] — 2026-10-19
+
+Segunda etapa: endurecimento de lifecycle, CI e cobertura de regressão
+(input, mouse, modificadores e auto-repeat validados em runtime no X11).
+
 ### Corrigido
 
 - `Platform.deinit` idempotente + guards pós-deinit (`PlatformClosed`,

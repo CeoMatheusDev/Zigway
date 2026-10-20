@@ -1,4 +1,4 @@
-# API — Zigway v0.1.0-alpha.1
+# API — Zigway v0.1.0-alpha.2
 
 Referência da API pública real (`@import("zigway")`). Nada aqui é
 aspiracional: se não está no código, não está neste documento.
@@ -111,7 +111,7 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (reservado, Fase 2), `Modifiers`
 (1 byte), `WindowSize`, `WindowPosition`, `version.string`
-(`"0.1.0-alpha.1"`).
+(`"0.1.0-alpha.2"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
