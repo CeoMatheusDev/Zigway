@@ -92,10 +92,12 @@ extern "X11" fn XSendEvent(
 extern "X11" fn XKeysymToKeycode(display: *anyopaque, keysym: c_ulong) u8;
 extern "X11" fn XKeycodeToKeysym(display: *anyopaque, keycode: u8, index: c_int) c_ulong;
 
-/// XKeyEvent (Xlib.h) para eventos sinteticos. XEvent e uma uniao de 24
-/// longs (192 bytes em LP64); o buffer abaixo replica o tamanho total para
-/// que XSendEvent copie a quantidade correta de bytes.
-const XKeyEvent = extern struct {
+/// XKeyEvent/XButtonEvent/XMotionEvent (Xlib.h) tem o mesmo layout: os
+/// tres terminam em um campo de 4 bytes (keycode, button, is_hint) na
+/// mesma posicao. XEvent e uma uniao de 24 longs (192 bytes em LP64); o
+/// buffer replica o tamanho total para que XSendEvent copie os bytes
+/// corretos.
+const XDeviceEvent = extern struct {
     type: c_int,
     serial: c_ulong,
     send_event: c_int,
@@ -109,32 +111,49 @@ const XKeyEvent = extern struct {
     x_root: c_int,
     y_root: c_int,
     state: c_uint,
-    keycode: c_uint,
+    detail: c_uint, // keycode (Key*) ou button (Button*)
     same_screen: c_int,
 };
 
 const XEventBuf = extern struct {
-    key: XKeyEvent,
+    ev: XDeviceEvent,
     pad: [96]u8,
 };
 
 const KeyPress: c_int = 2;
 const KeyRelease: c_int = 3;
-const KeyPressMask: c_long = 1;
-const KeyReleaseMask: c_long = 2;
+const ButtonPress: c_int = 4;
+const ButtonRelease: c_int = 5;
+const MotionNotify: c_int = 6;
 
-/// Envia um KeyPress/KeyRelease sintetico direto para `window` (sem
-/// depender de foco/XTEST) e sincroniza o servidor.
-fn sendKey(
+const KeyPressMask: c_long = 1 << 0;
+const KeyReleaseMask: c_long = 1 << 1;
+const ButtonPressMask: c_long = 1 << 2;
+const ButtonReleaseMask: c_long = 1 << 3;
+const PointerMotionMask: c_long = 1 << 6;
+
+// Modificadores no campo `state` (X.h).
+const ShiftMask: c_uint = 1 << 0;
+const ControlMask: c_uint = 1 << 2;
+const Mod1Mask: c_uint = 1 << 3; // Alt
+const Mod4Mask: c_uint = 1 << 6; // Super
+
+/// Envia um evento sintetico direto para `window` (sem depender de
+/// foco/XTEST) e sincroniza o servidor.
+fn sendDeviceEvent(
     display: *anyopaque,
     window: c_ulong,
     root: c_ulong,
-    keycode: u8,
-    pressed: bool,
+    event_type: c_int,
+    event_mask: c_long,
+    detail: c_uint,
+    state: c_uint,
+    x: c_int,
+    y: c_int,
 ) void {
-    var ev: XEventBuf = std.mem.zeroes(XEventBuf);
-    ev.key = .{
-        .type = if (pressed) KeyPress else KeyRelease,
+    var buf: XEventBuf = std.mem.zeroes(XEventBuf);
+    buf.ev = .{
+        .type = event_type,
         .serial = 0,
         .send_event = 1,
         .display = display,
@@ -142,17 +161,36 @@ fn sendKey(
         .root = root,
         .subwindow = 0,
         .time = 0,
-        .x = 0,
-        .y = 0,
-        .x_root = 0,
-        .y_root = 0,
-        .state = 0,
-        .keycode = keycode,
+        .x = x,
+        .y = y,
+        .x_root = x,
+        .y_root = y,
+        .state = state,
+        .detail = detail,
         .same_screen = 1,
     };
-    const mask: c_long = if (pressed) KeyPressMask else KeyReleaseMask;
-    _ = XSendEvent(display, window, 0, mask, @ptrCast(&ev));
+    _ = XSendEvent(display, window, 0, event_mask, @ptrCast(&buf));
     _ = XSync(display, 0);
+}
+
+fn sendKey(
+    display: *anyopaque,
+    window: c_ulong,
+    root: c_ulong,
+    keycode: u8,
+    pressed: bool,
+) void {
+    sendDeviceEvent(
+        display,
+        window,
+        root,
+        if (pressed) KeyPress else KeyRelease,
+        if (pressed) KeyPressMask else KeyReleaseMask,
+        keycode,
+        0,
+        0,
+        0,
+    );
 }
 
 extern "X11" fn XGetWMProtocols(
@@ -217,6 +255,63 @@ fn pollKey(plat: *zigway.Platform, pressed: bool) ?zigway.KeyEvent {
                 else => {},
             }
         }
+        sleepMs(5);
+    }
+    return null;
+}
+
+fn pollPointerMove(plat: *zigway.Platform) ?zigway.PointerMoveEvent {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .pointer_move => |e| return e,
+                else => {},
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
+fn pollPointerButton(plat: *zigway.Platform) ?zigway.PointerButtonEvent {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .pointer_button => |e| return e,
+                else => {},
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
+fn pollScroll(plat: *zigway.Platform) ?zigway.ScrollEvent {
+    var tries: usize = 0;
+    while (tries < 200) : (tries += 1) {
+        plat.pollEvents();
+        while (plat.nextEvent()) |ev| {
+            switch (ev) {
+                .scroll => |e| return e,
+                else => {},
+            }
+        }
+        sleepMs(5);
+    }
+    return null;
+}
+
+/// Espera a janela cliente aparecer (WM pode reparentar) e devolve o
+/// XID nativo; null se nao aparecer no prazo (ambiente exotico -> pula).
+fn waitForNativeWindow(display: *anyopaque, root: c_ulong, title: []const u8) ?c_ulong {
+    var tries: usize = 0;
+    while (tries < 400) : (tries += 1) {
+        _ = XSync(display, 0);
+        if (findClientWindowByTitle(display, root, title, 0)) |window| return window;
         sleepMs(5);
     }
     return null;
@@ -522,7 +617,7 @@ test "live x11: auto-repeat is flagged on repeated KeyPress" {
         return;
     }
     // Key.a = 1, ..., Key.z = 26 (ordinais densos, cobertos por teste).
-    const expected: zigway.Key = @fromBackingInt(@intCast(@as(u16, @intCast((sym | 0x20) - 0x61 + 1))));
+    const expected: zigway.Key = @fromBackingInt(@intCast((sym | 0x20) - 0x61 + 1));
 
     // Primeiro press: key_down normal.
     sendKey(display, native, root, keycode, true);
@@ -545,6 +640,188 @@ test "live x11: auto-repeat is flagged on repeated KeyPress" {
     try std.testing.expectEqual(expected, release.key);
     try std.testing.expect(!release.repeat);
     try std.testing.expect(!plat.inputState().isKeyDown(expected));
+}
+
+test "live x11: pointer move, buttons and wheel update input state" {
+    // Cobre o caminho de mouse de ponta a ponta com eventos sinteticos:
+    // MotionNotify, ButtonPress/Release e roda (botoes 4-7).
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const title = "zigway-live-mouse";
+    var window = try plat.createWindow(.{ .width = 320, .height = 240, .title = title });
+    defer window.deinit();
+    const id = window.windowId();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+    const native = waitForNativeWindow(display, root, title) orelse {
+        std.debug.print("\n[x11-live] janela nativa nao encontrada; pulando.\n", .{});
+        return;
+    };
+
+    // Foco e melhor esforco; verificacoes de estado global sao gated por
+    // isWindowFocused (FocusOut legitimo chama releaseAll).
+    window.focus() catch {};
+
+    // Movimento: evento e estado de ponteiro (coordenadas da janela).
+    sendDeviceEvent(display, native, root, MotionNotify, PointerMotionMask, 0, 0, 12, 34);
+    const move = pollPointerMove(&plat) orelse return error.MissingPointerMove;
+    try std.testing.expectEqual(@as(i32, 12), move.x);
+    try std.testing.expectEqual(@as(i32, 34), move.y);
+    try std.testing.expect(move.window.?.eql(id));
+    try std.testing.expectEqual(@as(i32, 12), plat.inputState().pointer_x);
+    try std.testing.expectEqual(@as(i32, 34), plat.inputState().pointer_y);
+
+    // Botao esquerdo com Shift no state: modificador vem do servidor.
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 1, ShiftMask, 12, 34);
+    const press = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.left, press.button);
+    try std.testing.expect(press.pressed);
+    try std.testing.expect(press.modifiers.shift);
+    try std.testing.expect(press.window.?.eql(id));
+    if (plat.isWindowFocused(id)) {
+        try std.testing.expect(plat.inputState().isButtonDown(.left));
+        try std.testing.expect(plat.inputState().modifiers.shift);
+    }
+
+    sendDeviceEvent(display, native, root, ButtonRelease, ButtonReleaseMask, 1, 0, 12, 34);
+    const release = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.left, release.button);
+    try std.testing.expect(!release.pressed);
+    try std.testing.expect(!release.modifiers.shift);
+    try std.testing.expect(!plat.inputState().isButtonDown(.left));
+    try std.testing.expect(!plat.inputState().modifiers.shift);
+
+    // Botao direito (button 3) e medio (button 2): mesmo caminho.
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 3, 0, 12, 34);
+    const right_press = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.right, right_press.button);
+    try std.testing.expect(right_press.pressed);
+    if (plat.isWindowFocused(id)) {
+        try std.testing.expect(plat.inputState().isButtonDown(.right));
+    }
+
+    sendDeviceEvent(display, native, root, ButtonRelease, ButtonReleaseMask, 3, 0, 12, 34);
+    const right_release = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.right, right_release.button);
+    try std.testing.expect(!right_release.pressed);
+    try std.testing.expect(!plat.inputState().isButtonDown(.right));
+
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 2, 0, 12, 34);
+    const middle_press = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.middle, middle_press.button);
+    try std.testing.expect(middle_press.pressed);
+    if (plat.isWindowFocused(id)) {
+        try std.testing.expect(plat.inputState().isButtonDown(.middle));
+    }
+
+    sendDeviceEvent(display, native, root, ButtonRelease, ButtonReleaseMask, 2, 0, 12, 34);
+    const middle_release = pollPointerButton(&plat) orelse return error.MissingPointerButton;
+    try std.testing.expectEqual(zigway.MouseButton.middle, middle_release.button);
+    try std.testing.expect(!middle_release.pressed);
+    try std.testing.expect(!plat.inputState().isButtonDown(.middle));
+
+    // Roda vertical (4=cima, 5=baixo) e horizontal (6=esq, 7=dir).
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 4, 0, 12, 34);
+    const up = pollScroll(&plat) orelse return error.MissingScroll;
+    try std.testing.expectEqual(@as(f32, 0), up.dx);
+    try std.testing.expectEqual(@as(f32, 1), up.dy);
+    try std.testing.expect(up.window.?.eql(id));
+
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 5, 0, 12, 34);
+    const down = pollScroll(&plat) orelse return error.MissingScroll;
+    try std.testing.expectEqual(@as(f32, 0), down.dx);
+    try std.testing.expectEqual(@as(f32, -1), down.dy);
+
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 6, 0, 12, 34);
+    const left = pollScroll(&plat) orelse return error.MissingScroll;
+    try std.testing.expectEqual(@as(f32, -1), left.dx);
+
+    sendDeviceEvent(display, native, root, ButtonPress, ButtonPressMask, 7, 0, 12, 34);
+    const right = pollScroll(&plat) orelse return error.MissingScroll;
+    try std.testing.expectEqual(@as(f32, 1), right.dx);
+    try std.testing.expectEqual(@as(f32, 0), right.dy);
+}
+
+test "live x11: modifiers come from the server event mask" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    const title = "zigway-live-mods";
+    var window = try plat.createWindow(.{ .width = 320, .height = 240, .title = title });
+    defer window.deinit();
+    const id = window.windowId();
+
+    const display = XOpenDisplay(null) orelse return;
+    defer _ = XCloseDisplay(display);
+    const root = XDefaultRootWindow(display);
+    const native = waitForNativeWindow(display, root, title) orelse {
+        std.debug.print("\n[x11-live] janela nativa nao encontrada; pulando.\n", .{});
+        return;
+    };
+
+    const keycode = XKeysymToKeycode(display, 0x61); // XK_a
+    if (keycode == 0) return;
+    const sym = XKeycodeToKeysym(display, keycode, 0);
+    const is_letter = (sym >= 0x61 and sym <= 0x7a) or (sym >= 0x41 and sym <= 0x5a);
+    if (!is_letter) {
+        std.debug.print("\n[x11-live] layout sem letra ASCII no keycode; pulando.\n", .{});
+        return;
+    }
+    const expected: zigway.Key = @fromBackingInt(@intCast((sym | 0x20) - 0x61 + 1));
+
+    // Foco e melhor esforco (WM pode negar); as verificacoes de estado
+    // global sao gated por isWindowFocused para nao correr com FocusOut.
+    window.focus() catch {};
+
+    // Press com Shift+Ctrl+Alt+Super no state do evento.
+    const all = ShiftMask | ControlMask | Mod1Mask | Mod4Mask;
+    sendDeviceEvent(display, native, root, KeyPress, KeyPressMask, keycode, all, 0, 0);
+    const press = pollKey(&plat, true) orelse return error.MissingKeyEvent;
+    try std.testing.expectEqual(expected, press.key);
+    try std.testing.expect(press.modifiers.shift);
+    try std.testing.expect(press.modifiers.control);
+    try std.testing.expect(press.modifiers.alt);
+    try std.testing.expect(press.modifiers.super);
+    if (plat.isWindowFocused(id)) {
+        try std.testing.expect(plat.inputState().modifiers.shift);
+        try std.testing.expect(plat.inputState().modifiers.control);
+        try std.testing.expect(plat.inputState().modifiers.alt);
+        try std.testing.expect(plat.inputState().modifiers.super);
+    }
+
+    // Release com apenas Alt retido: o estado reflete o mask do evento.
+    sendDeviceEvent(display, native, root, KeyRelease, KeyReleaseMask, keycode, Mod1Mask, 0, 0);
+    const release = pollKey(&plat, false) orelse return error.MissingKeyEvent;
+    try std.testing.expectEqual(expected, release.key);
+    try std.testing.expect(!release.modifiers.shift);
+    try std.testing.expect(!release.modifiers.control);
+    try std.testing.expect(release.modifiers.alt);
+    try std.testing.expect(!release.modifiers.super);
+    // O estado global so e verificado com a janela focada: um FocusOut
+    // legitimo chama releaseAll e limpa modificadores/teclas.
+    if (plat.isWindowFocused(id)) {
+        try std.testing.expect(!plat.inputState().isKeyDown(expected));
+        try std.testing.expect(plat.inputState().modifiers.alt);
+    }
 }
 
 test "live x11: protocol error does not abort the process" {

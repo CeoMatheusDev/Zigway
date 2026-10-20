@@ -75,6 +75,12 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   via Map/Unmap (`setVisible` → `UnmapNotify`/`MapNotify` →
   `isWindowVisible`) e foco via FocusIn/FocusOut (`focus()` →
   `XSetInputFocus` → `isWindowFocused`; degrada graciosamente sem WM).
+- Testes live X11 de mouse e modificadores (eventos sintéticos via
+  `XSendEvent`): `MotionNotify` atualiza evento + `InputState`
+  (coordenadas), botões esquerdo/médio/direito com `pressed` e
+  modificadores, roda vertical/horizontal (botões 4–7) com sinal
+  correto, e `Shift`/`Ctrl`/`Alt`/`Super` derivados do `state` do
+  servidor em `key_down`/`key_up`.
 - Teste de sincronia de versão (`version string matches build.zig.zon`):
   falha ruidosamente se `src/core/version.zig` divergir de
   `build.zig.zon` (declarado como entrada do passo de teste).
