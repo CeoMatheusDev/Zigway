@@ -43,6 +43,7 @@ The core uses hand-declared native ABI bindings instead of `@cImport` or third-p
 - **Display change notifications:** Receive a normalized event when the display configuration changes, then re-query the monitor snapshot.
 - **Window positioning:** Move windows by client-area coordinates and receive normalized move events; X11 uses EWMH when the window manager advertises it.
 - **Fullscreen:** Toggle a window into fullscreen and observe the confirmed state; X11 uses EWMH with a geometry fallback, Win32 uses a borderless popup over the nearest monitor.
+- **Native Wayland:** A real Wayland backend (not XWayland): compositor connection, registry, outputs and seat capabilities; surfaces and Wayland input are still pending.
 - **Raw input:** Hardware-level key events (`raw_key`) exposing the physical scancode — the X11 keycode or the Windows scan code — so apps can tell left/right modifiers apart and stay layout independent.
 - **Text input:** Unicode text input separated from the raw key events (`text_input` carries one codepoint per event); on X11 it comes from the keysym, on Windows from `WM_CHAR` (the IME commit path).
 - **Clipboard:** Read and write UTF-8 text on the system clipboard; on X11 the platform owns the `CLIPBOARD` selection and serves `SelectionRequest` (`UTF8_STRING`, `text/plain`, `STRING`/Latin-1) with target fallback on read, on Windows it uses `CF_UNICODETEXT`.
@@ -121,6 +122,7 @@ Two extra steps exist for the Windows backend and for video modes:
 ```sh
 zig build test-win32-compile  # Compile (do not run) the tests for Windows
 zig build test-x11-modes      # Live video-mode switch (CHANGES the resolution)
+zig build test-wayland        # Live Wayland test (skips without a compositor)
 ```
 
 The live X11 test is designed to skip when a display is unavailable. Consult [Building](docs/BUILDING.md) for environment setup and troubleshooting.

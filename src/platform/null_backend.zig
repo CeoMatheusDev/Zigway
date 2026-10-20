@@ -59,6 +59,12 @@ pub const Backend = struct {
         return error.DisplayModeUnsupported;
     }
 
+    /// Sem seat nativo.
+    pub fn seatCapabilities(self: *const Backend) ?types.SeatCapabilities {
+        _ = self;
+        return null;
+    }
+
     /// Guarda o texto da area de transferencia (estado em memoria).
     pub fn setClipboardText(self: *Backend, text: []const u8) !void {
         if (self.clipboard_text) |old| self.allocator.free(old);

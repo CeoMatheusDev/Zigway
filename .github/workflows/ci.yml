@@ -35,6 +35,10 @@ jobs:
       # Windows sem precisar de uma maquina Windows.
       - name: Compile Windows tests (cross)
         run: zig build test-win32-compile -Doptimize=${{ matrix.optimize }}
+      # A CI nao tem compositor Wayland: o passo exercita o caminho de
+      # "pula sem compositor" e a compilacao do backend Wayland.
+      - name: Wayland integration test (no compositor: skips)
+        run: zig build test-wayland -Doptimize=${{ matrix.optimize }}
 
   windows:
     name: windows (Zig ${{ matrix.zig }} ${{ matrix.optimize }})

@@ -20,6 +20,7 @@ const window_mod = @import("../window.zig");
 const NullBackend = @import("null_backend.zig").Backend;
 const X11Backend = @import("../platform/x11/backend.zig").Backend;
 const Win32Backend = @import("../platform/win32/backend.zig").Backend;
+const WaylandBackend = @import("../platform/wayland/backend.zig").Backend;
 
 pub const BackendKind = types.BackendKind;
 pub const ActiveBackend = types.ActiveBackend;
@@ -29,6 +30,7 @@ pub const Event = events.Event;
 
 const has_x11 = builtin.os.tag == .linux;
 const has_win32 = builtin.os.tag == .windows;
+const has_wayland = builtin.os.tag == .linux;
 
 /// Uniao de backends compilaveis neste alvo. O despacho usa
 /// `inline else` para existir apenas nas variantes presentes.
@@ -41,6 +43,7 @@ else if (has_x11)
     union(enum) {
         null_backend: NullBackend,
         x11: X11Backend,
+        wayland: WaylandBackend,
     }
 else
     union(enum) {
@@ -89,6 +92,9 @@ pub const Platform = struct {
         if (comptime has_x11) {
             if (active == .x11) {
                 return .{ .x11 = try X11Backend.init(allocator) };
+            }
+            if (active == .wayland) {
+                return .{ .wayland = try WaylandBackend.init(allocator) };
             }
         }
         if (comptime has_win32) {
@@ -168,6 +174,16 @@ pub const Platform = struct {
         switch (self.backend) {
             inline else => |*b| try b.setDisplayMode(id, mode),
         }
+    }
+
+    /// Capacidades do seat (dispositivos de entrada) do compositor.
+    /// `null` quando o backend nao modela um seat (X11/Win32/null) ou
+    /// quando o compositor nao expoe seat.
+    pub fn seatCapabilities(self: *const Platform) ?types.SeatCapabilities {
+        if (self.closed) return null;
+        return switch (self.backend) {
+            inline else => |*b| b.seatCapabilities(),
+        };
     }
 
     /// Define o texto (UTF-8) da area de transferencia. O conteudo e

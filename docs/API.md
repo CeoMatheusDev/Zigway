@@ -26,6 +26,7 @@ platform.displayModes(allocator, display) ![]DisplayMode // modos do display; li
 platform.setDisplayMode(display, mode) !void // troca de modo de video
 platform.setClipboardText(text) !void        // texto UTF-8 na area de transferencia
 platform.clipboardText(allocator) !?[]u8      // texto UTF-8; null quando vazia
+platform.seatCapabilities() ?SeatCapabilities // capacidades do seat (Wayland)
 ```
 
 Janelas via Platform:
@@ -207,6 +208,13 @@ memória, dentro da plataforma.
 Falhas: `ClipboardFailed` (a área não pôde ser aberta/escrita) e
 `PlatformClosed` após `deinit`.
 
+## Seat (dispositivos de entrada)
+
+`Platform.seatCapabilities()` devolve as capacidades do seat do
+compositor (`pointer`, `keyboard`, `touch`) ou `null` quando o backend
+não modela um seat (X11/Win32/null) ou quando não há seat. É a forma
+de o aplicativo saber se o Wayland compositor expõe teclado/ponteiro.
+
 ## Posição de janela
 
 `WindowPosition` é a origem da **área de cliente** em coordenadas de tela
@@ -369,7 +377,8 @@ botões são estado global e não são associados a janela.
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
 `eqlOpt`, `invalid`), `DisplayId` (`eql`, `isValid`, `invalid`),
 `DisplayModeId` (`eql`, `isValid`, `invalid`), `DisplayInfo`,
-`DisplayMode`, `Modifiers` (1 byte), `WindowSize`, `WindowPosition`,
+`DisplayMode`, `SeatCapabilities`, `Modifiers` (1 byte), `WindowSize`,
+`WindowPosition`,
 `WindowSizeLimits`, `MoveEvent`, `DisplayChangeEvent`,
 `FullscreenEvent`, `MaximizedEvent`, `TextInputEvent`, `RawKeyEvent`,
 `version.string`

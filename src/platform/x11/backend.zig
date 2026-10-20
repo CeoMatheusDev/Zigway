@@ -368,6 +368,12 @@ pub const Backend = struct {
         return error.DisplayModeUnsupported;
     }
 
+    /// O X11 nao modela um seat (o input e por janela).
+    pub fn seatCapabilities(self: *const Backend) ?types.SeatCapabilities {
+        _ = self;
+        return null;
+    }
+
     // --- Area de transferencia (selecao CLIPBOARD) ---
 
     /// Limite de 1 MiB por texto na area de transferencia.

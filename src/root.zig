@@ -23,6 +23,7 @@ pub const DisplayId = types.DisplayId;
 pub const DisplayModeId = types.DisplayModeId;
 pub const DisplayInfo = types.DisplayInfo;
 pub const DisplayMode = types.DisplayMode;
+pub const SeatCapabilities = types.SeatCapabilities;
 pub const BackendKind = types.BackendKind;
 pub const ActiveBackend = types.ActiveBackend;
 pub const Key = types.Key;

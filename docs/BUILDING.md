@@ -26,6 +26,7 @@ Passos extras (não fazem parte do fluxo padrão):
 ```bash
 zig build test-win32-compile  # compila os testes para o alvo Windows (sem executar)
 zig build test-x11-modes      # troca de modo de vídeo (ALTERA a resolução do display)
+zig build test-wayland        # integração Wayland (pula sem compositor nativo)
 ```
 
 `test-x11-modes` é destrutivo: muda a resolução do display e restaura o

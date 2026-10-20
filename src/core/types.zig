@@ -21,6 +21,7 @@ pub const BackendKind = enum {
 pub const ActiveBackend = enum {
     win32,
     x11,
+    wayland,
     null_backend,
 };
 
@@ -208,6 +209,14 @@ pub const DisplayMode = struct {
     refresh_mhz: u32 = 0,
     current: bool = false,
     preferred: bool = false,
+};
+
+/// Capacidades de entrada do "seat" (dispositivos de entrada) do
+/// compositor. `null` quando o backend nao modela um seat.
+pub const SeatCapabilities = struct {
+    pointer: bool = false,
+    keyboard: bool = false,
+    touch: bool = false,
 };
 
 const std = @import("std");

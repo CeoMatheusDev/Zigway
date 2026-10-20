@@ -60,9 +60,13 @@ drop.
 Extensões e superfícies Vulkan; contextos OpenGL (WGL/GLX/EGL);
 handles DXGI/Direct3D. Sem renderer próprio (ver `GRAPHICS.md`).
 
-## v0.5.x — Wayland
+## v0.5.x — Wayland (em andamento)
 
-Connection, registry, surfaces, seat, outputs, despacho assíncrono.
+Backend **nativo** (não XWayland) em andamento: connection, registry,
+outputs e seat implementados e validados contra o KWin em Wayland
+(`zig build test-wayland`); despacho assíncrono sem bloquear. Pendentes:
+surfaces (wl_surface + xdg_shell), input (keymap XKB/ponteiro) e
+clipboard do protocolo.
 
 ## v0.6.x — Expansões de input
 

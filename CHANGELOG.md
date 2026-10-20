@@ -64,6 +64,16 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Backend Wayland **nativo** (não XWayland): conexão com o compositor,
+  registry (`wl_display.get_registry` + `wl_registry.bind`), outputs
+  (`wl_output` → `Platform.displays()` com tamanho lógico) e seat
+  (`wl_seat.capabilities` → nova API `Platform.seatCapabilities()`),
+  com despacho assíncrono sem bloquear. A libwayland-client é carregada
+  em runtime (sem dependência de link) e as tabelas de interface do
+  protocolo são escritas à mão em Zig, conferidas contra o código
+  gerado por `wayland-scanner`. Validado contra o KWin 6.7.5 em Wayland
+  nativo (`zig build test-wayland`). Janelas, input e clipboard do
+  protocolo Wayland ainda não são implementados (`NotImplemented`).
 - Input bruto de teclado: evento `raw_key` (`{ window, scancode, pressed,
   modifiers }`) com a tecla no nível de hardware — keycode do X11
   (evdev + 8 no Linux) ou scan code do Win32 (bits 16-23 do `lparam`).

@@ -21,8 +21,9 @@ pub fn defaultForCurrentTarget() ActiveBackend {
         return switch (config.build_default) {
             .win32 => .win32,
             .x11 => .x11,
+            .wayland => .wayland,
             .null_backend => .null_backend,
-            .auto, .wayland => unreachable,
+            .auto => unreachable,
         };
     }
     return switch (builtin.os.tag) {
@@ -36,6 +37,7 @@ pub fn isAvailable(backend: ActiveBackend) bool {
     return switch (backend) {
         .win32 => builtin.os.tag == .windows,
         .x11 => builtin.os.tag == .linux,
+        .wayland => builtin.os.tag == .linux,
         .null_backend => true,
     };
 }
@@ -47,7 +49,10 @@ pub fn resolve(requested: BackendKind) !ActiveBackend {
             if (!isAvailable(backend)) return error.UnsupportedBackend;
             return backend;
         },
-        .wayland => return error.NotImplemented,
+        .wayland => {
+            if (!isAvailable(.wayland)) return error.UnsupportedBackend;
+            return .wayland;
+        },
         .win32 => {
             if (!isAvailable(.win32)) return error.UnsupportedBackend;
             return .win32;
@@ -66,8 +71,12 @@ test "resolve auto on host" {
     if (builtin.os.tag == .windows) try std.testing.expectEqual(ActiveBackend.win32, backend);
 }
 
-test "resolve wayland is never implemented" {
-    try std.testing.expectError(error.NotImplemented, resolve(.wayland));
+test "resolve wayland requires a linux target" {
+    if (builtin.os.tag == .linux) {
+        try std.testing.expectEqual(ActiveBackend.wayland, try resolve(.wayland));
+    } else {
+        try std.testing.expectError(error.UnsupportedBackend, resolve(.wayland));
+    }
 }
 
 test "resolve foreign backend is unsupported" {

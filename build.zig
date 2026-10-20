@@ -53,10 +53,12 @@ pub fn build(b: *std.Build) void {
             }
         },
         .wayland => {
-            std.debug.panic(
-                "zigway: backend Wayland ainda nao implementado (ver src/platform/wayland/README.md)",
-                .{},
-            );
+            if (os_tag != .linux) {
+                std.debug.panic(
+                    "zigway: -Dplatform=wayland exige alvo Linux (alvo atual: {s})",
+                    .{@tagName(os_tag)},
+                );
+            }
         },
         .auto, .null_backend => {},
     }
@@ -120,6 +122,21 @@ pub fn build(b: *std.Build) void {
         "Teste live de troca de modo de video (ALTERA a resolucao do display)",
     );
     live_modes_step.dependOn(&run_live_modes.step);
+
+    // Teste live Wayland (compositor nativo; pula sem compositor).
+    const live_wayland_mod = b.createModule(.{
+        .root_source_file = b.path("tests/live_wayland.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "zigway", .module = mod }},
+    });
+    const live_wayland_test = b.addTest(.{ .root_module = live_wayland_mod });
+    const run_live_wayland = b.addRunArtifact(live_wayland_test);
+    const live_wayland_step = b.step(
+        "test-wayland",
+        "Executa o teste live Wayland (requer compositor nativo)",
+    );
+    live_wayland_step.dependOn(&run_live_wayland.step);
 
     // Exemplos.
     const examples_step = b.step("examples", "Compila os exemplos");

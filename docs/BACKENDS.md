@@ -242,9 +242,34 @@ Limitações conhecidas:
   compilação cruzada e conferência dos layouts de `DEVMODEW`/
   `MONITORINFOEXW` contra os headers reais do Windows.
 
-## Wayland
+## Wayland (`src/platform/wayland/`)
 
-Não implementado. Ver `src/platform/wayland/README.md`.
+Backend **nativo** do protocolo Wayland (não XWayland). A
+libwayland-client é carregada em runtime (`dlopen`), como a libXrandr no
+backend X11: sem dependência de link e, sem a biblioteca, o backend não
+está disponível (`UnsupportedBackend`).
+
+Cobertura (v0.5, em andamento): conexão com o compositor
+(`wl_display_connect`), registry (`wl_display.get_registry` +
+`wl_registry.bind`), outputs/monitores (`wl_output`: geometry, mode,
+scale, name) expostos por `Platform.displays()`, seat
+(`wl_seat.capabilities` → `Platform.seatCapabilities()`) e despacho
+assíncrono sem bloquear (`prepare_read`/`read_events`/
+`dispatch_pending`). As tabelas de interface são escritas à mão em Zig
+(`protocol.zig`), conferidas contra o código gerado por
+`wayland-scanner`.
+
+Ainda não implementado (retornam `NotImplemented`): janelas/superfícies
+(`wl_surface` + `xdg_shell`), input (teclado exige keymap XKB; ponteiro
+exige superfície), clipboard (`wl_data_device`) e modos de vídeo.
+
+Validado com compositor real: `zig build test-wayland` (KWin 6.7.5 em
+Wayland nativo). Sem compositor, o teste pula sem falhar. A CI não tem
+compositor Wayland: lá o passo apenas exercita o caminho de "pula".
+
+Detalhe: `wl_output` não informa qual output é o primário (exige
+`xdg-output`), então `DisplayInfo.primary` é `false` no Wayland; o
+tamanho reportado é o lógico (modo ÷ escala).
 
 ## null
 

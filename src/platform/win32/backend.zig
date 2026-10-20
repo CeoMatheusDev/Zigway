@@ -369,6 +369,12 @@ pub const Backend = struct {
         if (result != api.DISP_CHANGE_SUCCESSFUL) return error.DisplayModeFailed;
     }
 
+    /// O Win32 nao modela um seat (o input e por janela).
+    pub fn seatCapabilities(self: *const Backend) ?types.SeatCapabilities {
+        _ = self;
+        return null;
+    }
+
     // --- Area de transferencia (clipboard) ---
 
     /// Limite de 1 MiB por texto na area de transferencia.

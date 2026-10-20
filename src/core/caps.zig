@@ -24,8 +24,9 @@ pub const compile_caps: CompileCaps = .{
         .linux => true,
         else => false,
     },
-    // Declarado, mas sem implementacao (ver platform/wayland/README.md).
-    .has_wayland = false,
+    // Backend Wayland nativo compilado no Linux (v0.5 em andamento:
+    // conexao/registry/outputs/seat; janelas ainda nao).
+    .has_wayland = builtin.os.tag == .linux,
     .multi_window = true,
 };
 
@@ -46,8 +47,8 @@ pub const RuntimeCaps = struct {
 
 const builtin = @import("builtin");
 
-test "wayland is never advertised as available" {
-    try std.testing.expect(!compile_caps.has_wayland);
+test "wayland backend is compiled only on linux" {
+    try std.testing.expectEqual(builtin.os.tag == .linux, compile_caps.has_wayland);
 }
 
 test "host backend matches compile caps" {
