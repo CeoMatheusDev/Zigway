@@ -75,7 +75,6 @@ pub const Backend = struct {
     class_name: [max_class_name:0]u16 = undefined,
     entries: std.ArrayList(Entry) = .empty,
     pending: ?Pending = null,
-    mods: types.Modifiers = .{},
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         var self = Backend{
@@ -376,7 +375,6 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             const pressed = msg == api.WM_KEYDOWN or msg == api.WM_SYSKEYDOWN;
             const vk: u16 = @truncate(wparam);
             const key = fromVk(vk);
-            trackModifier(backend, vk, pressed);
             const wid: ?types.WindowId = if (backend.slotOfNative(pending.reg, hwnd)) |slot|
                 pending.reg.idOf(slot)
             else
@@ -385,7 +383,7 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             const kev: events.KeyEvent = .{
                 .window = wid,
                 .key = key,
-                .modifiers = backend.mods,
+                .modifiers = currentMods(),
                 .repeat = pressed and ((bits >> 30) & 1) == 1,
             };
             if (pressed) {
@@ -418,7 +416,7 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                         .pressed = true,
                         .x = pos[0],
                         .y = pos[1],
-                        .modifiers = modsFromWparam(backend, wparam),
+                        .modifiers = currentMods(),
                     },
                 });
             }
@@ -438,7 +436,7 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                         .pressed = false,
                         .x = pos[0],
                         .y = pos[1],
-                        .modifiers = modsFromWparam(backend, wparam),
+                        .modifiers = currentMods(),
                     },
                 });
             }
@@ -461,7 +459,7 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
                             .pressed = msg == api.WM_XBUTTONDOWN,
                             .x = pos[0],
                             .y = pos[1],
-                            .modifiers = modsFromWparam(backend, wparam),
+                            .modifiers = currentMods(),
                         },
                     });
                 }
@@ -501,21 +499,28 @@ fn mousePos(lparam: api.LPARAM) struct { i32, i32 } {
     return .{ mouseCoord(lparam, 0), mouseCoord(lparam, 1) };
 }
 
-fn modsFromWparam(backend: *Backend, wparam: api.WPARAM) types.Modifiers {
-    var mods = backend.mods;
-    mods.shift = (wparam & api.MK_SHIFT) != 0;
-    mods.control = (wparam & api.MK_CONTROL) != 0;
-    return mods;
+/// Bit 0x8000 de GetKeyState: tecla pressionada no momento em que a
+/// mensagem atual foi retirada da fila. Puro e testavel sem SO.
+fn stateIsDown(state: i16) bool {
+    return (@as(u16, @bitCast(state)) & 0x8000) != 0;
 }
 
-fn trackModifier(backend: *Backend, vk: u16, pressed: bool) void {
-    switch (vk) {
-        api.VK_SHIFT, api.VK_LSHIFT, api.VK_RSHIFT => backend.mods.shift = pressed,
-        api.VK_CONTROL, api.VK_LCONTROL, api.VK_RCONTROL => backend.mods.control = pressed,
-        api.VK_MENU, api.VK_LMENU, api.VK_RMENU => backend.mods.alt = pressed,
-        api.VK_LWIN, api.VK_RWIN => backend.mods.super = pressed,
-        else => {},
-    }
+fn keyDown(vk: api.WPARAM) bool {
+    return stateIsDown(api.GetKeyState(@intCast(vk)));
+}
+
+/// Modificadores derivados do estado autoritativo do SO, nao de
+/// rastreamento incremental: evita modificador preso quando o key_up
+/// nao chega (perda de foco) e o caso de Shift/Ctrl/Alt esquerdo e
+/// direito pressionados ao mesmo tempo (soltar um nao zera o outro).
+/// `Key` continua sem distinguir lados (VK generico).
+fn currentMods() types.Modifiers {
+    return .{
+        .shift = keyDown(api.VK_SHIFT),
+        .control = keyDown(api.VK_CONTROL),
+        .alt = keyDown(api.VK_MENU),
+        .super = keyDown(api.VK_LWIN) or keyDown(api.VK_RWIN),
+    };
 }
 
 pub fn fromVk(vk: u16) types.Key {
@@ -646,6 +651,14 @@ test "vk mapping covers basics" {
     try std.testing.expectEqual(types.Key.f5, fromVk(0x74));
     try std.testing.expectEqual(types.Key.left, fromVk(0x25));
     try std.testing.expectEqual(types.Key.unknown, fromVk(0xFF));
+}
+
+test "getkeystate high bit decodes as pressed" {
+    try std.testing.expect(!stateIsDown(0));
+    // Bit de toggle (CapsLock/NumLock) sem o bit de pressionada.
+    try std.testing.expect(!stateIsDown(1));
+    try std.testing.expect(stateIsDown(@bitCast(@as(u16, 0x8000))));
+    try std.testing.expect(stateIsDown(@bitCast(@as(u16, 0x8001))));
 }
 
 test "win32 struct layouts match win64" {

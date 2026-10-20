@@ -209,6 +209,9 @@ pub extern "user32" fn SetWindowPos(
 ) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, cmd: c_int) BOOL;
 pub extern "user32" fn SetFocus(hwnd: HWND) HWND;
+/// Estado sincrono das teclas virtuais (SHORT). Bit 0x8000 = pressionada
+/// no momento em que a mensagem atual foi retirada da fila.
+pub extern "user32" fn GetKeyState(vk: c_int) i16;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn AdjustWindowRectEx(rect: *RECT, style: DWORD, menu: BOOL, ex_style: DWORD) BOOL;
 pub extern "user32" fn ScreenToClient(hwnd: HWND, pt: *POINT) BOOL;

@@ -44,6 +44,12 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   setas, `page_up`/`page_down`, `insert`, `delete`, `end`) com NumLock
   desligado. Antes caía em `.unknown`. Operadores (`+`, `*`, `/`)
   seguem `.unknown` em ambos os backends (sem variante em `Key`).
+- Win32 deriva `modifiers` do estado autoritativo (`GetKeyState`) em vez
+  de rastreamento incremental. Corrige o modificador preso após perda
+  de foco (o estado do backend não era limpo no `WM_KILLFOCUS`, e o
+  `key_up` do modificador pode nunca chegar) e o caso de Shift/Ctrl/Alt
+  esquerdo e direito pressionados ao mesmo tempo (soltar um zerava o
+  outro). O mapeamento de `Key` segue genérico por VK (sem lado).
 
 ### Adicionado
 

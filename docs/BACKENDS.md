@@ -58,10 +58,11 @@ para 64-bit). Sem link com CRT além do necessário.
 Cobertura: registro de classe (nome único por instância, permitindo
 múltiplas `Platform` no mesmo processo), `CreateWindowExW` (área de cliente
 ajustada via `AdjustWindowRectEx`), `WndProc` + pump com `PeekMessageW`,
-teclado (VK→`Key`, flag `repeat` via bit 30, modificadores incrementais
-+ flags `MK_*` no mouse), mouse (movimento, 5 botões, wheel
-vertical/horizontal), `WM_SIZE` (inclui minimize como invisível), foco,
-`WM_CLOSE`→evento sem destruir, multi-janelas.
+teclado (VK→`Key`, flag `repeat` via bit 30), modificadores derivados do
+estado autoritativo via `GetKeyState` (mouse e teclado), mouse
+(movimento, 5 botões, wheel vertical/horizontal), `WM_SIZE` (inclui
+minimize como invisível), foco, `WM_CLOSE`→evento sem destruir,
+multi-janelas.
 
 Destruição externa: como no X11, a entrada nativa é removida e
 operações seguintes retornam `InvalidWindow`; o slot segue ocupado
@@ -71,21 +72,18 @@ Limitações conhecidas:
 
 - Sem validação em runtime ainda (validado por compilação cruzada
   `x86_64-windows`; sem máquina Windows disponível).
-- Numpad 0–9 mapeados para `n0`–`n9` (sem distinção nesta fase).
+- Numpad 0–9 mapeados para `n0`–`n9` (mesma tecla lógica do X11;
+  `Key` não distingue numpad da linha superior).
 - No `WM_KEYDOWN` o `wparam` traz o VK genérico (ex.: `VK_SHIFT`), sem
   distinguir lado: `VK_SHIFT`/`VK_LSHIFT`/`VK_RSHIFT` viram
   `left_shift`, e o mesmo para Ctrl/Alt/Super. O X11 distingue
   esquerda/direita. Distinguir no Win32 exigiria o scancode
-  (`lparam` bits 16–23) — fora do escopo desta fase.
-  Consequência adicional: com Shift (ou Ctrl/Alt) esquerdo e direito
-  pressionados ao mesmo tempo, soltar um deles zera o modificador,
-  pois o estado é incremental por VK genérico. Corrigir exige consultar
-  o estado real (`GetKeyState`) ou separar os lados pelo scancode;
-  pendente de validação em Windows real.
+  (`lparam` bits 16–23) — fora do escopo desta fase. Isso afeta apenas
+  o valor de `Key` e de `key_up`, não o estado dos `modifiers` (que vem
+  de `GetKeyState`, autoritativo).
 - `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` entregam coordenadas de tela, mas
   `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
   (`ScreenToClient`).
-- Estado inicial de modificadores é `false` até o primeiro evento.
 - `focus()` usa `SetFocus` (melhor esforço; foreground pertence ao SO).
 
 ## Wayland
