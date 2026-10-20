@@ -267,6 +267,24 @@ pub const Platform = struct {
         }
     }
 
+    pub fn captureWindowPointer(self: *Platform, id: types.WindowId) !void {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| try b.capturePointer(&self.reg, index),
+        }
+    }
+
+    /// Liberacao best-effort: idempotente, segura apos deinit e para ids
+    /// invalidos (nao ha erro a recuperar no caminho de cleanup).
+    pub fn releaseWindowPointer(self: *Platform, id: types.WindowId) void {
+        if (self.closed) return;
+        const index = self.reg.indexOf(id) orelse return;
+        switch (self.backend) {
+            inline else => |*b| b.releasePointer(&self.reg, index),
+        }
+    }
+
     pub fn inputState(self: *const Platform) *const input.InputState {
         return &self.input_state;
     }
@@ -552,6 +570,8 @@ test "invalid ops on dead id return InvalidWindow" {
     try std.testing.expectError(error.InvalidWindow, plat.setWindowVisible(id, true));
     try std.testing.expectError(error.InvalidWindow, plat.focusWindow(id));
     try std.testing.expectError(error.InvalidWindow, plat.setWindowCursor(id, .text));
+    try std.testing.expectError(error.InvalidWindow, plat.captureWindowPointer(id));
+    plat.releaseWindowPointer(id); // no-op
 }
 
 test "set cursor on null backend succeeds" {
@@ -565,6 +585,23 @@ test "set cursor on null backend succeeds" {
     try w.setCursor(.text);
     try w.setCursor(.default);
     try plat.setWindowCursor(w.windowId(), .wait);
+}
+
+test "pointer capture on null backend succeeds" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var first = try plat.createWindow(.{});
+    defer first.deinit();
+    var second = try plat.createWindow(.{});
+    defer second.deinit();
+
+    try first.capturePointer();
+    try first.capturePointer(); // idempotente
+    try second.capturePointer(); // transfere a captura
+    first.releasePointer(); // no-op: nao detem mais
+    second.releasePointer();
+    second.releasePointer(); // idempotente
 }
 
 test "double deinit is safe" {
@@ -584,6 +621,8 @@ test "operations after deinit fail safe" {
     try std.testing.expectError(error.PlatformClosed, plat.destroyWindow(id));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowTitle(id, "x"));
     try std.testing.expectError(error.PlatformClosed, plat.setWindowCursor(id, .text));
+    try std.testing.expectError(error.PlatformClosed, plat.captureWindowPointer(id));
+    plat.releaseWindowPointer(id); // no-op apos deinit
     plat.pollEvents(); // no-op
     plat.injectEvent(.{ .close = .{ .window = id } }); // no-op
     try std.testing.expect(plat.nextEvent() == null);

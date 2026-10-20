@@ -23,6 +23,9 @@ pub const Error = error{
     WindowCreationFailed,
     /// Falha ao criar ou aplicar um cursor do sistema.
     CursorCreationFailed,
+    /// Falha ao capturar o ponteiro (janela nao visivel, grab negado ou
+    /// captura detida por outra thread/cliente).
+    PointerCaptureFailed,
     /// WindowId invalido, expirado ou de outra instancia.
     InvalidWindow,
 };

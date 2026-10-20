@@ -13,6 +13,8 @@ const types = @import("../core/types.zig");
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
+    /// Slot com captura de ponteiro (exclusiva), se houver.
+    captured: ?u32 = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         return .{ .allocator = allocator };
@@ -38,9 +40,8 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend, reg: *registry.Registry, slot: u32) void {
-        _ = self;
         _ = reg;
-        _ = slot;
+        if (self.captured == slot) self.captured = null;
     }
 
     pub fn poll(
@@ -105,5 +106,15 @@ pub const Backend = struct {
         _ = reg;
         _ = slot;
         _ = cursor;
+    }
+
+    pub fn capturePointer(self: *Backend, reg: *registry.Registry, slot: u32) !void {
+        _ = reg;
+        self.captured = slot;
+    }
+
+    pub fn releasePointer(self: *Backend, reg: *registry.Registry, slot: u32) void {
+        _ = reg;
+        if (self.captured == slot) self.captured = null;
     }
 };

@@ -42,6 +42,10 @@ pub const Backend = struct {
     /// Cache de cursores por variante, criado sob demanda e liberado no
     /// deinit. Handles sao globais ao backend (compartilhados por janelas).
     cursors: [types.Cursor.count]api.Cursor = @splat(0),
+    /// Slot da janela com grab de ponteiro (exclusivo por conexao), se
+    /// houver. O servidor libera o grab quando a janela fica nao-visivel
+    /// ou e destruida; os handlers de evento limpam o estado nesses casos.
+    captured: ?u32 = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -71,6 +75,7 @@ pub const Backend = struct {
     }
 
     pub fn deinit(self: *Backend) void {
+        if (self.captured != null) _ = api.XUngrabPointer(self.display, api.CurrentTime);
         for (self.cursors) |handle| {
             if (handle != 0) _ = api.XFreeCursor(self.display, handle);
         }
@@ -135,6 +140,9 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend, reg: *registry.Registry, slot: u32) void {
+        // Solta o grab antes de destruir a janela (o servidor tambem
+        // liberaria automaticamente, mas o estado local ficaria obsoleto).
+        self.releasePointer(reg, slot);
         // Remove o registro ANTES de destruir: o DestroyNotify resultante
         // nao encontra entrada e e ignorado (sem evento espurio).
         if (self.findEntry(slot)) |i| {
@@ -143,7 +151,6 @@ pub const Backend = struct {
             _ = api.XDestroyWindow(self.display, win);
             _ = api.XFlush(self.display);
         }
-        _ = reg;
     }
 
     pub fn setTitle(
@@ -228,6 +235,39 @@ pub const Backend = struct {
         if (handle == 0) return error.CursorCreationFailed;
         self.cursors[idx] = handle;
         return handle;
+    }
+
+    pub fn capturePointer(self: *Backend, reg: *registry.Registry, slot: u32) !void {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        if (self.captured == slot) return;
+        // Captura exclusiva por conexao: transferir exige soltar a atual.
+        if (self.captured != null) {
+            _ = api.XUngrabPointer(self.display, api.CurrentTime);
+            self.captured = null;
+        }
+        const status = api.XGrabPointer(
+            self.display,
+            self.entries.items[entry_idx].win,
+            api.True,
+            @intCast(api.ButtonPressMask | api.ButtonReleaseMask | api.PointerMotionMask),
+            api.GrabModeAsync,
+            api.GrabModeAsync,
+            api.None, // confine_to: nao confina o ponteiro
+            api.None, // cursor: nao altera o cursor
+            api.CurrentTime,
+        );
+        if (status != api.GrabSuccess) return error.PointerCaptureFailed;
+        self.captured = slot;
+        _ = api.XFlush(self.display);
+    }
+
+    pub fn releasePointer(self: *Backend, reg: *registry.Registry, slot: u32) void {
+        _ = reg;
+        if (self.captured != slot) return;
+        _ = api.XUngrabPointer(self.display, api.CurrentTime);
+        self.captured = null;
+        _ = api.XFlush(self.display);
     }
 
     pub fn poll(
@@ -366,6 +406,8 @@ pub const Backend = struct {
                 // Janela destruida pelo servidor: marca fechamento para que
                 // o consumidor encerre e libere o slot.
                 reg.slots.items[slot].should_close = true;
+                // O servidor libera o grab junto com a janela.
+                if (self.captured == slot) self.captured = null;
                 const wid = reg.idOf(slot);
                 events.dispatch(queue, state, .{ .close = .{ .window = wid } });
                 // Remove a entrada: a nativa morreu; operacoes seguintes
@@ -382,6 +424,9 @@ pub const Backend = struct {
             api.UnmapNotify => {
                 const slot = self.slotOfNative(reg, ev.unmap.window) orelse return;
                 reg.slots.items[slot].visible = false;
+                // XGrabPointer exige janela viewable: o servidor libera o
+                // grab ao desmapear; o estado local acompanha.
+                if (self.captured == slot) self.captured = null;
             },
             else => {},
         }

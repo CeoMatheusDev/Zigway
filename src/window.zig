@@ -76,6 +76,17 @@ pub const Window = struct {
         try self.platform.setWindowCursor(self.id, cursor);
     }
 
+    /// Captura o ponteiro para esta janela (exclusiva por `Platform`).
+    /// Capturar outra janela da mesma instancia transfere a captura.
+    pub fn capturePointer(self: Window) !void {
+        try self.platform.captureWindowPointer(self.id);
+    }
+
+    /// Libera a captura se esta janela a detem; idempotente e infalivel.
+    pub fn releasePointer(self: Window) void {
+        self.platform.releaseWindowPointer(self.id);
+    }
+
     pub fn size(self: Window) WindowSize {
         return self.platform.windowSize(self.id);
     }

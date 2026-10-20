@@ -44,6 +44,8 @@ platform.setWindowSize(id, w, h) !void   // slot reflete o CONFIRMADO:
 platform.setWindowVisible(id, v) !void
 platform.focusWindow(id) !void           // melhor esforço
 platform.setWindowCursor(id, cursor) !void
+platform.captureWindowPointer(id) !void
+platform.releaseWindowPointer(id) void // idempotente/best-effort
 ```
 
 ## Window (handle `{id, *Platform}`)
@@ -56,6 +58,8 @@ window.shouldClose() bool
 window.requestClose() void
 window.setTitle/setSize/setVisible/focus  // !void
 window.setCursor(Cursor) !void   // cursor do sistema, por janela
+window.capturePointer() !void    // captura exclusiva por Platform
+window.releasePointer() void     // idempotente; seguro em defer
 window.size() WindowSize
 ```
 
@@ -109,6 +113,15 @@ left/right/middle/back/forward (roda chega como `scroll`).
 por backend; `.default` é a seta padrão do SO e `.not_allowed` usa
 `XC_X_cursor` no X11 (o cursorfont não tem forma "proibido" dedicada).
 
+Captura de ponteiro: exclusiva por `Platform` (no Win32 a captura é
+por thread, então duas instâncias na mesma thread compartilham o estado
+do SO); capturar outra janela da mesma instância transfere a captura (a
+anterior é liberada antes da nova tentativa; se a nova falhar, nenhuma
+fica capturada). `releasePointer` é idempotente e não falha (seguro em
+`defer`), inclusive após `deinit` ou para id inválido. Durante a captura
+os eventos de ponteiro continuam chegando pela janela capturada mesmo
+fora de seus limites; o ponteiro não é confinado.
+
 `pointer_window` é limpo quando a janela correspondente é destruída
 (`InputState.forgetWindow`), evitando referência a id morto. Teclas e
 botões são estado global e não são associados a janela.
@@ -122,8 +135,8 @@ botões são estado global e não são associados a janela.
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,
-`WindowCreationFailed`, `CursorCreationFailed`, `InvalidWindow`,
-`PlatformClosed`.
+`WindowCreationFailed`, `CursorCreationFailed`, `PointerCaptureFailed`,
+`InvalidWindow`, `PlatformClosed`.
 
 ## Lifecycle
 

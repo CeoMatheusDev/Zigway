@@ -75,6 +75,8 @@ pub const Backend = struct {
     class_atom: api.ATOM,
     class_name: [max_class_name:0]u16 = undefined,
     entries: std.ArrayList(Entry) = .empty,
+    /// Slot da janela com captura de mouse (por thread no Win32), se houver.
+    captured: ?u32 = null,
     pending: ?Pending = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
@@ -106,6 +108,11 @@ pub const Backend = struct {
     }
 
     pub fn deinit(self: *Backend) void {
+        if (self.captured) |slot| {
+            if (self.findEntry(slot)) |i| {
+                if (api.GetCapture() == self.entries.items[i].hwnd) _ = api.ReleaseCapture();
+            }
+        }
         self.entries.deinit(self.allocator);
         _ = api.UnregisterClassW(@ptrCast(&self.class_name), self.instance);
     }
@@ -190,6 +197,8 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend, reg: *registry.Registry, slot: u32) void {
+        // Libera a captura antes de remover a entrada/destruir a janela.
+        self.releasePointer(reg, slot);
         if (self.findEntry(slot)) |i| {
             const hwnd = self.entries.items[i].hwnd;
             _ = self.entries.swapRemove(i);
@@ -279,6 +288,35 @@ pub const Backend = struct {
         _ = api.SetCursor(handle);
     }
 
+    pub fn capturePointer(self: *Backend, reg: *registry.Registry, slot: u32) !void {
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const hwnd = self.entries.items[entry_idx].hwnd;
+        if (api.GetCapture() == hwnd) {
+            self.captured = slot;
+            return;
+        }
+        // Transfere com a mesma semantica do X11: solta a anterior antes
+        // de tentar a nova. Se a nova falhar, nenhuma fica capturada.
+        if (self.captured) |old_slot| self.releasePointer(reg, old_slot);
+        _ = api.SetCapture(hwnd);
+        // SetCapture pode falhar se outra thread detem a captura.
+        if (api.GetCapture() != hwnd) return error.PointerCaptureFailed;
+        self.captured = slot;
+    }
+
+    pub fn releasePointer(self: *Backend, reg: *registry.Registry, slot: u32) void {
+        _ = reg;
+        if (self.captured != slot) return;
+        const entry_idx = self.findEntry(slot) orelse {
+            self.captured = null;
+            return;
+        };
+        if (api.GetCapture() == self.entries.items[entry_idx].hwnd) {
+            _ = api.ReleaseCapture();
+        }
+        self.captured = null;
+    }
+
     pub fn poll(
         self: *Backend,
         reg: *registry.Registry,
@@ -356,6 +394,8 @@ fn wndProc(hwnd: api.HWND, msg: api.UINT, wparam: api.WPARAM, lparam: api.LPARAM
             if (backend.slotOfNative(pending.reg, hwnd)) |slot| {
                 const wid = pending.reg.idOf(slot);
                 pending.reg.slots.items[slot].should_close = true;
+                // A destruicao da janela libera a captura no sistema.
+                if (backend.captured == slot) backend.captured = null;
                 events.dispatch(queue, state, .{
                     .close = .{ .window = wid },
                 });

@@ -31,6 +31,24 @@ fn sleepMs(ms: u64) void {
     _ = nanosleep(&req, null);
 }
 
+/// XGrabPointer exige janela viewable, mas o MapNotify do WM e assincrono.
+/// Re-tenta por ate 2s enquanto o servidor responder GrabNotViewable (ou
+/// qualquer falha recuperavel de captura).
+fn captureEventually(plat: *zigway.Platform, window: zigway.Window) !void {
+    var attempts: u32 = 0;
+    while (attempts < 200) : (attempts += 1) {
+        window.capturePointer() catch |err| {
+            if (err != error.PointerCaptureFailed) return err;
+            plat.pollEvents();
+            while (plat.nextEvent()) |_| {}
+            sleepMs(10);
+            continue;
+        };
+        return;
+    }
+    return error.PointerCaptureFailed;
+}
+
 test "live x11: open display, create window, poll, destroy" {
     var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
         // Sem display, backend indisponivel ou SO sem X11: pula sem falhar.
@@ -105,6 +123,18 @@ extern "X11" fn XSendEvent(
 ) c_int;
 extern "X11" fn XKeysymToKeycode(display: *anyopaque, keysym: c_ulong) u8;
 extern "X11" fn XKeycodeToKeysym(display: *anyopaque, keycode: u8, index: c_int) c_ulong;
+extern "X11" fn XGrabPointer(
+    display: *anyopaque,
+    grab_window: c_ulong,
+    owner_events: c_int,
+    event_mask: c_uint,
+    pointer_mode: c_int,
+    keyboard_mode: c_int,
+    confine_to: c_ulong,
+    cursor: c_ulong,
+    time: c_ulong,
+) c_int;
+extern "X11" fn XUngrabPointer(display: *anyopaque, time: c_ulong) c_int;
 
 /// XKeyEvent/XButtonEvent/XMotionEvent (Xlib.h) tem o mesmo layout: os
 /// tres terminam em um campo de 4 bytes (keycode, button, is_hint) na
@@ -145,6 +175,9 @@ const KeyReleaseMask: c_long = 1 << 1;
 const ButtonPressMask: c_long = 1 << 2;
 const ButtonReleaseMask: c_long = 1 << 3;
 const PointerMotionMask: c_long = 1 << 6;
+const GrabSuccess: c_int = 0;
+const AlreadyGrabbed: c_int = 1;
+const GrabModeAsync: c_int = 1;
 
 // Modificadores no campo `state` (X.h).
 const ShiftMask: c_uint = 1 << 0;
@@ -878,6 +911,80 @@ test "live x11: all system cursors are created and applied without errors" {
 
     try std.testing.expectEqual(@as(usize, 0), cursor_protocol_errors);
     try std.testing.expect(!window.shouldClose());
+}
+
+test "live x11: pointer capture is exclusive, transferable and releasable" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    var first = try plat.createWindow(.{
+        .width = 200,
+        .height = 120,
+        .title = "zigway capture 1",
+    });
+    defer first.deinit();
+    var second = try plat.createWindow(.{
+        .width = 200,
+        .height = 120,
+        .title = "zigway capture 2",
+    });
+    defer second.deinit();
+
+    // Conexao independente usada para comprovar o grab no servidor.
+    const other = XOpenDisplay(null) orelse return error.NoDisplay;
+    defer _ = XCloseDisplay(other);
+    defer _ = XUngrabPointer(other, 0);
+    const root = XDefaultRootWindow(other);
+    const grab_mask: c_uint = @intCast(ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
+
+    // O mapeamento e assincrono (WM): captureEventually re-tenta ate a
+    // janela ficar viewable (XGrabPointer -> GrabNotViewable antes disso).
+    try captureEventually(&plat, first);
+    defer first.releasePointer();
+    try first.capturePointer(); // idempotente
+
+    // Enquanto a primeira janela detem o grab, outra conexao nao captura.
+    try std.testing.expectEqual(
+        AlreadyGrabbed,
+        XGrabPointer(other, root, 1, grab_mask, GrabModeAsync, GrabModeAsync, 0, 0, 0),
+    );
+
+    // Capturar a segunda janela transfere a captura (exclusiva).
+    try captureEventually(&plat, second);
+    defer second.releasePointer();
+    try std.testing.expectEqual(
+        AlreadyGrabbed,
+        XGrabPointer(other, root, 1, grab_mask, GrabModeAsync, GrabModeAsync, 0, 0, 0),
+    );
+
+    // Soltar a primeira (que nao detem mais) nao afeta a segunda.
+    first.releasePointer();
+    try std.testing.expectEqual(
+        AlreadyGrabbed,
+        XGrabPointer(other, root, 1, grab_mask, GrabModeAsync, GrabModeAsync, 0, 0, 0),
+    );
+
+    // Liberar a detentora permite que outra conexao capture. Ha um
+    // intervalo assincrono entre XUngrabPointer e o servidor processar;
+    // tenta por ate 1s.
+    second.releasePointer();
+    var status: c_int = AlreadyGrabbed;
+    var attempts: u32 = 0;
+    while (status != GrabSuccess and attempts < 100) : (attempts += 1) {
+        status = XGrabPointer(other, root, 1, grab_mask, GrabModeAsync, GrabModeAsync, 0, 0, 0);
+        if (status == GrabSuccess) break;
+        _ = XSync(other, 0);
+        sleepMs(10);
+    }
+    try std.testing.expectEqual(GrabSuccess, status);
 }
 
 test "live x11: protocol error does not abort the process" {

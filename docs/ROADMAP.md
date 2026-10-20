@@ -16,8 +16,9 @@ implementação. Versões seguem SemVer 2.0.0 (ver `VERSIONING.md`).
 
 ## v0.2.x — Display e Cursor
 
-Cursores do SO implementados (`Window.setCursor`); monitores/modos de
-vídeo e captura de ponteiro permanecem pendentes.
+Cursores do SO e captura de ponteiro implementados
+(`Window.setCursor`/`capturePointer`); monitores/modos de vídeo
+permanecem pendentes.
 
 ## v0.3.x — Text Input e Clipboard
 

@@ -12,7 +12,8 @@ título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
 5 botões, roda vertical/horizontal), modificadores
 (Shift/Ctrl/Alt/Super), multi-janelas, cursores do sistema
 (`XCreateFontCursor` + `XDefineCursor`, cache por backend liberado no
-`deinit`).
+`deinit`), captura de ponteiro (`XGrabPointer`/`XUngrabPointer`,
+exclusiva por conexão, com transferência entre janelas).
 
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
@@ -50,6 +51,9 @@ Limitações conhecidas:
 - Posição absoluta da janela não é controlada (limite do protocolo).
 - `setCursor` é validado por ausência de erro de protocolo; o efeito
   visual não é inspecionado pelo teste.
+- Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);
+  o grab é liberado pelo servidor ao desmapear/destruir e o estado local
+  acompanha. Não há confinamento do ponteiro (`confine_to = None`).
 - XWayland conta como backend X11 (sem código Wayland nativo).
 
 Validado com display real: `zig build test-x11`.
@@ -67,7 +71,8 @@ estado autoritativo via `GetKeyState` (mouse e teclado), mouse
 (movimento, 5 botões, wheel vertical/horizontal), `WM_SIZE` (inclui
 minimize como invisível), foco, `WM_CLOSE`→evento sem destruir,
 cursores do sistema (`LoadCursorW` + `SetCursor` e `WM_SETCURSOR` por
-janela), multi-janelas.
+janela), captura de mouse (`SetCapture`/`ReleaseCapture`/`GetCapture`,
+por thread), multi-janelas.
 
 Destruição externa: como no X11, a entrada nativa é removida e
 operações seguintes retornam `InvalidWindow`; o slot segue ocupado
@@ -90,6 +95,9 @@ Limitações conhecidas:
   `ScrollEvent` não carrega coordenadas nesta fase; não há conversão
   (`ScreenToClient`).
 - `focus()` usa `SetFocus` (melhor esforço; foreground pertence ao SO).
+- Captura de mouse é por thread: `SetCapture` pode falhar enquanto outra
+  thread detém a captura (`PointerCaptureFailed`); a captura é liberada
+  ao destruir a janela e verificada via `GetCapture`.
 
 ## Wayland
 
@@ -98,5 +106,6 @@ Não implementado. Ver `src/platform/wayland/README.md`.
 ## null
 
 Headless: sem recursos nativos; eventos via `injectEvent`; `setCursor`
-é no-op (aceita todas as variantes). Usado pelos testes unitários e como
-fallback em SOs sem backend.
+é no-op e a captura de ponteiro é apenas estado interno (aceita todas as
+variantes/janelas). Usado pelos testes unitários e como fallback em SOs
+sem backend.

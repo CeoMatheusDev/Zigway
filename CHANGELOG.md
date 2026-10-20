@@ -16,6 +16,16 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   criacao/aplicacao retorna `CursorCreationFailed`.
 - Cobertura live X11: todas as variantes sao criadas/aplicadas e
   reaplicadas (cache), contando erros de protocolo da conexao.
+- `Window.capturePointer`/`releasePointer` e
+  `Platform.captureWindowPointer`/`releaseWindowPointer`: captura de
+  ponteiro exclusiva por `Platform`, com transferencia ao capturar
+  outra janela. X11 usa `XGrabPointer`/`XUngrabPointer` (grab liberado
+  ao desmapear/destruir); Win32 usa `SetCapture`/`ReleaseCapture` e
+  verifica `GetCapture`; null mantem estado interno. Falha de
+  aquisicao retorna `PointerCaptureFailed`; a liberacao e idempotente e
+  infalivel.
+- Cobertura live X11: captura bloqueia grab de outra conexao, transfere
+  entre janelas e libera o grab ao soltar a detentora.
 
 ## [0.1.0-alpha.2] — 2026-10-19
 

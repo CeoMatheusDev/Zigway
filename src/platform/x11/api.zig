@@ -13,11 +13,16 @@ pub const Time = c_ulong;
 pub const KeySym = c_ulong;
 pub const Cursor = c_ulong;
 pub const XBool = c_int;
+pub const True: c_int = 1;
 pub const Status = c_int;
 
 pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
+
+// --- Grab de ponteiro (X.h) ---
+pub const GrabModeAsync: c_int = 1;
+pub const GrabSuccess: c_int = 0;
 
 // --- Formas de cursor (cursorfont.h) ---
 pub const XC_X_cursor: c_uint = 0;
@@ -316,6 +321,18 @@ pub extern "X11" fn XSetInputFocus(display: *Display, window: Window, revert_to:
 pub extern "X11" fn XCreateFontCursor(display: *Display, shape: c_uint) Cursor;
 pub extern "X11" fn XDefineCursor(display: *Display, window: Window, cursor: Cursor) c_int;
 pub extern "X11" fn XFreeCursor(display: *Display, cursor: Cursor) c_int;
+pub extern "X11" fn XGrabPointer(
+    display: *Display,
+    grab_window: Window,
+    owner_events: XBool,
+    event_mask: c_uint,
+    pointer_mode: c_int,
+    keyboard_mode: c_int,
+    confine_to: Window,
+    cursor: Cursor,
+    time: Time,
+) c_int;
+pub extern "X11" fn XUngrabPointer(display: *Display, time: Time) c_int;
 pub extern "X11" fn XLookupKeysym(event: *const XKeyEvent, index: c_int) KeySym;
 pub extern "X11" fn XSetErrorHandler(handler: XErrorHandler) XErrorHandler;
 /// Habilita "detectable autorepeat" (XKB, parte da Xlib): o servidor
