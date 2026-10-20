@@ -43,6 +43,7 @@ const DispatchPendingFn = *const fn (*wl_display) callconv(.c) c_int;
 const PrepareReadFn = *const fn (*wl_display) callconv(.c) c_int;
 const ReadEventsFn = *const fn (*wl_display) callconv(.c) c_int;
 const RoundtripFn = *const fn (*wl_display) callconv(.c) c_int;
+const FlushFn = *const fn (*wl_display) callconv(.c) c_int;
 const MarshalArrayFn = *const fn (
     *wl_proxy,
     u32,
@@ -69,6 +70,7 @@ pub const Symbols = struct {
     display_prepare_read: PrepareReadFn,
     display_read_events: ReadEventsFn,
     display_roundtrip: RoundtripFn,
+    display_flush: FlushFn,
     proxy_marshal_array: MarshalArrayFn,
     proxy_marshal_flags: MarshalFlagsFn,
     proxy_destroy: ProxyDestroyFn,
@@ -114,6 +116,10 @@ pub const Lib = struct {
             dyn.close();
             return null;
         };
+        const display_flush = dyn.lookup(FlushFn, "wl_display_flush") orelse {
+            dyn.close();
+            return null;
+        };
         const proxy_marshal_array = dyn.lookup(MarshalArrayFn, "wl_proxy_marshal_array") orelse {
             dyn.close();
             return null;
@@ -140,6 +146,7 @@ pub const Lib = struct {
                 .display_prepare_read = display_prepare_read,
                 .display_read_events = display_read_events,
                 .display_roundtrip = display_roundtrip,
+                .display_flush = display_flush,
                 .proxy_marshal_array = proxy_marshal_array,
                 .proxy_marshal_flags = proxy_marshal_flags,
                 .proxy_destroy = proxy_destroy,
@@ -208,15 +215,86 @@ pub const wl_seat_capability_pointer: u32 = 1;
 pub const wl_seat_capability_keyboard: u32 = 2;
 pub const wl_seat_capability_touch: u32 = 4;
 
+/// `struct wl_array` (wayland-util.h): vetor de bytes (usado pelos
+/// estados do xdg_toplevel).
+pub const wl_array = extern struct {
+    size: c_int,
+    alloc: c_int,
+    data: ?[*]u8,
+};
+
 /// Nomes de interface do protocolo (usados em `wl_registry.bind`).
 pub const interface_wl_compositor = "wl_compositor";
 pub const interface_wl_output = "wl_output";
 pub const interface_wl_seat = "wl_seat";
 pub const interface_wl_surface = "wl_surface";
 pub const interface_wl_shm = "wl_shm";
+pub const interface_xdg_wm_base = "xdg_wm_base";
 
 /// Interfaces do protocolo estavel (para binds futuros).
-pub const interface_xdg_wm_base = "xdg_wm_base";
+pub const interface_xdg_surface = "xdg_surface";
+pub const interface_xdg_toplevel = "xdg_toplevel";
+
+/// --- Requests: wl_surface ---
+pub const wl_surface_destroy: u32 = 0;
+pub const wl_surface_attach: u32 = 1;
+pub const wl_surface_damage: u32 = 2;
+pub const wl_surface_frame: u32 = 3;
+pub const wl_surface_set_opaque_region: u32 = 4;
+pub const wl_surface_set_input_region: u32 = 5;
+pub const wl_surface_commit: u32 = 6;
+pub const wl_surface_set_buffer_transform: u32 = 7;
+pub const wl_surface_set_buffer_scale: u32 = 8;
+pub const wl_surface_damage_buffer: u32 = 9;
+pub const wl_surface_offset: u32 = 10;
+pub const wl_surface_get_release: u32 = 11;
+
+/// --- Requests: wl_shm / wl_shm_pool / wl_buffer ---
+pub const wl_shm_create_pool: u32 = 0;
+pub const wl_shm_release: u32 = 1;
+pub const wl_shm_pool_create_buffer: u32 = 0;
+pub const wl_shm_pool_destroy: u32 = 1;
+pub const wl_shm_pool_resize: u32 = 2;
+pub const wl_buffer_destroy: u32 = 0;
+
+/// --- Requests: xdg_wm_base ---
+pub const xdg_wm_base_destroy: u32 = 0;
+pub const xdg_wm_base_create_positioner: u32 = 1;
+pub const xdg_wm_base_get_xdg_surface: u32 = 2;
+pub const xdg_wm_base_pong: u32 = 3;
+
+/// --- Requests: xdg_surface ---
+pub const xdg_surface_destroy: u32 = 0;
+pub const xdg_surface_get_toplevel: u32 = 1;
+pub const xdg_surface_get_popup: u32 = 2;
+pub const xdg_surface_set_window_geometry: u32 = 3;
+pub const xdg_surface_ack_configure: u32 = 4;
+
+/// --- Requests: xdg_toplevel ---
+pub const xdg_toplevel_destroy: u32 = 0;
+pub const xdg_toplevel_set_parent: u32 = 1;
+pub const xdg_toplevel_set_title: u32 = 2;
+pub const xdg_toplevel_set_app_id: u32 = 3;
+pub const xdg_toplevel_show_window_menu: u32 = 4;
+pub const xdg_toplevel_move: u32 = 5;
+pub const xdg_toplevel_resize: u32 = 6;
+pub const xdg_toplevel_set_max_size: u32 = 7;
+pub const xdg_toplevel_set_min_size: u32 = 8;
+pub const xdg_toplevel_set_maximized: u32 = 9;
+pub const xdg_toplevel_unset_maximized: u32 = 10;
+pub const xdg_toplevel_set_fullscreen: u32 = 11;
+pub const xdg_toplevel_unset_fullscreen: u32 = 12;
+pub const xdg_toplevel_set_minimized: u32 = 13;
+
+/// --- Estados do xdg_toplevel (enum `xdg_toplevel_state`) ---
+pub const xdg_toplevel_state_maximized: u32 = 1;
+pub const xdg_toplevel_state_fullscreen: u32 = 2;
+pub const xdg_toplevel_state_resizing: u32 = 3;
+pub const xdg_toplevel_state_activated: u32 = 4;
+
+/// --- Formatos de wl_shm (`wl_shm.format`) ---
+pub const wl_shm_format_argb8888: u32 = 0;
+pub const wl_shm_format_xrgb8888: u32 = 1;
 
 test "wl_argument layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;

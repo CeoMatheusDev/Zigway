@@ -137,14 +137,19 @@ pub const seat_interface = Interface{
 };
 
 // --- wl_pointer (v11) ---
-const pointer_cursor_types = [_]?*const Interface{ null, null, &surface_interface, null, null };
+// `set_cursor`: serial(u), surface(?o), hotspot_x(i), hotspot_y(i).
+const pointer_cursor_types = [_]?*const Interface{ null, &surface_interface, null, null };
+// `enter`: serial(u), surface(o), x(f), y(f).
+const pointer_enter_types = [_]?*const Interface{ null, &surface_interface, null, null };
+// `leave`: serial(u), surface(o).
+const pointer_leave_types = [_]?*const Interface{ null, &surface_interface };
 const pointer_methods: [2]Message = .{
     .{ .name = "set_cursor", .signature = "u?oii", .types = &pointer_cursor_types },
     .{ .name = "release", .signature = "3", .types = null },
 };
 const pointer_events: [12]Message = .{
-    .{ .name = "enter", .signature = "uoff", .types = null },
-    .{ .name = "leave", .signature = "uo", .types = null },
+    .{ .name = "enter", .signature = "uoff", .types = &pointer_enter_types },
+    .{ .name = "leave", .signature = "uo", .types = &pointer_leave_types },
     .{ .name = "motion", .signature = "uff", .types = null },
     .{ .name = "button", .signature = "uuuu", .types = null },
     .{ .name = "axis", .signature = "uuf", .types = null },
@@ -170,10 +175,14 @@ pub const pointer_interface = Interface{
 const keyboard_methods: [1]Message = .{
     .{ .name = "release", .signature = "3", .types = null },
 };
+// `enter`: serial(u), surface(o), keys(a).
+const keyboard_enter_types = [_]?*const Interface{ null, &surface_interface, null };
+// `leave`: serial(u), surface(o).
+const keyboard_leave_types = [_]?*const Interface{ null, &surface_interface };
 const keyboard_events: [6]Message = .{
     .{ .name = "keymap", .signature = "uhu", .types = null },
-    .{ .name = "enter", .signature = "uoa", .types = null },
-    .{ .name = "leave", .signature = "uo", .types = null },
+    .{ .name = "enter", .signature = "uoa", .types = &keyboard_enter_types },
+    .{ .name = "leave", .signature = "uo", .types = &keyboard_leave_types },
     .{ .name = "key", .signature = "uuuu", .types = null },
     .{ .name = "modifiers", .signature = "uuuuu", .types = null },
     .{ .name = "repeat_info", .signature = "4ii", .types = null },
@@ -230,13 +239,15 @@ pub const compositor_interface = Interface{
 };
 
 // --- wl_surface (v7) ---
-const surface_attach_types = [_]?*const Interface{ null, &buffer_interface, null, null };
+// `attach`: buffer(?o), x(i), y(i).
+const surface_attach_types = [_]?*const Interface{ &buffer_interface, null, null };
 const surface_frame_types = [_]?*const Interface{&callback_interface};
 const surface_opaque_types = [_]?*const Interface{ null, &region_interface };
 const surface_input_types = [_]?*const Interface{ null, &region_interface };
 const surface_release_types = [_]?*const Interface{&callback_interface};
-const surface_enter_types = [_]?*const Interface{&surface_interface};
-const surface_leave_types = [_]?*const Interface{&surface_interface};
+// `enter`/`leave`: output(o).
+const surface_enter_types = [_]?*const Interface{&output_interface};
+const surface_leave_types = [_]?*const Interface{&output_interface};
 const surface_methods: [12]Message = .{
     .{ .name = "destroy", .signature = "", .types = null },
     .{ .name = "attach", .signature = "?oii", .types = &surface_attach_types },
@@ -336,6 +347,163 @@ pub const buffer_interface = Interface{
     .events = &buffer_events,
 };
 
+// --- xdg_wm_base (v6) ---
+// xdg-shell: superficie de janela (desktop-style). `get_xdg_surface`
+// recebe a wl_surface e devolve a xdg_surface (papel do objeto).
+const xdg_wm_base_create_positioner_types = [_]?*const Interface{&xdg_positioner_interface};
+const xdg_wm_base_get_xdg_surface_types = [_]?*const Interface{ &xdg_surface_interface, &surface_interface };
+const xdg_wm_base_pong_types = [_]?*const Interface{null};
+const xdg_wm_base_methods: [4]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "create_positioner", .signature = "n", .types = &xdg_wm_base_create_positioner_types },
+    .{ .name = "get_xdg_surface", .signature = "no", .types = &xdg_wm_base_get_xdg_surface_types },
+    .{ .name = "pong", .signature = "u", .types = &xdg_wm_base_pong_types },
+};
+const xdg_wm_base_ping_types = [_]?*const Interface{null};
+const xdg_wm_base_events: [1]Message = .{
+    .{ .name = "ping", .signature = "u", .types = &xdg_wm_base_ping_types },
+};
+
+pub const xdg_wm_base_interface = Interface{
+    .name = "xdg_wm_base",
+    .version = 6,
+    .method_count = 4,
+    .methods = &xdg_wm_base_methods,
+    .event_count = 1,
+    .events = &xdg_wm_base_events,
+};
+
+// --- xdg_positioner (v6) ---
+// Usado por popups (xdg_surface.get_popup). Mantido aqui para que os
+// indices de request da xdg_surface permaneçam alinhados ao protocolo.
+const xdg_positioner_set_size_types = [_]?*const Interface{ null, null };
+const xdg_positioner_set_anchor_rect_types = [_]?*const Interface{ null, null, null, null };
+const xdg_positioner_set_anchor_types = [_]?*const Interface{null};
+const xdg_positioner_set_gravity_types = [_]?*const Interface{null};
+const xdg_positioner_set_constraint_adjustment_types = [_]?*const Interface{null};
+const xdg_positioner_set_offset_types = [_]?*const Interface{ null, null };
+const xdg_positioner_set_parent_size_types = [_]?*const Interface{ null, null };
+const xdg_positioner_set_parent_configure_types = [_]?*const Interface{null};
+const xdg_positioner_methods: [10]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_size", .signature = "ii", .types = &xdg_positioner_set_size_types },
+    .{ .name = "set_anchor_rect", .signature = "iiii", .types = &xdg_positioner_set_anchor_rect_types },
+    .{ .name = "set_anchor", .signature = "u", .types = &xdg_positioner_set_anchor_types },
+    .{ .name = "set_gravity", .signature = "u", .types = &xdg_positioner_set_gravity_types },
+    .{ .name = "set_constraint_adjustment", .signature = "u", .types = &xdg_positioner_set_constraint_adjustment_types },
+    .{ .name = "set_offset", .signature = "ii", .types = &xdg_positioner_set_offset_types },
+    .{ .name = "set_reactive", .signature = "3", .types = null },
+    .{ .name = "set_parent_size", .signature = "3ii", .types = &xdg_positioner_set_parent_size_types },
+    .{ .name = "set_parent_configure", .signature = "3u", .types = &xdg_positioner_set_parent_configure_types },
+};
+
+pub const xdg_positioner_interface = Interface{
+    .name = "xdg_positioner",
+    .version = 6,
+    .method_count = 10,
+    .methods = &xdg_positioner_methods,
+    .event_count = 0,
+    .events = null,
+};
+
+// --- xdg_surface (v6) ---
+const xdg_surface_get_toplevel_types = [_]?*const Interface{&xdg_toplevel_interface};
+const xdg_surface_get_popup_types = [_]?*const Interface{ &xdg_popup_interface, &xdg_surface_interface, &xdg_positioner_interface };
+const xdg_surface_set_window_geometry_types = [_]?*const Interface{ null, null, null, null };
+const xdg_surface_ack_configure_types = [_]?*const Interface{null};
+const xdg_surface_methods: [5]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "get_toplevel", .signature = "n", .types = &xdg_surface_get_toplevel_types },
+    .{ .name = "get_popup", .signature = "n?oo", .types = &xdg_surface_get_popup_types },
+    .{ .name = "set_window_geometry", .signature = "iiii", .types = &xdg_surface_set_window_geometry_types },
+    .{ .name = "ack_configure", .signature = "u", .types = &xdg_surface_ack_configure_types },
+};
+const xdg_surface_configure_types = [_]?*const Interface{null};
+const xdg_surface_events: [1]Message = .{
+    .{ .name = "configure", .signature = "u", .types = &xdg_surface_configure_types },
+};
+
+pub const xdg_surface_interface = Interface{
+    .name = "xdg_surface",
+    .version = 6,
+    .method_count = 5,
+    .methods = &xdg_surface_methods,
+    .event_count = 1,
+    .events = &xdg_surface_events,
+};
+
+// --- xdg_toplevel (v6) ---
+const xdg_toplevel_set_parent_types = [_]?*const Interface{&xdg_toplevel_interface};
+const xdg_toplevel_set_title_types = [_]?*const Interface{null};
+const xdg_toplevel_set_app_id_types = [_]?*const Interface{null};
+const xdg_toplevel_show_window_menu_types = [_]?*const Interface{ &seat_interface, null, null, null };
+const xdg_toplevel_move_types = [_]?*const Interface{ &seat_interface, null };
+const xdg_toplevel_resize_types = [_]?*const Interface{ &seat_interface, null, null };
+const xdg_toplevel_set_max_size_types = [_]?*const Interface{ null, null };
+const xdg_toplevel_set_min_size_types = [_]?*const Interface{ null, null };
+const xdg_toplevel_set_fullscreen_types = [_]?*const Interface{&output_interface};
+const xdg_toplevel_methods: [14]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "set_parent", .signature = "?o", .types = &xdg_toplevel_set_parent_types },
+    .{ .name = "set_title", .signature = "s", .types = &xdg_toplevel_set_title_types },
+    .{ .name = "set_app_id", .signature = "s", .types = &xdg_toplevel_set_app_id_types },
+    .{ .name = "show_window_menu", .signature = "ouii", .types = &xdg_toplevel_show_window_menu_types },
+    .{ .name = "move", .signature = "ou", .types = &xdg_toplevel_move_types },
+    .{ .name = "resize", .signature = "ouu", .types = &xdg_toplevel_resize_types },
+    .{ .name = "set_max_size", .signature = "ii", .types = &xdg_toplevel_set_max_size_types },
+    .{ .name = "set_min_size", .signature = "ii", .types = &xdg_toplevel_set_min_size_types },
+    .{ .name = "set_maximized", .signature = "", .types = null },
+    .{ .name = "unset_maximized", .signature = "", .types = null },
+    .{ .name = "set_fullscreen", .signature = "?o", .types = &xdg_toplevel_set_fullscreen_types },
+    .{ .name = "unset_fullscreen", .signature = "", .types = null },
+    .{ .name = "set_minimized", .signature = "", .types = null },
+};
+const xdg_toplevel_configure_types = [_]?*const Interface{ null, null, null };
+const xdg_toplevel_configure_bounds_types = [_]?*const Interface{ null, null };
+const xdg_toplevel_wm_capabilities_types = [_]?*const Interface{null};
+const xdg_toplevel_events: [4]Message = .{
+    .{ .name = "configure", .signature = "iia", .types = &xdg_toplevel_configure_types },
+    .{ .name = "close", .signature = "", .types = null },
+    .{ .name = "configure_bounds", .signature = "4ii", .types = &xdg_toplevel_configure_bounds_types },
+    .{ .name = "wm_capabilities", .signature = "5a", .types = &xdg_toplevel_wm_capabilities_types },
+};
+
+pub const xdg_toplevel_interface = Interface{
+    .name = "xdg_toplevel",
+    .version = 6,
+    .method_count = 14,
+    .methods = &xdg_toplevel_methods,
+    .event_count = 4,
+    .events = &xdg_toplevel_events,
+};
+
+// --- xdg_popup (v6) ---
+// Popups nao sao usados ainda; a tabela existe para manter os indices
+// de request da xdg_surface alinhados ao protocolo.
+const xdg_popup_grab_types = [_]?*const Interface{ &xdg_popup_interface, null };
+const xdg_popup_reposition_types = [_]?*const Interface{ &xdg_popup_interface, &seat_interface, null };
+const xdg_popup_methods: [3]Message = .{
+    .{ .name = "destroy", .signature = "", .types = null },
+    .{ .name = "grab", .signature = "ou", .types = &xdg_popup_grab_types },
+    .{ .name = "reposition", .signature = "3ou", .types = &xdg_popup_reposition_types },
+};
+const xdg_popup_configure_types = [_]?*const Interface{ null, null, null, null };
+const xdg_popup_repositioned_types = [_]?*const Interface{null};
+const xdg_popup_events: [3]Message = .{
+    .{ .name = "configure", .signature = "iiii", .types = &xdg_popup_configure_types },
+    .{ .name = "popup_done", .signature = "", .types = null },
+    .{ .name = "repositioned", .signature = "3u", .types = &xdg_popup_repositioned_types },
+};
+
+pub const xdg_popup_interface = Interface{
+    .name = "xdg_popup",
+    .version = 6,
+    .method_count = 3,
+    .methods = &xdg_popup_methods,
+    .event_count = 3,
+    .events = &xdg_popup_events,
+};
+
 test "interface layout matches wayland-util.h" {
     if (@sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(Interface));
@@ -360,4 +528,34 @@ test "protocol tables match the generated reference" {
     try std.testing.expectEqualStrings("2s", std.mem.span(seat_events[1].signature));
     try std.testing.expectEqual(@as(c_int, 4), output_interface.version);
     try std.testing.expectEqual(@as(c_int, 6), output_interface.event_count);
+}
+
+test "xdg-shell tables match the generated reference" {
+    // Assinaturas conferidas com `wayland-scanner private-code
+    // xdg-shell.xml` (wayland-protocols 6.x).
+    try std.testing.expectEqualStrings("n", std.mem.span(xdg_wm_base_methods[1].signature));
+    try std.testing.expectEqualStrings("no", std.mem.span(xdg_wm_base_methods[2].signature));
+    try std.testing.expectEqualStrings("u", std.mem.span(xdg_wm_base_methods[3].signature));
+    try std.testing.expectEqualStrings("u", std.mem.span(xdg_wm_base_events[0].signature));
+    try std.testing.expectEqualStrings("n", std.mem.span(xdg_surface_methods[1].signature));
+    try std.testing.expectEqualStrings("n?oo", std.mem.span(xdg_surface_methods[2].signature));
+    try std.testing.expectEqualStrings("iiii", std.mem.span(xdg_surface_methods[3].signature));
+    try std.testing.expectEqualStrings("u", std.mem.span(xdg_surface_methods[4].signature));
+    try std.testing.expectEqualStrings("u", std.mem.span(xdg_surface_events[0].signature));
+    try std.testing.expectEqualStrings("?o", std.mem.span(xdg_toplevel_methods[1].signature));
+    try std.testing.expectEqualStrings("s", std.mem.span(xdg_toplevel_methods[2].signature));
+    try std.testing.expectEqualStrings("ouu", std.mem.span(xdg_toplevel_methods[6].signature));
+    try std.testing.expectEqualStrings("ii", std.mem.span(xdg_toplevel_methods[7].signature));
+    try std.testing.expectEqualStrings("?o", std.mem.span(xdg_toplevel_methods[11].signature));
+    try std.testing.expectEqualStrings("iia", std.mem.span(xdg_toplevel_events[0].signature));
+    try std.testing.expectEqualStrings("", std.mem.span(xdg_toplevel_events[1].signature));
+    try std.testing.expectEqualStrings("4ii", std.mem.span(xdg_toplevel_events[2].signature));
+    try std.testing.expectEqualStrings("5a", std.mem.span(xdg_toplevel_events[3].signature));
+    // Indices de request sao o opcode do protocolo: a ordem importa.
+    try std.testing.expectEqualStrings("get_toplevel", std.mem.span(xdg_surface_methods[1].name));
+    try std.testing.expectEqualStrings("set_title", std.mem.span(xdg_toplevel_methods[2].name));
+    try std.testing.expectEqualStrings("ack_configure", std.mem.span(xdg_surface_methods[4].name));
+    try std.testing.expectEqual(@as(c_int, 6), xdg_wm_base_interface.version);
+    try std.testing.expectEqual(@as(c_int, 4), xdg_toplevel_interface.event_count);
+    try std.testing.expectEqual(@as(c_int, 14), xdg_toplevel_interface.method_count);
 }

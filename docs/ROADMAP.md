@@ -64,9 +64,13 @@ handles DXGI/Direct3D. Sem renderer próprio (ver `GRAPHICS.md`).
 
 Backend **nativo** (não XWayland) em andamento: connection, registry,
 outputs e seat implementados e validados contra o KWin em Wayland
-(`zig build test-wayland`); despacho assíncrono sem bloquear. Pendentes:
-surfaces (wl_surface + xdg_shell), input (keymap XKB/ponteiro) e
-clipboard do protocolo.
+(`zig build test-wayland`); despacho assíncrono sem bloquear.
+**Janelas via xdg-shell implementadas** (`wl_surface` + `xdg_surface` +
+`xdg_toplevel`): título, limites de tamanho, maximização e fullscreen,
+`configure` confirmado com `ack_configure` e buffer `wl_shm` para
+mapear a superfície, com eventos `resize`/`maximized`/`fullscreen`/
+`close`; `xdg_wm_base.ping` respondido com `pong`. Pendentes: input
+(keymap XKB e `wl_pointer`) e clipboard do protocolo.
 
 ## v0.6.x — Expansões de input
 

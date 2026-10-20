@@ -259,13 +259,52 @@ assíncrono sem bloquear (`prepare_read`/`read_events`/
 (`protocol.zig`), conferidas contra o código gerado por
 `wayland-scanner`.
 
-Ainda não implementado (retornam `NotImplemented`): janelas/superfícies
-(`wl_surface` + `xdg_shell`), input (teclado exige keymap XKB; ponteiro
-exige superfície), clipboard (`wl_data_device`) e modos de vídeo.
+Janelas (xdg-shell): `wl_surface` + `xdg_surface` + `xdg_toplevel`
+criados pelo `wl_compositor`/`xdg_wm_base`, com título
+(`xdg_toplevel.set_title`), app id, limites de tamanho
+(`set_min_size`/`set_max_size`), maximização
+(`set_maximized`/`unset_maximized`) e fullscreen
+(`set_fullscreen`/`unset_fullscreen`, sem output: o compositor escolhe).
+O cliente confirma cada `xdg_surface.configure` com `ack_configure` e
+anexa um buffer `wl_shm` (pool por buffer, `memfd` + `mmap`, formato
+XRGB8888 quando o compositor suporta) para mapear a superfície. O
+`xdg_toplevel.configure` traz o tamanho aceito pelo compositor
+(`0x0` = o cliente decide) e os estados (`maximized`/`fullscreen`),
+publicados como eventos `resize`, `maximized` e `fullscreen`. O evento
+`close` do `xdg_toplevel` vira o evento `close` da plataforma (o slot
+segue ocupado até `destroyWindow`, como nos outros backends). O
+`xdg_wm_base.ping` é respondido com `pong` (sem isso o compositor
+considera o cliente travado). O `wl_shm.format` do compositor é lido
+para escolher o formato do buffer. Esconder a janela usa o buffer nulo
+(commit sem buffer), como manda o protocolo.
+
+Ainda não implementado (retornam `NotImplemented`): input (teclado
+exige keymap XKB; ponteiro exige `wl_pointer`), clipboard
+(`wl_data_device`) e modos de vídeo. Também não há equivalente Wayland
+para `setSize` (o compositor decide o tamanho), `setPosition` (a posição
+não é exposta ao cliente), `focus` (o foco é do compositor) e cursor do
+sistema (exige `wl_pointer` e o tema do compositor). A captura
+exclusiva de ponteiro também não existe no protocolo base.
+
+Limitações conhecidas:
+
+- O buffer anexado é provisório (cor sólida): a superfície é mapeada e
+  o ciclo de vida da janela funciona, mas a renderização real entra na
+  fase de gráficos (v0.4).
+- O tamanho do cliente é apenas uma sugestão: o compositor pode
+  respondê-lo com outro no `configure` (e o evento `resize` traz o
+  tamanho aceito).
+- A escala do output (`wl_surface.preferred_buffer_scale`) ainda não é
+  aplicada ao buffer.
+- O primeiro `configure` também emite `resize` (o mapeamento é
+  confirmado pelo compositor), mesmo sem mudança de tamanho.
 
 Validado com compositor real: `zig build test-wayland` (KWin 6.7.5 em
-Wayland nativo). Sem compositor, o teste pula sem falhar. A CI não tem
-compositor Wayland: lá o passo apenas exercita o caminho de "pula".
+Wayland nativo), incluindo o ciclo de vida de uma janela (criação,
+`configure` confirmado com `resize`, troca de título, limites de
+tamanho, maximização/fullscreen e destruição). Sem compositor, o teste
+pula sem falhar. A CI não tem compositor Wayland: lá o passo apenas
+exercita o caminho de "pula".
 
 Detalhe: `wl_output` não informa qual output é o primário (exige
 `xdg-output`), então `DisplayInfo.primary` é `false` no Wayland; o

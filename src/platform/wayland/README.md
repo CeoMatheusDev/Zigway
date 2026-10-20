@@ -13,27 +13,61 @@ não está disponível (`error.UnsupportedBackend`).
 
 - **Conexão**: `wl_display_connect` (socket `WAYLAND_DISPLAY`).
 - **Registry**: `wl_display.get_registry` + `wl_registry.bind` de
-  `wl_output` e `wl_seat`.
+  `wl_output`, `wl_seat`, `wl_compositor`, `wl_shm` e `xdg_wm_base`.
 - **Outputs (monitores)**: `wl_output` (geometry, mode, scale, name) →
   `Platform.displays()` com posição e tamanho lógico (modo ÷ escala).
 - **Seat**: `wl_seat.capabilities` → `Platform.seatCapabilities()`
   (ponteiro/teclado/toque).
+- **Janelas (xdg-shell)**: `wl_surface` + `xdg_surface` +
+  `xdg_toplevel`, com título, app id, limites de tamanho, maximização
+  e fullscreen. O `configure` do compositor é confirmado com
+  `ack_configure` e o cliente anexa um buffer `wl_shm` (pool + buffer
+  por janela, `memfd` + `mmap`) para mapear a superfície. Eventos:
+  `resize` (tamanho aceito pelo compositor), `maximized`, `fullscreen`
+  e `close`.
+- **Ping**: `xdg_wm_base.ping` é respondido com `pong` (sem isso o
+  compositor considera o cliente travado).
 - **Despacho assíncrono**: leitura do socket sem bloquear
-  (`wl_display_prepare_read`/`read_events`/`dispatch_pending`).
+  (`wl_display_prepare_read`/`read_events`/`dispatch_pending`), com
+  flush das requisições pendentes.
 - **Tabelas de interface**: o equivalente Zig do código gerado por
   `wayland-scanner` (`src/platform/wayland/protocol.zig`), conferidas
-  contra a referência gerada.
+  contra a referência gerada (incluindo as tabelas de argumentos, que
+  definem a validação de tipos no demarshal).
 
 ## Ainda NÃO implementado
 
-- **Janelas/superficies**: `wl_surface` + `xdg_wm_base`/`xdg_surface`/
-  `xdg_toplevel` (as tabelas de interface já estão escritas).
-- **Input**: teclado (exige o keymap XKB) e ponteiro (exige superfície).
+- **Input**: teclado (exige o keymap XKB) e ponteiro (exige
+  `wl_pointer`).
 - **Clipboard**: `wl_data_device_manager`/`wl_data_source`/`wl_data_offer`.
 - **Modos de vídeo**: o Wayland delega a troca ao compositor.
+- **Equivalentes do X11/Win32 sem contraparte no protocolo base**:
+  `setSize` (o compositor decide o tamanho), `setPosition` (a posição
+  não é exposta ao cliente), `focus` (o foco é do compositor), cursor do
+  sistema e captura exclusiva de ponteiro.
 
-Até lá, `createWindow` e as operações de janela retornam
-`error.NotImplemented`; `displays()` e `seatCapabilities()` funcionam.
+## Buffer provisório
+
+Para mapear a superfície, o cliente anexa um buffer `wl_shm` com uma cor
+sólida (o conteúdo real vem da fase de gráficos, v0.4). O descritor do
+`memfd` é enviado ao compositor via SCM_RIGHTS e só é fechado depois
+que a requisição foi enviada (flush).
+
+## Ordem do `configure` (armadilhas do protocolo)
+
+O xdg-shell é estrito e o compositor recusa a conexão (abortando o
+cliente) em dois casos:
+
+- **buffer antes do `ack_configure`** (`unconfigured_buffer`): nenhum
+  buffer pode ser anexado antes de o `configure` ser confirmado;
+- **buffer com tamanho diferente do `configure`** (`invalid_size`): o
+  buffer precisa ter o tamanho aceito pelo compositor.
+
+Por isso o backend separa as duas coisas: o `ack_configure` sai assim
+que o serial chega (`xdg_surface.configure`) e o buffer só é anexado
+quando o tamanho também é conhecido (`xdg_toplevel.configure`). O
+compositor pode enviar os dois eventos em qualquer ordem — o backend
+trata as duas.
 
 ## Teste
 

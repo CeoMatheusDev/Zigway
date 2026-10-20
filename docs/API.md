@@ -215,6 +215,29 @@ compositor (`pointer`, `keyboard`, `touch`) ou `null` quando o backend
 não modela um seat (X11/Win32/null) ou quando não há seat. É a forma
 de o aplicativo saber se o Wayland compositor expõe teclado/ponteiro.
 
+## Backend Wayland (xdg-shell)
+
+No backend Wayland nativo, `createWindow` cria a janela via
+`wl_surface` + `xdg_surface` + `xdg_toplevel`. O compositor decide o
+tamanho final: o `configure` recebido é confirmado com `ack_configure` e
+o tamanho aceito chega pelo evento `resize` (o primeiro `configure`
+também o emite, mesmo sem mudança de tamanho, pois confirma o
+mapeamento). `setTitle`, `setSizeLimits`, `setMaximized` e
+`setFullscreen` são requisições ao compositor; o estado real vem pelos
+eventos `maximized`/`fullscreen`. O evento `close` do compositor vira o
+evento `close` da plataforma.
+
+Sem contraparte no protocolo base, estas operações retornam
+`NotImplemented` no Wayland: `setSize` (o compositor decide o tamanho),
+`setPosition` (a posição não é exposta ao cliente), `focus` (o foco é
+do compositor), `setCursor` (exige `wl_pointer` e o tema do
+compositor) e `capturePointer` (não há captura exclusiva no protocolo
+base). `position` devolve `{0,0}`.
+
+O buffer anexado à superfície é provisório (cor sólida): o ciclo de vida
+da janela funciona, mas a renderização real entra na fase de gráficos
+(v0.4).
+
 ## Posição de janela
 
 `WindowPosition` é a origem da **área de cliente** em coordenadas de tela

@@ -7,6 +7,45 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ### Adicionado
 
+- **Janelas no backend Wayland nativo** (xdg-shell): `createWindow`
+  cria `wl_surface` + `xdg_surface` + `xdg_toplevel` via
+  `wl_compositor`/`xdg_wm_base`, com titulo (`xdg_toplevel.set_title`),
+  app id, limites de tamanho (`set_min_size`/`set_max_size`),
+  maximizacao (`set_maximized`/`unset_maximized`) e fullscreen
+  (`set_fullscreen`/`unset_fullscreen`, o compositor escolhe o output).
+  O `xdg_surface.configure` e confirmado com `ack_configure` e o cliente
+  anexa um buffer `wl_shm` (pool + buffer por janela, `memfd` + `mmap`,
+  formato escolhido entre os suportados pelo compositor) para mapear a
+  superficie. Eventos: `resize` (tamanho aceito pelo compositor),
+  `maximized`, `fullscreen` e `close` (o slot segue ocupado ate
+  `destroyWindow`, como nos demais backends). `xdg_wm_base.ping` e
+  respondido com `pong`. Esconder a janela usa o buffer nulo (commit sem
+  buffer), como manda o protocolo.
+- Tabelas de interface do xdg-shell em Zig
+  (`src/platform/wayland/protocol.zig`): `xdg_wm_base`, `xdg_surface`,
+  `xdg_toplevel`, `xdg_popup` e `xdg_positioner`, conferidas contra o
+  codigo gerado por `wayland-scanner` (assinaturas, indices de request
+  e tabelas de argumentos, que definem a validacao de tipos no
+  demarshal dos eventos).
+- Cobertura live Wayland: criacao de janela com `configure` confirmado
+  (evento `resize`), troca de titulo, limites de tamanho,
+  maximizacao/fullscreen e destruicao, sem quebrar a conexao.
+
+### Corrigido
+
+- Tabelas de argumentos do protocolo base Wayland: `wl_surface.enter`
+  /`leave` recebem um `wl_output` (antes apontavam para `wl_surface`),
+  `wl_surface.attach` recebe um `wl_buffer`, e `wl_pointer`/`wl_keyboard`
+  declaram a `wl_surface` de `enter`/`leave`/`set_cursor`. A tabela
+  incorreta fazia o compositor reportar "invalid object" ao entrar na
+  janela.
+- Ordem do `configure` no backend Wayland: o `ack_configure` e o
+  `commit` com buffer sao separados (o `ack` assim que o serial chega,
+  o buffer quando o tamanho do `xdg_toplevel.configure` e conhecido).
+  Anexar buffer antes do `ack` (ou com tamanho diferente do aceito)
+  fazia o compositor encerrar a conexao ("unconfigured_buffer" /
+  "invalid_size").
+
 - `Window.setCursor(Cursor)` / `Platform.setWindowCursor`: cursores do
   sistema por janela (`default`, `text`, `crosshair`, `hand`,
   `resize_horizontal`, `resize_vertical`, `resize_all`, `not_allowed`,
