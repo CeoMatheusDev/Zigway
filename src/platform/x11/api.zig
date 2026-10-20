@@ -23,6 +23,8 @@ pub const None: Window = 0;
 pub const CurrentTime: Time = 0;
 pub const RevertToParent: c_int = 2;
 pub const XA_ATOM: Atom = 4;
+/// `PropModeReplace` (Xlib.h): substitui o valor da propriedade.
+pub const PropModeReplace: c_int = 0;
 
 // --- WM_NORMAL_HINTS (Xutil.h) ---
 pub const PMinSize: c_long = 1 << 4;
@@ -89,6 +91,9 @@ pub const UnmapNotify: c_int = 18;
 pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
 pub const PropertyNotify: c_int = 28;
+pub const SelectionClear: c_int = 29;
+pub const SelectionRequest: c_int = 30;
+pub const SelectionNotify: c_int = 31;
 pub const ClientMessage: c_int = 33;
 
 // --- Mascaras de evento ---
@@ -310,6 +315,46 @@ pub const XPropertyEvent = extern struct {
     state: c_int,
 };
 
+/// `XSelectionRequestEvent` (Xlib.h): pedido de transferencia de uma
+/// selecao (o owner responde).
+pub const XSelectionRequestEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    owner: Window,
+    requestor: Window,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+};
+
+/// `XSelectionEvent` (Xlib.h): SelectionNotify (resposta do owner).
+pub const XSelectionEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    requestor: Window,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+};
+
+/// `XSelectionClearEvent` (Xlib.h): a selecao deixou de pertencer a
+/// esta janela.
+pub const XSelectionClearEvent = extern struct {
+    type: c_int,
+    serial: c_ulong,
+    send_event: XBool,
+    display: ?*Display,
+    window: Window,
+    selection: Atom,
+    time: Time,
+};
+
 /// Erro de protocolo X (async). Layout conferido contra
 /// /usr/include/X11/Xlib.h (XErrorEvent): 40 bytes em LP64.
 pub const XErrorEvent = extern struct {
@@ -341,6 +386,9 @@ pub const XEvent = extern union {
     map: XMapEvent,
     unmap: XUnmapEvent,
     property: XPropertyEvent,
+    selection_request: XSelectionRequestEvent,
+    selection: XSelectionEvent,
+    selection_clear: XSelectionClearEvent,
 };
 
 // --- Funcoes Xlib utilizadas ---
@@ -427,6 +475,40 @@ pub extern "X11" fn XSendEvent(
     event_mask: c_long,
     event: *XEvent,
 ) Status;
+/// `XSetSelectionOwner`: torna a janela dona da selecao. O owner recebe
+/// `SelectionRequest` e perde a selecao via `SelectionClear`.
+pub extern "X11" fn XSetSelectionOwner(
+    display: *Display,
+    selection: Atom,
+    owner: Window,
+    time: Time,
+) c_int;
+/// `XGetSelectionOwner`: janela dona da selecao (0 se nenhuma).
+pub extern "X11" fn XGetSelectionOwner(display: *Display, selection: Atom) Window;
+/// `XConvertSelection`: pede a transferencia da selecao para o alvo.
+pub extern "X11" fn XConvertSelection(
+    display: *Display,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    requestor: Window,
+    time: Time,
+) c_int;
+/// `XChangeProperty`: escreve uma propriedade na janela. Com format 32,
+/// `data` aponta para valores de 32 bits (nao de `long`).
+pub extern "X11" fn XChangeProperty(
+    display: *Display,
+    window: Window,
+    property: Atom,
+    property_type: Atom,
+    format: c_int,
+    mode: c_int,
+    data: ?*const anyopaque,
+    nelements: c_int,
+) c_int;
+pub extern "X11" fn XDeleteProperty(display: *Display, window: Window, property: Atom) c_int;
+/// `XConnectionNumber`: descritor da conexao (usado com `poll`).
+pub extern "X11" fn XConnectionNumber(display: *Display) c_int;
 pub extern "X11" fn XGetWindowProperty(
     display: *Display,
     window: Window,

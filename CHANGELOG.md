@@ -64,6 +64,19 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   devolvem lista vazia e `DisplayModeUnsupported`. Cobertura unitária
   (null) e live X11: enumeração no suite padrão e troca de modo em
   `zig build test-x11-modes` (passo destrutivo, restaura o modo).
+- Área de transferência: `Platform.setClipboardText`/`clipboardText`
+  (UTF-8; o chamador libera a slice lida). No X11, a plataforma mantém
+  uma janela oculta como dona da seleção `CLIPBOARD` e responde a
+  `SelectionRequest` com `TARGETS`/`UTF8_STRING`; a leitura é síncrona
+  (até 500 ms, bombearando a conexão) e a propriedade é lida em blocos
+  de 64 KB. No Win32, `CF_UNICODETEXT` via `OpenClipboard`/
+  `SetClipboardData`/`GetClipboardData`. No null, estado em memória.
+  Limite de 1 MiB por texto.
+- Correção no backend X11: a detecção de suporte EWMH
+  (`_NET_SUPPORTED`) invertia o status de `XGetWindowProperty` (0 é
+  sucesso nesta libX11) e por isso nunca detectava o WM. Agora
+  posicionamento, fullscreen e maximização usam EWMH quando o WM
+  anuncia suporte, com os caminhos de fallback cobrindo o caso sem WM.
 - Modos de vídeo no Win32: `EnumDisplaySettingsW` para a lista e
   `ChangeDisplaySettingsExW` para a troca (dinâmica, sem gravar no
   registro). O `DisplayModeId` empacota largura, altura e índice do

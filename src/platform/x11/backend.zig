@@ -49,6 +49,18 @@ fn xErrorHandler(display: ?*api.Display, event: *api.XErrorEvent) callconv(.c) c
 /// Verifica se `atom` esta na propriedade `property` (formato ATOM) da
 /// janela. Usado para detectar `_NET_MOVERESIZE_WINDOW` em `_NET_SUPPORTED`
 /// sem depender de um WM especifico.
+/// Espera a conexao X ficar legivel (com timeout em ms). Usado na
+/// leitura da area de transferencia para nao bloquear indefinidamente
+/// esperando o owner da selecao.
+fn waitForXEvent(display: *api.Display, timeout_ms: i32) void {
+    const fd = api.XConnectionNumber(display);
+    if (fd < 0) return;
+    var fds = [_]std.posix.pollfd{
+        .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 },
+    };
+    _ = std.posix.poll(&fds, timeout_ms) catch {};
+}
+
 fn propertyHasAtom(
     display: *api.Display,
     target: api.Window,
@@ -78,8 +90,12 @@ fn propertyHasAtom(
     defer {
         if (raw) |ptr| _ = api.XFree(@ptrCast(ptr));
     }
-    if (status != 0) return false;
+    // `XGetWindowProperty` devolve 0 mesmo em sucesso (e quando a
+    // propriedade nao existe): o que indica a existencia e o tipo
+    // devolvido (`None` = propriedade ausente).
+    _ = status;
     if (actual_type != api.XA_ATOM or actual_format != 32) return false;
+    if (nitems == 0) return false;
     // Formato 32 da Xlib e devolvido como array de `long`, nao de int.
     const values: [*]c_ulong = @ptrCast(@alignCast(raw orelse return false));
     var i: usize = 0;
@@ -124,6 +140,17 @@ pub const Backend = struct {
     /// event_base RandR quando screen/crtc/output notifications foram
     /// selecionados no root; null sem libXrandr/simbolos.
     xrandr_event_base: ?c_int = null,
+    /// Janela oculta que possui a selecao CLIPBOARD (owner). 0 quando a
+    /// area de transferencia nao esta disponivel.
+    clipboard_window: api.Window = 0,
+    /// Atoms da area de transferencia.
+    clipboard_atom: api.Atom = 0,
+    utf8_string_atom: api.Atom = 0,
+    targets_atom: api.Atom = 0,
+    /// Propriedade usada nas leituras (resposta do owner).
+    clipboard_property: api.Atom = 0,
+    /// Texto (UTF-8) da area de transferencia; propriedade do backend.
+    clipboard_text: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         const display = api.XOpenDisplay(null) orelse return error.NoDisplay;
@@ -184,6 +211,27 @@ pub const Backend = struct {
             xrandr_monitors = lib.supportsMonitors(display);
             xrandr_event_base = lib.enableEvents(display, root);
         }
+        // Area de transferencia: atoms + janela oculta que possui a
+        // selecao CLIPBOARD. Sem atoms validos, o recurso fica off.
+        const clipboard_atom = api.XInternAtom(display, "CLIPBOARD", 0);
+        const utf8_string_atom = api.XInternAtom(display, "UTF8_STRING", 0);
+        const targets_atom = api.XInternAtom(display, "TARGETS", 0);
+        const clipboard_property = api.XInternAtom(display, "ZIGWAY_CLIPBOARD", 0);
+        var clipboard_window: api.Window = 0;
+        if (clipboard_atom != 0 and utf8_string_atom != 0 and clipboard_property != 0) {
+            // Janela 1x1 nunca mapeada: serve apenas de owner da selecao.
+            clipboard_window = api.XCreateSimpleWindow(
+                display,
+                root,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+            );
+        }
         return .{
             .allocator = allocator,
             .display = display,
@@ -201,6 +249,11 @@ pub const Backend = struct {
             .xrandr = xrandr_lib,
             .xrandr_monitors = xrandr_monitors,
             .xrandr_event_base = xrandr_event_base,
+            .clipboard_window = clipboard_window,
+            .clipboard_atom = clipboard_atom,
+            .utf8_string_atom = utf8_string_atom,
+            .targets_atom = targets_atom,
+            .clipboard_property = clipboard_property,
         };
     }
 
@@ -208,6 +261,12 @@ pub const Backend = struct {
         if (self.captured != null) _ = api.XUngrabPointer(self.display, api.CurrentTime);
         for (self.cursors) |handle| {
             if (handle != 0) _ = api.XFreeCursor(self.display, handle);
+        }
+        if (self.clipboard_text) |text| self.allocator.free(text);
+        self.clipboard_text = null;
+        if (self.clipboard_window != 0) {
+            _ = api.XDestroyWindow(self.display, self.clipboard_window);
+            self.clipboard_window = 0;
         }
         self.entries.deinit(self.allocator);
         _ = api.XCloseDisplay(self.display);
@@ -295,6 +354,215 @@ pub const Backend = struct {
             return;
         }
         return error.DisplayModeUnsupported;
+    }
+
+    // --- Area de transferencia (selecao CLIPBOARD) ---
+
+    /// Limite de 1 MiB por texto na area de transferencia.
+    pub const max_clipboard_bytes: usize = 1 << 20;
+    /// Tempo maximo de espera do owner da selecao (ms).
+    pub const clipboard_timeout_ms: i64 = 500;
+
+    /// Define o texto (UTF-8) da area de transferencia e toma a posse da
+    /// selecao CLIPBOARD.
+    pub fn setClipboardText(self: *Backend, text: []const u8) !void {
+        if (self.clipboard_window == 0) return error.ClipboardFailed;
+        if (text.len > max_clipboard_bytes) return error.InvalidConfig;
+
+        if (self.clipboard_text) |old| {
+            self.allocator.free(old);
+            self.clipboard_text = null;
+        }
+        if (text.len > 0) {
+            self.clipboard_text = try self.allocator.dupe(u8, text);
+        }
+        _ = api.XSetSelectionOwner(
+            self.display,
+            self.clipboard_atom,
+            self.clipboard_window,
+            api.CurrentTime,
+        );
+        if (api.XGetSelectionOwner(self.display, self.clipboard_atom) != self.clipboard_window) {
+            // Nao foi possivel tomar a selecao: desfaz o conteudo.
+            if (self.clipboard_text) |old| {
+                self.allocator.free(old);
+                self.clipboard_text = null;
+            }
+            return error.ClipboardFailed;
+        }
+        _ = api.XFlush(self.display);
+    }
+
+    /// Texto (UTF-8) da area de transferencia. `null` quando vazia, sem
+    /// texto ou quando o owner nao responde dentro do prazo.
+    ///
+    /// A leitura no X11 e sincrona: a conexao e bombada enquanto se
+    /// espera o `SelectionNotify`. Eventos do app nesse intervalo vao
+    /// para a fila normal (nenhum evento e perdido), mas a chamada
+    /// bloqueia ate o timeout.
+    pub fn clipboardText(
+        self: *Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        allocator: std.mem.Allocator,
+    ) !?[]u8 {
+        if (self.clipboard_window == 0) return null;
+
+        // Somos o owner: resposta imediata, sem round trip.
+        if (api.XGetSelectionOwner(self.display, self.clipboard_atom) == self.clipboard_window) {
+            const text = self.clipboard_text orelse return null;
+            if (text.len == 0) return null;
+            return try allocator.dupe(u8, text);
+        }
+
+        const requestor = self.clipboard_window;
+        const property = self.clipboard_property;
+        _ = api.XDeleteProperty(self.display, requestor, property);
+        _ = api.XConvertSelection(
+            self.display,
+            self.clipboard_atom,
+            self.utf8_string_atom,
+            property,
+            requestor,
+            api.CurrentTime,
+        );
+        _ = api.XFlush(self.display);
+
+        // Orcamento de tentativas: cada espera e de ate 10ms, logo o
+        // limite total fica em ~clipboard_timeout_ms.
+        var attempts: u32 = 0;
+        const max_attempts: u32 = @intCast(clipboard_timeout_ms / 10);
+        while (attempts < max_attempts) : (attempts += 1) {
+            while (api.XPending(self.display) > 0) {
+                var ev: api.XEvent = undefined;
+                _ = api.XNextEvent(self.display, &ev);
+                if (ev.type == api.SelectionNotify) {
+                    const notify = ev.selection;
+                    if (notify.requestor == requestor and
+                        notify.selection == self.clipboard_atom and
+                        notify.target == self.utf8_string_atom)
+                    {
+                        if (notify.property == 0) return null;
+                        return try self.readClipboardProperty(allocator, requestor, property);
+                    }
+                    continue;
+                }
+                // Eventos do app continuam o fluxo normal (fila).
+                self.translate(reg, queue, state, &ev);
+            }
+            waitForXEvent(self.display, 10);
+        }
+        // Timeout: o owner nao respondeu.
+        return null;
+    }
+
+    /// Le a propriedade respondida por um owner da selecao, em blocos
+    /// (a resposta maxima do servidor e 256KB por pedido).
+    fn readClipboardProperty(
+        self: *Backend,
+        allocator: std.mem.Allocator,
+        requestor: api.Window,
+        property: api.Atom,
+    ) !?[]u8 {
+        const chunk_words: c_long = 16384; // 64KB por pedido
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(allocator);
+        var offset: c_long = 0;
+        while (out.items.len <= max_clipboard_bytes) {
+            var actual_type: api.Atom = 0;
+            var actual_format: c_int = 0;
+            var nitems: c_ulong = 0;
+            var bytes_after: c_ulong = 0;
+            var data: ?[*]u8 = null;
+            const ok = api.XGetWindowProperty(
+                self.display,
+                requestor,
+                property,
+                offset,
+                chunk_words,
+                0, // delete: a propriedade e removida no fim
+                0, // AnyPropertyType
+                &actual_type,
+                &actual_format,
+                &nitems,
+                &bytes_after,
+                &data,
+            );
+            defer {
+                if (data) |ptr| _ = api.XFree(@ptrCast(ptr));
+            }
+            // `XGetWindowProperty` devolve 0 em sucesso; a existencia da
+            // propriedade e indicada pelo tipo devolvido (`None` = ausente).
+            _ = ok;
+            if (actual_type == 0) break;
+            // Texto em UTF-8: propriedade de 8 bits por byte.
+            if (actual_format != 8) break;
+            const bytes: usize = @intCast(nitems);
+            if (bytes == 0) break;
+            if (out.items.len + bytes > max_clipboard_bytes) break;
+            const ptr = data orelse break;
+            try out.appendSlice(allocator, ptr[0..bytes]);
+            if (bytes_after == 0) break;
+            // O offset e em unidades de 32 bits.
+            offset += @intCast((bytes + 3) / 4);
+        }
+        if (out.items.len == 0) return null;
+        return try out.toOwnedSlice(allocator);
+    }
+
+    /// Responde a um `SelectionRequest` (somos o owner da selecao).
+    fn handleSelectionRequest(self: *Backend, req: *const api.XSelectionRequestEvent) void {
+        // `property == 0` significa "use o target como propriedade".
+        const property = if (req.property == 0) req.target else req.property;
+        var granted = false;
+        if (req.target == self.targets_atom) {
+            // Lista de alvos suportados (atoms de 32 bits).
+            const targets = [_]u32{
+                @intCast(self.targets_atom),
+                @intCast(self.utf8_string_atom),
+            };
+            _ = api.XChangeProperty(
+                self.display,
+                req.requestor,
+                property,
+                api.XA_ATOM,
+                32,
+                api.PropModeReplace,
+                @ptrCast(&targets),
+                @intCast(targets.len),
+            );
+            granted = true;
+        } else if (req.target == self.utf8_string_atom) {
+            const text = self.clipboard_text orelse "";
+            _ = api.XChangeProperty(
+                self.display,
+                req.requestor,
+                property,
+                self.utf8_string_atom,
+                8,
+                api.PropModeReplace,
+                if (text.len == 0) null else @ptrCast(text.ptr),
+                @intCast(text.len),
+            );
+            granted = true;
+        }
+        var notify = api.XEvent{
+            .selection = .{
+                .type = api.SelectionNotify,
+                .serial = 0,
+                .send_event = 1,
+                .display = self.display,
+                .requestor = req.requestor,
+                .selection = req.selection,
+                .target = req.target,
+                // `property == 0` no aviso significa "recusado".
+                .property = if (granted) property else 0,
+                .time = req.time,
+            },
+        };
+        _ = api.XSendEvent(self.display, req.requestor, 0, 0, &notify);
+        _ = api.XFlush(self.display);
     }
 
     fn findEntry(self: *const Backend, slot: u32) ?usize {
@@ -1035,6 +1303,20 @@ pub const Backend = struct {
                             .window = reg.idOf(slot),
                             .maximized = now_maximized,
                         } });
+                    }
+                }
+            },
+            api.SelectionRequest => {
+                // Outro cliente quer o conteudo da nossa selecao.
+                self.handleSelectionRequest(&ev.selection_request);
+            },
+            api.SelectionClear => {
+                // Outro cliente tomou a selecao: o conteudo nao e mais
+                // nosso.
+                if (ev.selection_clear.selection == self.clipboard_atom) {
+                    if (self.clipboard_text) |old| {
+                        self.allocator.free(old);
+                        self.clipboard_text = null;
                     }
                 }
             },

@@ -99,6 +99,12 @@ pub const MONITORINFO = extern struct {
 pub const MONITORINFOF_PRIMARY: DWORD = 0x00000001;
 pub const MONITOR_DEFAULTTONEAREST: DWORD = 0x00000002;
 
+/// `CF_UNICODETEXT` (winuser.h): formato de texto Unicode da area de
+/// transferencia.
+pub const CF_UNICODETEXT: UINT = 13;
+/// `GMEM_MOVEABLE` (winbase.h): alocacao movevel do kernel32.
+pub const GMEM_MOVEABLE: UINT = 0x0002;
+
 /// `CCHDEVICENAME` (wingdi.h): tamanho do nome do dispositivo de display.
 pub const CCHDEVICENAME: usize = 32;
 /// `CCHFORMNAME` (wingdi.h): tamanho do nome do modo ("form name").
@@ -369,6 +375,17 @@ pub extern "user32" fn ChangeDisplaySettingsExW(
     param: ?*anyopaque,
     visible: ?[*:0]const u16,
 ) LONG;
+
+// --- Area de transferencia (clipboard) ---
+pub extern "user32" fn OpenClipboard(hwnd: HWND) BOOL;
+pub extern "user32" fn CloseClipboard() BOOL;
+pub extern "user32" fn EmptyClipboard() BOOL;
+pub extern "user32" fn SetClipboardData(format: UINT, data: ?*anyopaque) ?*anyopaque;
+pub extern "user32" fn GetClipboardData(format: UINT) ?*anyopaque;
+pub extern "kernel32" fn GlobalAlloc(flags: UINT, bytes: usize) ?*anyopaque;
+pub extern "kernel32" fn GlobalLock(mem: ?*anyopaque) ?*anyopaque;
+pub extern "kernel32" fn GlobalUnlock(mem: ?*anyopaque) BOOL;
+pub extern "kernel32" fn GlobalFree(mem: ?*anyopaque) ?*anyopaque;
 pub extern "user32" fn MonitorFromWindow(hwnd: HWND, flags: DWORD) HMONITOR;
 pub extern "user32" fn LoadCursorW(instance: HINSTANCE, name: usize) HCURSOR;
 pub extern "user32" fn SetCursor(cursor: HCURSOR) HCURSOR;

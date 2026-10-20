@@ -24,6 +24,8 @@ platform.droppedEvents() u64             // descartes por overflow (diagnóstico
 platform.displays(allocator) ![]DisplayInfo // snapshot; liberar com o allocator
 platform.displayModes(allocator, display) ![]DisplayMode // modos do display; liberar
 platform.setDisplayMode(display, mode) !void // troca de modo de video
+platform.setClipboardText(text) !void        // texto UTF-8 na area de transferencia
+platform.clipboardText(allocator) !?[]u8      // texto UTF-8; null quando vazia
 ```
 
 Janelas via Platform:
@@ -145,6 +147,31 @@ do modo e a geometria, para que um snapshot obsoleto seja recusado com
 `InvalidDisplayMode`. O Windows não informa um modo "preferido"
 (`preferred` fica `false`) e a frequência é inteira (Hz). A mudança
 gera `WM_DISPLAYCHANGE` (evento `display_change`).
+
+## Área de transferência (clipboard)
+
+`setClipboardText(text)` publica um texto **UTF-8** na área de
+transferência; a plataforma copia o conteúdo (o chamador pode liberar o
+buffer). `clipboardText(allocator)` devolve o texto atual ou `null`
+quando a área está vazia ou não tem texto; a slice devolvida é da
+responsabilidade do chamador (liberar com o mesmo alocador). Limite de
+1 MiB por texto; textos maiores retornam `InvalidConfig`.
+
+No X11 a plataforma mantém uma janela oculta como dona da seleção
+`CLIPBOARD` e responde a `SelectionRequest` com `TARGETS` e
+`UTF8_STRING`. A **leitura é síncrona**: a conexão é bombada até o
+`SelectionNotify` do dono (até 500 ms); eventos do app nesse intervalo
+vão para a fila normal (nenhum evento é perdido), mas a chamada
+bloqueia. Para que o conteúdo publicado por Zigway seja servido a
+outros aplicativos, o aplicativo precisa bombear eventos
+(`pollEvents`) — o `SelectionRequest` é atendido no loop de eventos.
+
+No Win32 o conteúdo vai para `CF_UNICODETEXT` (UTF-16) e a área é
+aberta/fechada a cada operação. No backend null o texto fica em
+memória, dentro da plataforma.
+
+Falhas: `ClipboardFailed` (a área não pôde ser aberta/escrita) e
+`PlatformClosed` após `deinit`.
 
 ## Posição de janela
 
@@ -317,7 +344,7 @@ Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `CursorCreationFailed`,
 `PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`,
 `InvalidDisplay`, `InvalidDisplayMode`, `DisplayModeFailed`,
-`DisplayModeUnsupported`.
+`DisplayModeUnsupported`, `ClipboardFailed`.
 
 ## Lifecycle
 

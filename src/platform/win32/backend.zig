@@ -348,6 +348,68 @@ pub const Backend = struct {
         if (result != api.DISP_CHANGE_SUCCESSFUL) return error.DisplayModeFailed;
     }
 
+    // --- Area de transferencia (clipboard) ---
+
+    /// Limite de 1 MiB por texto na area de transferencia.
+    pub const max_clipboard_bytes: usize = 1 << 20;
+
+    /// Define o texto (UTF-8) da area de transferencia. O conteudo e
+    /// gravado como `CF_UNICODETEXT` (UTF-16).
+    pub fn setClipboardText(self: *Backend, text: []const u8) !void {
+        if (text.len > max_clipboard_bytes) return error.InvalidConfig;
+        const wide = std.unicode.utf8ToUtf16LeAlloc(self.allocator, text) catch |err| switch (err) {
+            error.InvalidUtf8 => return error.InvalidConfig,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        defer self.allocator.free(wide);
+        const with_nul = try self.allocator.alloc(u16, wide.len + 1);
+        defer self.allocator.free(with_nul);
+        @memcpy(with_nul[0..wide.len], wide);
+        with_nul[wide.len] = 0;
+
+        if (api.OpenClipboard(null) == 0) return error.ClipboardFailed;
+        defer _ = api.CloseClipboard();
+        if (api.EmptyClipboard() == 0) return error.ClipboardFailed;
+
+        const handle = api.GlobalAlloc(api.GMEM_MOVEABLE, with_nul.len * 2) orelse
+            return error.ClipboardFailed;
+        const ptr = api.GlobalLock(handle) orelse {
+            _ = api.GlobalFree(handle);
+            return error.ClipboardFailed;
+        };
+        @memcpy(@as([*]u16, @ptrCast(@alignCast(ptr)))[0..with_nul.len], with_nul);
+        _ = api.GlobalUnlock(handle);
+        if (api.SetClipboardData(api.CF_UNICODETEXT, handle) == null) {
+            // O sistema nao assumiu a posse: libera o bloco.
+            _ = api.GlobalFree(handle);
+            return error.ClipboardFailed;
+        }
+    }
+
+    /// Texto (UTF-8) da area de transferencia. `null` quando vazia ou
+    /// quando nao ha texto Unicode.
+    pub fn clipboardText(
+        self: *const Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        allocator: std.mem.Allocator,
+    ) !?[]u8 {
+        _ = self;
+        _ = reg;
+        _ = queue;
+        _ = state;
+        if (api.OpenClipboard(null) == 0) return error.ClipboardFailed;
+        defer _ = api.CloseClipboard();
+        const handle = api.GetClipboardData(api.CF_UNICODETEXT) orelse return null;
+        const ptr = api.GlobalLock(handle) orelse return null;
+        defer _ = api.GlobalUnlock(handle);
+        const wide: [*:0]const u16 = @ptrCast(@alignCast(ptr));
+        const len = std.mem.len(wide);
+        if (len == 0) return null;
+        return try std.unicode.utf16LeToUtf8Alloc(allocator, wide[0..len]);
+    }
+
     /// Dispositivos de display na ordem do snapshot de `displays`.
     fn displayDevices(
         self: *const Backend,

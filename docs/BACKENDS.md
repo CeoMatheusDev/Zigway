@@ -39,6 +39,16 @@ usa `_NET_WM_STATE_FULLSCREEN` quando o WM anuncia os atoms EWMH;
 `XMoveResizeWindow` na tela X padrão e restaura a geometria anterior ao
 sair (caminho síncrono).
 
+Área de transferência: a plataforma cria uma janela oculta (1x1, nunca
+mapeada) que possui a seleção `CLIPBOARD`; `setClipboardText` publica o
+texto (UTF-8) e responde a `SelectionRequest` com `TARGETS` e
+`UTF8_STRING` (o `SelectionRequest` é atendido no loop de eventos, ou
+seja, o aplicativo precisa bombear eventos). A leitura é síncrona:
+`XConvertSelection` + espera pelo `SelectionNotify` (até 500 ms),
+bombearando a conexão no intervalo (eventos do app vão para a fila
+normal). A propriedade é lida em blocos de 64 KB. `SelectionClear`
+(perda da posse) libera o texto guardado.
+
 Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
 `n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
 `page_up`/`page_down`, `insert`, `delete`, `end`). Operadores
@@ -86,6 +96,12 @@ Limitações conhecidas:
 - Maximização é uma requisição EWMH; sem suporte, o fallback cobre a
   tela X padrão inteira (não o monitor individual). Fullscreen e
   maximizado são mutuamente exclusivos.
+- Área de transferência: apenas `UTF8_STRING` e `TARGETS` são
+  oferecidos; clientes que peçam outros alvos (ex.: `STRING`,
+  `text/plain`) recebem recusa (`property = None`). A leitura bloqueia
+  até 500 ms esperando o dono da seleção responder. O texto publicado
+  só é servido a outros aplicativos enquanto o evento
+  `SelectionRequest` for atendido no loop de eventos.
 - `setCursor` é validado por ausência de erro de protocolo; o efeito
   visual não é inspecionado pelo teste.
 - Captura exige janela viewable (`GrabNotViewable` antes do mapeamento);
@@ -190,6 +206,11 @@ Limitações conhecidas:
 - Monitores usam `EnumDisplayMonitors`/`GetMonitorInfoW` (retângulo do
   monitor; `primary` vem de `MONITORINFOF_PRIMARY`). `id` é o índice do
   snapshot. Não há eventos de hotplug.
+- Área de transferência: `OpenClipboard`/`EmptyClipboard`/
+  `SetClipboardData` com `CF_UNICODETEXT` (UTF-16 convertido de UTF-8)
+  e `GetClipboardData` na leitura. A área é aberta/fechada a cada
+  operação; `GlobalAlloc`/`GlobalLock` para o bloco de memória. Sem
+  validação em runtime (apenas compilação cruzada).
 - Modos de vídeo: `EnumDisplaySettingsW` (por dispositivo
   `\\.\DISPLAY<n>`, via `MONITORINFOEXW`) e `ChangeDisplaySettingsExW`
   (troca dinâmica, sem gravar no registro). O `DisplayModeId` empacota
@@ -212,4 +233,6 @@ variantes/janelas); `setPosition` atualiza o slot e emite `move`;
 `display_change` é testável via `injectEvent`, fullscreen e maximizado
 são apenas estado lógico com eventos, e limites de tamanho são apenas
 estado. Modos de vídeo: `displayModes` devolve lista vazia e
-`setDisplayMode` retorna `DisplayModeUnsupported` (sem recursos nativos). Usado pelos testes unitários e como fallback em SOs sem backend.
+`setDisplayMode` retorna `DisplayModeUnsupported` (sem recursos nativos).
+Área de transferência: texto guardado em memória, dentro da plataforma
+(`setClipboardText`/`clipboardText` fazem round-trip). Usado pelos testes unitários e como fallback em SOs sem backend.

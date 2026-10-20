@@ -170,6 +170,36 @@ pub const Platform = struct {
         }
     }
 
+    /// Define o texto (UTF-8) da area de transferencia. O conteudo e
+    /// copiado pela plataforma (o chamador pode liberar o buffer).
+    pub fn setClipboardText(self: *Platform, text: []const u8) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.setClipboardText(text),
+        }
+    }
+
+    /// Texto (UTF-8) da area de transferencia. `null` quando vazia, sem
+    /// texto ou quando o owner nao responde a tempo. O chamador libera a
+    /// slice com o mesmo alocador.
+    ///
+    /// No X11 a leitura e sincrona e bloqueia ate o timeout do owner da
+    /// selecao; eventos do app nesse intervalo vao para a fila normal.
+    pub fn clipboardText(
+        self: *Platform,
+        allocator: std.mem.Allocator,
+    ) !?[]u8 {
+        if (self.closed) return null;
+        return switch (self.backend) {
+            inline else => |*b| b.clipboardText(
+                &self.reg,
+                &self.events,
+                &self.input_state,
+                allocator,
+            ),
+        };
+    }
+
     pub fn createWindow(self: *Platform, cfg: WindowConfig) !Window {
         if (self.closed) return error.PlatformClosed;
         if (cfg.width == 0 or cfg.height == 0) return error.InvalidConfig;
@@ -818,6 +848,37 @@ test "window position on null backend updates state and emits move" {
     // Mesma posicao: sem evento duplicado.
     try w.setPosition(120, 80);
     try std.testing.expect(plat.nextEvent() == null);
+}
+
+test "clipboard on null backend round-trips text" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    // Sem conteudo: null.
+    try std.testing.expect(try plat.clipboardText(std.testing.allocator) == null);
+
+    try plat.setClipboardText("ola mundo");
+    const text = (try plat.clipboardText(std.testing.allocator)).?;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("ola mundo", text);
+
+    // Unicode (UTF-8) preservado.
+    try plat.setClipboardText("acentuacao: áéíóú ç / 中文");
+    const utf8 = (try plat.clipboardText(std.testing.allocator)).?;
+    defer std.testing.allocator.free(utf8);
+    try std.testing.expectEqualStrings("acentuacao: áéíóú ç / 中文", utf8);
+
+    // Texto vazio e tratado como area vazia.
+    try plat.setClipboardText("");
+    try std.testing.expect(try plat.clipboardText(std.testing.allocator) == null);
+}
+
+test "clipboard on closed platform fails safely" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    plat.deinit();
+
+    try std.testing.expectError(error.PlatformClosed, plat.setClipboardText("x"));
+    try std.testing.expect(try plat.clipboardText(std.testing.allocator) == null);
 }
 
 test "display modes are empty on null backend and switching is unsupported" {

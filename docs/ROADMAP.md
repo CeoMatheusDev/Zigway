@@ -44,7 +44,10 @@ vazia / `DisplayModeUnsupported`).
 
 ## v0.3.x — Text Input e Clipboard
 
-Unicode/IME separado de `Key`; área de transferência; drag & drop.
+Área de transferência implementada (`Platform.setClipboardText`/
+`clipboardText`, UTF-8; no X11 com janela dona da seleção `CLIPBOARD` e
+resposta a `SelectionRequest`; no Win32 com `CF_UNICODETEXT`).
+Pendentes: Unicode/IME separado de `Key` e drag & drop.
 
 ## v0.4.x — Graphics Integration
 

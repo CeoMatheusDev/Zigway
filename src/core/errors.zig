@@ -40,4 +40,6 @@ pub const Error = error{
     DisplayModeFailed,
     /// O backend nao suporta consulta/troca de modo de video.
     DisplayModeUnsupported,
+    /// Falha na area de transferencia (abrir,ler ou escrever).
+    ClipboardFailed,
 };

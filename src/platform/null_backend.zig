@@ -15,13 +15,16 @@ pub const Backend = struct {
     allocator: std.mem.Allocator,
     /// Slot com captura de ponteiro (exclusiva), se houver.
     captured: ?u32 = null,
+    /// Texto da area de transferencia (propriedade do backend).
+    clipboard_text: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) !Backend {
         return .{ .allocator = allocator };
     }
 
     pub fn deinit(self: *Backend) void {
-        _ = self;
+        if (self.clipboard_text) |text| self.allocator.free(text);
+        self.clipboard_text = null;
     }
 
     /// Sem display nativo: lista vazia (nao inventa monitores).
@@ -54,6 +57,28 @@ pub const Backend = struct {
         _ = id;
         _ = mode;
         return error.DisplayModeUnsupported;
+    }
+
+    /// Guarda o texto da area de transferencia (estado em memoria).
+    pub fn setClipboardText(self: *Backend, text: []const u8) !void {
+        if (self.clipboard_text) |old| self.allocator.free(old);
+        self.clipboard_text = try self.allocator.dupe(u8, text);
+    }
+
+    /// Texto da area de transferencia (copia); null quando vazio.
+    pub fn clipboardText(
+        self: *const Backend,
+        reg: *registry.Registry,
+        queue: *events.EventQueue,
+        state: *input.InputState,
+        allocator: std.mem.Allocator,
+    ) !?[]u8 {
+        _ = reg;
+        _ = queue;
+        _ = state;
+        const text = self.clipboard_text orelse return null;
+        if (text.len == 0) return null;
+        return try allocator.dupe(u8, text);
     }
 
     pub fn createWindow(

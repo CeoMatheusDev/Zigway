@@ -1315,6 +1315,105 @@ test "live x11: maximize toggles state and rejects fullscreen" {
     try std.testing.expect(!window.isMaximized());
 }
 
+test "live x11: clipboard round-trips text within the platform" {
+    var plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer plat.deinit();
+
+    // Preserva o conteudo atual (melhor esforco): o teste assume a posse
+    // da selecao CLIPBOARD temporariamente.
+    const previous = try plat.clipboardText(std.testing.allocator);
+    defer if (previous) |text| {
+        std.testing.allocator.free(text);
+        plat.setClipboardText(text) catch {};
+    };
+
+    try plat.setClipboardText("zigway clipboard");
+    const text = (try plat.clipboardText(std.testing.allocator)).?;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("zigway clipboard", text);
+
+    // Unicode (UTF-8) preservado.
+    try plat.setClipboardText("acentuacao: áéíóú ç / 中文");
+    const utf8 = (try plat.clipboardText(std.testing.allocator)).?;
+    defer std.testing.allocator.free(utf8);
+    try std.testing.expectEqualStrings("acentuacao: áéíóú ç / 中文", utf8);
+
+    // Texto vazio e area vazia.
+    try plat.setClipboardText("");
+    try std.testing.expect(try plat.clipboardText(std.testing.allocator) == null);
+
+    // Texto grande: a leitura da propriedade e feita em blocos.
+    const big = try std.testing.allocator.alloc(u8, 100_000);
+    defer std.testing.allocator.free(big);
+    for (big, 0..) |*byte, i| byte.* = @truncate(i);
+    try plat.setClipboardText(big);
+    const read_back = (try plat.clipboardText(std.testing.allocator)).?;
+    defer std.testing.allocator.free(read_back);
+    try std.testing.expectEqual(big.len, read_back.len);
+    try std.testing.expectEqualSlices(u8, big, read_back);
+}
+
+/// Dono da selecao CLIPBOARD em outra thread: bombeia eventos para
+/// atender `SelectionRequest` de outra conexao.
+const ClipboardOwner = struct {
+    plat: *zigway.Platform,
+    stop: std.atomic.Value(bool) = .init(false),
+
+    fn run(self: *ClipboardOwner) void {
+        while (!self.stop.load(.acquire)) {
+            self.plat.pollEvents();
+            sleepMs(2);
+        }
+    }
+};
+
+test "live x11: clipboard transfers between two connections" {
+    var owner_plat = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer owner_plat.deinit();
+
+    try owner_plat.setClipboardText("zigway cross connection");
+
+    var owner = ClipboardOwner{ .plat = &owner_plat };
+    const thread = try std.Thread.spawn(.{}, ClipboardOwner.run, .{&owner});
+    defer {
+        owner.stop.store(true, .release);
+        thread.join();
+    }
+
+    var reader = zigway.Platform.init(std.testing.allocator, .{ .backend = .x11 }) catch |err| {
+        if (err == error.NoDisplay or err == error.ConnectionFailed or
+            err == error.UnsupportedBackend or err == error.NotImplemented)
+        {
+            std.debug.print("\n[x11-live] backend indisponivel ({t}); pulando.\n", .{err});
+            return;
+        }
+        return err;
+    };
+    defer reader.deinit();
+
+    // Leitura pela selecao: o dono (outra conexao) precisa responder.
+    const text = (try reader.clipboardText(std.testing.allocator)) orelse
+        return error.TestExpectedClipboardText;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("zigway cross connection", text);
+}
+
 test "live x11: protocol error does not abort the process" {
     // `Platform.init(.x11)` instala o handler de erro da Xlib. Sem ele, um
     // erro de protocolo (BadWindow) encerra o processo no handler padrao —
