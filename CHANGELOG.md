@@ -39,6 +39,11 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
   repetição chegava como `key_down` sem distinção (`repeat` sempre
   `false`). Servidor sem suporte mantém o fallback seguro
   (`repeat=false`), e `Key.unknown` nunca é marcado como repetição.
+- X11: teclado numérico agora mapeia para as mesmas teclas lógicas do
+  Win32 — `n0-n9` e `enter` com NumLock ligado; navegação (`home`,
+  setas, `page_up`/`page_down`, `insert`, `delete`, `end`) com NumLock
+  desligado. Antes caía em `.unknown`. Operadores (`+`, `*`, `/`)
+  seguem `.unknown` em ambos os backends (sem variante em `Key`).
 
 ### Adicionado
 

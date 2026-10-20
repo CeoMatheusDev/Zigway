@@ -450,6 +450,27 @@ pub fn fromKeysym(sym: api.KeySym) types.Key {
             else => .unknown,
         };
     }
+    // Teclado numerico: mesmas teclas logicas do Win32. Com NumLock
+    // ligado, XK_KP_0..9 -> n0..n9; desligado, o servidor entrega as
+    // chaves de navegacao XK_KP_Home etc. `Key` nao distingue numpad da
+    // linha superior (nem o Win32 distingue). Operadores (KP_Add,
+    // KP_Multiply, ...) nao tem variante em `Key` e seguem `.unknown`,
+    // como no Win32 (VK_ADD/VK_MULTIPLY tambem nao mapeados).
+    if (sym >= api.XK_KP_0 and sym <= api.XK_KP_0 + 9) {
+        return switch (sym - api.XK_KP_0) {
+            0 => .n0,
+            1 => .n1,
+            2 => .n2,
+            3 => .n3,
+            4 => .n4,
+            5 => .n5,
+            6 => .n6,
+            7 => .n7,
+            8 => .n8,
+            9 => .n9,
+            else => .unknown,
+        };
+    }
     return switch (sym) {
         api.XK_Escape => .escape,
         api.XK_Tab => .tab,
@@ -471,6 +492,17 @@ pub fn fromKeysym(sym: api.KeySym) types.Key {
         api.XK_Control_R => .right_control,
         api.XK_Caps_Lock => .caps_lock,
         api.XK_Num_Lock => .num_lock,
+        api.XK_KP_Enter => .enter,
+        api.XK_KP_Home => .home,
+        api.XK_KP_Left => .left,
+        api.XK_KP_Up => .up,
+        api.XK_KP_Right => .right,
+        api.XK_KP_Down => .down,
+        api.XK_KP_Prior => .page_up,
+        api.XK_KP_Next => .page_down,
+        api.XK_KP_End => .end,
+        api.XK_KP_Insert => .insert,
+        api.XK_KP_Delete => .delete,
         api.XK_Alt_L => .left_alt,
         api.XK_Alt_R => .right_alt,
         api.XK_Super_L => .left_super,
@@ -503,6 +535,25 @@ test "keysym mapping covers basics" {
     try std.testing.expectEqual(types.Key.left_super, fromKeysym(api.XK_Super_L));
     try std.testing.expectEqual(types.Key.space, fromKeysym(0x20));
     try std.testing.expectEqual(types.Key.unknown, fromKeysym(0x1234));
+}
+
+test "numpad keysyms match win32 logical keys" {
+    // Com NumLock: digitos.
+    try std.testing.expectEqual(types.Key.n0, fromKeysym(api.XK_KP_0));
+    try std.testing.expectEqual(types.Key.n5, fromKeysym(api.XK_KP_0 + 5));
+    try std.testing.expectEqual(types.Key.n9, fromKeysym(api.XK_KP_0 + 9));
+    try std.testing.expectEqual(types.Key.enter, fromKeysym(api.XK_KP_Enter));
+    // Sem NumLock: navegacao (mesmo resultado do Win32 com NumLock off).
+    try std.testing.expectEqual(types.Key.home, fromKeysym(api.XK_KP_Home));
+    try std.testing.expectEqual(types.Key.left, fromKeysym(api.XK_KP_Left));
+    try std.testing.expectEqual(types.Key.up, fromKeysym(api.XK_KP_Up));
+    try std.testing.expectEqual(types.Key.right, fromKeysym(api.XK_KP_Right));
+    try std.testing.expectEqual(types.Key.down, fromKeysym(api.XK_KP_Down));
+    try std.testing.expectEqual(types.Key.page_up, fromKeysym(api.XK_KP_Prior));
+    try std.testing.expectEqual(types.Key.page_down, fromKeysym(api.XK_KP_Next));
+    try std.testing.expectEqual(types.Key.end, fromKeysym(api.XK_KP_End));
+    try std.testing.expectEqual(types.Key.insert, fromKeysym(api.XK_KP_Insert));
+    try std.testing.expectEqual(types.Key.delete, fromKeysym(api.XK_KP_Delete));
 }
 
 test "repeat detection flags a second key_down of a mapped key" {

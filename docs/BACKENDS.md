@@ -12,6 +12,12 @@ título, resize, foco, `WM_DELETE_WINDOW` (close, com checagem de
 5 botões, roda vertical/horizontal), modificadores
 (Shift/Ctrl/Alt/Super), multi-janelas.
 
+Teclado numérico: mesmas teclas lógicas do Win32 — com NumLock,
+`n0-n9` e `enter`; sem NumLock, navegação (`home`, setas,
+`page_up`/`page_down`, `insert`, `delete`, `end`). Operadores
+(`+`, `*`, `/`) seguem `.unknown` nos dois backends, pois `Key` não
+possui variantes para eles.
+
 Auto-repeat: `Platform.init(.x11)` habilita *detectable autorepeat*
 (XKB, `XkbSetDetectableAutoRepeat` — parte da Xlib). O servidor passa a
 enviar apenas `KeyPress` repetidos, sem `KeyRelease` intermediário, e o

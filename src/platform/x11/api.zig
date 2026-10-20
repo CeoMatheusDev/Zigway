@@ -90,6 +90,20 @@ pub const XK_Super_L: KeySym = 0xffeb;
 pub const XK_Super_R: KeySym = 0xffec;
 pub const XK_Num_Lock: KeySym = 0xff7f;
 pub const XK_F1: KeySym = 0xffbe;
+// Teclado numerico (keysymdef.h). Com NumLock ligado chegam XK_KP_0..9;
+// desligado, o servidor entrega as chaves de navegacao XK_KP_Home etc.
+pub const XK_KP_Enter: KeySym = 0xff8d;
+pub const XK_KP_Home: KeySym = 0xff95;
+pub const XK_KP_Left: KeySym = 0xff96;
+pub const XK_KP_Up: KeySym = 0xff97;
+pub const XK_KP_Right: KeySym = 0xff98;
+pub const XK_KP_Down: KeySym = 0xff99;
+pub const XK_KP_Prior: KeySym = 0xff9a;
+pub const XK_KP_Next: KeySym = 0xff9b;
+pub const XK_KP_End: KeySym = 0xff9c;
+pub const XK_KP_Insert: KeySym = 0xff9e;
+pub const XK_KP_Delete: KeySym = 0xff9f;
+pub const XK_KP_0: KeySym = 0xffb0;
 
 // --- Estruturas (ordem e tipos identicos a Xlib.h) ---
 
