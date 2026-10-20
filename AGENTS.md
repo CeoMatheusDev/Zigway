@@ -2,7 +2,7 @@
 
 Native platform backend em **Zig 0.17.0**: janelas, eventos e input
 sobre Win32/X11/null, API Zig nativa, sem `@cImport`, sem dependências
-externas. Versão atual: **0.1.0-alpha.3**. Repositório (pendente de
+externas. Versão atual: **0.1.0-alpha.4**. Repositório (pendente de
 criação): https://github.com/CeoMatheusDev/Zigway
 
 ## Regras absolutas

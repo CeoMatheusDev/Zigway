@@ -1,4 +1,4 @@
-# API — Zigway v0.1.0-alpha.3
+# API — Zigway v0.1.0-alpha.4
 
 Referência da API pública real (`@import("zigway")`). Nada aqui é
 aspiracional: se não está no código, não está neste documento.
@@ -536,7 +536,7 @@ botões são estado global e não são associados a janela.
 `PointerConstraint`, `ConstraintRegion`, `PointerRelativeEvent`,
 `PointerConstraintEvent`,
 `version.string`
-(`"0.1.0-alpha.3"`).
+(`"0.1.0-alpha.4"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,

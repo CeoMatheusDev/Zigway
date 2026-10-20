@@ -1,6 +1,6 @@
 .{
     .name = .zigway,
-    .version = "0.1.0-alpha.3",
+    .version = "0.1.0-alpha.4",
     .fingerprint = 0x2d29b8291f415527,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},

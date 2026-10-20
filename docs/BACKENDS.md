@@ -1,4 +1,4 @@
-# Backends — cobertura e limitações (v0.1.0-alpha.3)
+# Backends — cobertura e limitações (v0.1.0-alpha.4)
 
 **Ponteiro (X11)**: nao ha pointer lock nem confinamento nativos. A
 implementacao usa o `XGrabPointer` (o mesmo mecanismo da captura) e, no

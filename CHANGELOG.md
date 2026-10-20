@@ -5,6 +5,14 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+## [0.1.0-alpha.4] — 2026-10-20
+
+Quarta etapa: entrada de texto/IME e cursor nativos no Wayland, ciclo de
+eventos com espera e *wakeup*, sistema de escala/DPI multiplataforma e
+input avancado de ponteiro (movimento relativo, pointer lock e
+confinamento). Validado com display real no X11 e no Wayland (KWin
+nativo).
+
 ### Adicionado
 
 - **Input avancado de ponteiro**: `Window.setPointerConstraint(.lock |
