@@ -149,6 +149,7 @@ pub fn build(b: *std.Build) void {
         "fullscreen",
         "bench_loop",
         "pointer",
+        "gl_clear",
     };
     inline for (example_names) |name| {
         const exe = b.addExecutable(.{

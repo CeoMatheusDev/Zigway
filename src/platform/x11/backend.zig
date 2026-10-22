@@ -14,6 +14,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const native_types = @import("../../core/native.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const keysym = @import("../keysym.zig");
 
@@ -1411,6 +1412,25 @@ pub const Backend = struct {
             api.CurrentTime,
         );
         _ = api.XFlush(self.display);
+    }
+
+    /// Handle nativo da janela (Display*, XID e VisualID) para integrar
+    /// APIs graficas externas. A janela e criada com o visual do pai (a
+    /// raiz), isto e, o visual padrao da tela.
+    pub fn nativeHandle(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+    ) !native_types.NativeHandle {
+        _ = reg;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const screen = api.XDefaultScreen(self.display);
+        const visual = api.XDefaultVisual(self.display, screen);
+        return .{ .x11 = .{
+            .display = @ptrCast(self.display),
+            .window = self.entries.items[entry_idx].win,
+            .visual_id = api.XVisualIDFromVisual(visual),
+        } };
     }
 
     pub fn setCursor(

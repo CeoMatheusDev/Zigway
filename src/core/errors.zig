@@ -42,4 +42,10 @@ pub const Error = error{
     DisplayModeUnsupported,
     /// Falha na area de transferencia (abrir,ler ou escrever).
     ClipboardFailed,
+    /// Biblioteca grafica (ex.: libEGL) ausente em runtime ou sem os
+    /// simbolos exigidos.
+    GraphicsUnavailable,
+    /// Falha ao escolher configuracao, criar ou ativar o contexto/
+    /// superficie grafica (ex.: EGL/OpenGL).
+    GraphicsContextFailed,
 };

@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const types = @import("core/types.zig");
+const native_types = @import("core/native.zig");
 const platform_mod = @import("platform/platform.zig");
 
 pub const WindowId = types.WindowId;
@@ -115,6 +116,13 @@ pub const Window = struct {
 
     pub fn focus(self: Window) !void {
         try self.platform.focusWindow(self.id);
+    }
+
+    /// Handle nativo emprestado da janela, para integrar APIs graficas
+    /// externas (ver `zigway.gl`). `error.NotImplemented` quando o
+    /// backend ativo nao o expoe (hoje so o X11 expoe).
+    pub fn nativeHandle(self: Window) !native_types.NativeHandle {
+        return self.platform.windowNativeHandle(self.id);
     }
 
     pub fn setCursor(self: Window, cursor: Cursor) !void {
