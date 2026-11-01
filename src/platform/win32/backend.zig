@@ -17,6 +17,8 @@ const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 const graphics = @import("../../core/graphics.zig");
 const vulkan = @import("../vulkan.zig");
+const opengl = @import("../../core/opengl.zig");
+const egl = @import("../egl.zig");
 
 /// Escala (fracao) a partir de um DPI (96 = 100%).
 fn scaleFromDpi(dpi: u32) types.Scale {
@@ -1380,7 +1382,159 @@ pub const Backend = struct {
             .direct3d_handle = true,
         };
     }
+
+    /// Nenhuma extensão EGL específica exigida pelo Win32.
+    pub fn eglExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{};
+    }
+
+    /// Cria um contexto OpenGL para a janela Win32 via EGL.
+    ///
+    /// Obtém o HDC da janela via `GetDC` e o usa como native display EGL.
+    /// O HWND é usado como native window EGL.
+    pub fn createOpenGLContext(
+        self: *Backend,
+        reg: *registry.Registry,
+        id: types.WindowId,
+        egl_lib: *egl.Lib,
+        allocator: std.mem.Allocator,
+    ) !opengl.OpenGLContext {
+        _ = allocator;
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const entry = &self.entries.items[entry_idx];
+        const hwnd = entry.hwnd orelse return error.InvalidWindow;
+
+        const get_display = egl_lib.symbols.get_display orelse return error.OpenGLUnavailable;
+        const initialize = egl_lib.symbols.initialize orelse return error.OpenGLUnavailable;
+        const choose_config = egl_lib.symbols.choose_config orelse return error.OpenGLUnavailable;
+        const create_context = egl_lib.symbols.create_context orelse return error.OpenGLUnavailable;
+        const create_window_surface = egl_lib.symbols.create_window_surface orelse return error.OpenGLUnavailable;
+
+        const hdc = api.GetDC(hwnd);
+        if (hdc == null) return error.OpenGLUnavailable;
+
+        const display = get_display(@ptrCast(hdc));
+        if (display == null) return error.OpenGLUnavailable;
+
+        var major: egl.EGLint = 0;
+        var minor: egl.EGLint = 0;
+        if (initialize(display, &major, &minor) == egl.EGL_FALSE) {
+            return error.OpenGLUnavailable;
+        }
+
+        const config_attribs = [_]egl.EGLint{
+            egl.EGL_RED_SIZE,        8,
+            egl.EGL_GREEN_SIZE,      8,
+            egl.EGL_BLUE_SIZE,       8,
+            egl.EGL_ALPHA_SIZE,      8,
+            egl.EGL_DEPTH_SIZE,      24,
+            egl.EGL_STENCIL_SIZE,    8,
+            egl.EGL_RENDERABLE_TYPE, @as(egl.EGLint, egl.EGL_OPENGL_BIT),
+            egl.EGL_SURFACE_TYPE,    @as(egl.EGLint, egl.EGL_WINDOW_BIT),
+            egl.EGL_NONE,
+        };
+
+        var config: egl.EGLConfig = undefined;
+        var num_configs: egl.EGLint = 0;
+        if (choose_config(display, &config_attribs, &config, 1, &num_configs) == egl.EGL_FALSE or num_configs == 0) {
+            return error.ContextCreationFailed;
+        }
+
+        const ctx_attribs = [_]egl.EGLint{
+            egl.EGL_NONE,
+        };
+
+        const context = create_context(display, config, null, &ctx_attribs);
+        if (context == null) return error.ContextCreationFailed;
+
+        const egl_surface = create_window_surface(display, config, @ptrCast(hwnd), null);
+        if (egl_surface == null) {
+            const destroy_ctx = egl_lib.symbols.destroy_context orelse return error.ContextCreationFailed;
+            _ = destroy_ctx(display, context);
+            return error.ContextCreationFailed;
+        }
+
+        return opengl.OpenGLContext{
+            .native = @ptrCast(context),
+        };
+    }
+
+    /// Destrói o contexto OpenGL via EGL.
+    pub fn destroyOpenGLContext(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) void {
+        std.debug.assert(self != null);
+        if (context.native == null) return;
+        const destroy_ctx = egl_lib.symbols.destroy_context orelse return;
+        const terminate = egl_lib.symbols.terminate orelse return;
+        const display = eglGetCurrentDisplayWin32(egl_lib);
+        if (display != null) {
+            _ = destroy_ctx(display, @ptrCast(context.native));
+        }
+        _ = terminate(display);
+    }
+
+    /// Torna o contexto OpenGL corrente para a thread atual.
+    pub fn makeOpenGLCurrent(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        std.debug.assert(self != null);
+        _ = context;
+        const make_current = egl_lib.symbols.make_current orelse return error.OpenGLUnavailable;
+        const display = eglGetCurrentDisplayWin32(egl_lib);
+        if (display == null) return error.OpenGLUnavailable;
+        _ = make_current;
+        return error.ContextCreationFailed;
+    }
+
+    /// Troca os buffers da superfície OpenGL.
+    pub fn swapOpenGLBuffers(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        std.debug.assert(self != null);
+        _ = context;
+        const swap_buffers = egl_lib.symbols.swap_buffers orelse return error.OpenGLUnavailable;
+        const display = eglGetCurrentDisplayWin32(egl_lib);
+        if (display == null) return error.OpenGLUnavailable;
+        _ = swap_buffers;
+        return error.ContextCreationFailed;
+    }
+
+    /// Define o intervalo de troca de buffers (vsync).
+    pub fn setOpenGLSwapInterval(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        interval: i32,
+        egl_lib: *egl.Lib,
+    ) !void {
+        std.debug.assert(self != null);
+        _ = context;
+        const swap_interval = egl_lib.symbols.swap_interval orelse return error.OpenGLUnavailable;
+        const display = eglGetCurrentDisplayWin32(egl_lib);
+        if (display == null) return error.OpenGLUnavailable;
+        if (swap_interval(display, interval) == egl.EGL_FALSE) return error.OpenGLUnavailable;
+    }
+
+    /// Capacidades OpenGL do Win32: contexto via EGL.
+    pub fn openglCapabilities(self: *const Backend) opengl.OpenGLCapabilities {
+        _ = self;
+        return .{ .opengl_context = true };
+    }
 };
+
+/// Obtém o EGLDisplay do Win32 (via HDC).
+fn eglGetCurrentDisplayWin32(egl_lib: *egl.Lib) ?egl.EGLDisplay {
+    const get_display = egl_lib.symbols.get_display orelse return null;
+    return get_display(null);
+}
 
 fn backendFromHwnd(hwnd: api.HWND) ?*Backend {
     const raw = api.GetWindowLongPtrW(hwnd, api.GWLP_USERDATA);

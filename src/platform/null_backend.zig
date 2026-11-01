@@ -12,6 +12,8 @@ const window = @import("../window.zig");
 const types = @import("../core/types.zig");
 const graphics = @import("../core/graphics.zig");
 const vulkan = @import("vulkan.zig");
+const opengl = @import("../core/opengl.zig");
+const egl = @import("egl.zig");
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
@@ -421,6 +423,78 @@ pub const Backend = struct {
 
     /// Nenhuma API gráfica suportada pelo backend null.
     pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{};
+    }
+
+    /// Nenhuma extensão EGL exigida (backend sem suporte a OpenGL).
+    pub fn eglExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{};
+    }
+
+    /// O backend null não pode criar contextos OpenGL.
+    pub fn createOpenGLContext(
+        self: *Backend,
+        reg: *registry.Registry,
+        id: types.WindowId,
+        egl_lib: *egl.Lib,
+        allocator: std.mem.Allocator,
+    ) !opengl.OpenGLContext {
+        _ = self;
+        _ = reg;
+        _ = id;
+        _ = egl_lib;
+        _ = allocator;
+        return error.UnsupportedAPI;
+    }
+
+    /// No-op (não há contexto para destruir).
+    pub fn destroyOpenGLContext(self: *Backend, context: opengl.OpenGLContext) void {
+        _ = self;
+        _ = context;
+    }
+
+    /// No-op (sem contexto para tornar corrente).
+    pub fn makeOpenGLCurrent(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        _ = context;
+        _ = egl_lib;
+        return error.UnsupportedAPI;
+    }
+
+    /// No-op (sem superfície para trocar buffers).
+    pub fn swapOpenGLBuffers(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        _ = context;
+        _ = egl_lib;
+        return error.UnsupportedAPI;
+    }
+
+    /// No-op (sem intervalo de troca para definir).
+    pub fn setOpenGLSwapInterval(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        interval: i32,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        _ = context;
+        _ = interval;
+        _ = egl_lib;
+        return error.UnsupportedAPI;
+    }
+
+    /// Nenhuma API OpenGL suportada pelo backend null.
+    pub fn openglCapabilities(self: *const Backend) opengl.OpenGLCapabilities {
         _ = self;
         return .{};
     }

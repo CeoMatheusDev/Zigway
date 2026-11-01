@@ -19,6 +19,8 @@ const events = @import("../events.zig");
 const input = @import("../input.zig");
 const window_mod = @import("../window.zig");
 const vulkan = @import("vulkan.zig");
+const opengl = @import("../core/opengl.zig");
+const egl = @import("egl.zig");
 const NullBackend = @import("null_backend.zig").Backend;
 const X11Backend = @import("../platform/x11/backend.zig").Backend;
 const Win32Backend = @import("../platform/win32/backend.zig").Backend;
@@ -380,6 +382,111 @@ pub const Platform = struct {
         if (self.closed) return .{};
         return switch (self.backend) {
             inline else => |*b| b.graphicsCapabilities(),
+        };
+    }
+
+    /// Extensões EGL exigidas pelo backend ativo para OpenGL.
+    /// O chamador deve habilitá-las ao inicializar o EGL.
+    /// Retorna slice vazia quando o backend não suporta OpenGL.
+    pub fn eglExtensions(
+        self: *const Platform,
+        allocator: std.mem.Allocator,
+    ) ![][]const u8 {
+        if (self.closed) return error.PlatformClosed;
+        const exts = switch (self.backend) {
+            inline else => |*b| b.eglExtensions(),
+        };
+        var list: std.ArrayList([]const u8) = .empty;
+        errdefer list.deinit(allocator);
+        for (exts) |ext| {
+            try list.append(allocator, ext);
+        }
+        return try list.toOwnedSlice(allocator);
+    }
+
+    /// Cria um contexto OpenGL para a janela via o backend ativo.
+    ///
+    /// - `window`: handle da janela (deve pertencer a esta Platform).
+    /// - `egl_lib`: a `egl.Lib` carregada pela aplicação (`egl.Lib.load()`).
+    ///
+    /// Retorna `UnsupportedAPI` quando o backend não tem suporte a OpenGL
+    /// (ex.: backend null), `OpenGLUnavailable` quando o símbolo necessário
+    /// não está na biblioteca EGL, e `ContextCreationFailed` quando o EGL
+    /// rejeita a criação.
+    pub fn createOpenGLContext(
+        self: *Platform,
+        window: window_mod.Window,
+        egl_lib: *egl.Lib,
+        allocator: std.mem.Allocator,
+    ) !opengl.OpenGLContext {
+        if (self.closed) return error.PlatformClosed;
+        return switch (self.backend) {
+            inline else => |*b| try b.createOpenGLContext(&self.reg, window.id, egl_lib, allocator),
+        };
+    }
+
+    /// Destrói um contexto OpenGL criado por `createOpenGLContext`.
+    ///
+    /// - `context`: o handle retornado por `createOpenGLContext`.
+    ///
+    /// É seguro chamar com handle nulo (no-op). Sem efeito após `deinit`.
+    pub fn destroyOpenGLContext(
+        self: *Platform,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) void {
+        if (self.closed) return;
+        if (context.native == null) return;
+        switch (self.backend) {
+            inline else => |*b| b.destroyOpenGLContext(context, egl_lib),
+        }
+    }
+
+    /// Torna o contexto OpenGL corrente para a thread atual.
+    ///
+    /// - `context`: o handle do contexto. Nulo para desvincular.
+    pub fn makeOpenGLCurrent(
+        self: *Platform,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.makeOpenGLCurrent(context, egl_lib),
+        }
+    }
+
+    /// Troca os buffers da superfície OpenGL (double buffer swap).
+    pub fn swapOpenGLBuffers(
+        self: *Platform,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.swapOpenGLBuffers(context, egl_lib),
+        }
+    }
+
+    /// Define o intervalo de troca de buffers (vsync).
+    /// `interval = 0` desativa vsync; `interval >= 1` aguarda N quadros.
+    pub fn setOpenGLSwapInterval(
+        self: *Platform,
+        context: opengl.OpenGLContext,
+        interval: i32,
+        egl_lib: *egl.Lib,
+    ) !void {
+        if (self.closed) return error.PlatformClosed;
+        switch (self.backend) {
+            inline else => |*b| try b.setOpenGLSwapInterval(context, interval, egl_lib),
+        }
+    }
+
+    /// Capacidades OpenGL do backend ativo.
+    pub fn openglCapabilities(self: *const Platform) opengl.OpenGLCapabilities {
+        if (self.closed) return .{};
+        return switch (self.backend) {
+            inline else => |*b| b.openglCapabilities(),
         };
     }
 

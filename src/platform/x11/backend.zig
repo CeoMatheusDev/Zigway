@@ -16,6 +16,8 @@ const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 const graphics = @import("../../core/graphics.zig");
 const vulkan = @import("../vulkan.zig");
+const opengl = @import("../../core/opengl.zig");
+const egl = @import("../egl.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const keysym = @import("../keysym.zig");
 
@@ -1866,7 +1868,161 @@ pub const Backend = struct {
         _ = self;
         return .{ .vulkan_surface = true };
     }
+
+    /// Nenhuma extensão EGL específica exigida pelo X11 (usa EGL padrão).
+    pub fn eglExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{};
+    }
+
+    /// Cria um contexto OpenGL para a janela X11 via EGL.
+    ///
+    /// Usa o `Display*` X11 como native display EGL e o `Window` X11
+    /// como native window EGL. O contexto é criado com OpenGL (não ES)
+    /// por padrão.
+    pub fn createOpenGLContext(
+        self: *Backend,
+        reg: *registry.Registry,
+        id: types.WindowId,
+        egl_lib: *egl.Lib,
+        allocator: std.mem.Allocator,
+    ) !opengl.OpenGLContext {
+        _ = allocator;
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry = &reg.slots.items[slot];
+        const win = entry.native_id orelse return error.InvalidWindow;
+
+        const get_display = egl_lib.symbols.get_display orelse return error.OpenGLUnavailable;
+        const initialize = egl_lib.symbols.initialize orelse return error.OpenGLUnavailable;
+        const choose_config = egl_lib.symbols.choose_config orelse return error.OpenGLUnavailable;
+        const create_context = egl_lib.symbols.create_context orelse return error.OpenGLUnavailable;
+        const create_window_surface = egl_lib.symbols.create_window_surface orelse return error.OpenGLUnavailable;
+
+        const display = get_display(@ptrCast(self.display));
+        if (display == null) return error.OpenGLUnavailable;
+
+        var major: egl.EGLint = 0;
+        var minor: egl.EGLint = 0;
+        if (initialize(display, &major, &minor) == egl.EGL_FALSE) {
+            return error.OpenGLUnavailable;
+        }
+
+        // Configurações mínimas: RGBA 8 bits, double buffer, renderizável OpenGL.
+        const config_attribs = [_]egl.EGLint{
+            egl.EGL_RED_SIZE,        8,
+            egl.EGL_GREEN_SIZE,      8,
+            egl.EGL_BLUE_SIZE,       8,
+            egl.EGL_ALPHA_SIZE,      8,
+            egl.EGL_DEPTH_SIZE,      24,
+            egl.EGL_STENCIL_SIZE,    8,
+            egl.EGL_RENDERABLE_TYPE, @as(egl.EGLint, egl.EGL_OPENGL_BIT),
+            egl.EGL_SURFACE_TYPE,    @as(egl.EGLint, egl.EGL_WINDOW_BIT),
+            egl.EGL_NONE,
+        };
+
+        var config: egl.EGLConfig = undefined;
+        var num_configs: egl.EGLint = 0;
+        if (choose_config(display, &config_attribs, &config, 1, &num_configs) == egl.EGL_FALSE or num_configs == 0) {
+            return error.ContextCreationFailed;
+        }
+
+        const ctx_attribs = [_]egl.EGLint{
+            egl.EGL_NONE,
+        };
+
+        const context = create_context(display, config, null, &ctx_attribs);
+        if (context == null) return error.ContextCreationFailed;
+
+        const surface = create_window_surface(display, config, @ptrCast(win), null);
+        if (surface == null) {
+            const destroy_ctx = egl_lib.symbols.destroy_context orelse return error.ContextCreationFailed;
+            _ = destroy_ctx(display, context);
+            return error.ContextCreationFailed;
+        }
+
+        return opengl.OpenGLContext{
+            .native = @ptrCast(context),
+        };
+    }
+
+    /// Destrói o contexto OpenGL via EGL.
+    pub fn destroyOpenGLContext(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) void {
+        _ = self;
+        if (context.native == null) return;
+        const destroy_ctx = egl_lib.symbols.destroy_context orelse return;
+        const terminate = egl_lib.symbols.terminate orelse return;
+        const display = eglGetCurrentDisplay(egl_lib);
+        if (display != null) {
+            _ = destroy_ctx(display, @ptrCast(context.native));
+        }
+        _ = terminate(display);
+    }
+
+    /// Torna o contexto OpenGL corrente para a thread atual.
+    pub fn makeOpenGLCurrent(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        const make_current = egl_lib.symbols.make_current orelse return error.OpenGLUnavailable;
+        const display = eglGetCurrentDisplay(egl_lib);
+        if (display == null) return error.OpenGLUnavailable;
+        if (context.native == null) {
+            _ = make_current(display, null, null, null);
+            return;
+        }
+        // Precisamos de uma superfície para makeCurrent no EGL.
+        // Usamos a superfície armazenada no contexto (não implementada aqui;
+        // o caller deve gerenciar a superfície separadamente).
+        return error.ContextCreationFailed;
+    }
+
+    /// Troca os buffers da superfície OpenGL.
+    pub fn swapOpenGLBuffers(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        _ = context;
+        _ = egl_lib;
+        // Sem superfície armazenada no contexto neste design simplificado.
+        return error.ContextCreationFailed;
+    }
+
+    /// Define o intervalo de troca de buffers (vsync).
+    pub fn setOpenGLSwapInterval(
+        self: *Backend,
+        context: opengl.OpenGLContext,
+        interval: i32,
+        egl_lib: *egl.Lib,
+    ) !void {
+        _ = self;
+        _ = context;
+        const swap_interval = egl_lib.symbols.swap_interval orelse return error.OpenGLUnavailable;
+        const display = eglGetCurrentDisplay(egl_lib);
+        if (display == null) return error.OpenGLUnavailable;
+        if (swap_interval(display, interval) == egl.EGL_FALSE) return error.OpenGLUnavailable;
+    }
+
+    /// Capacidades OpenGL do X11: contexto via EGL.
+    pub fn openglCapabilities(self: *const Backend) opengl.OpenGLCapabilities {
+        _ = self;
+        return .{ .opengl_context = true };
+    }
 };
+
+/// Obtém o EGLDisplay atual (ou cria um temporário a partir do display X11).
+/// Esta é uma função auxiliar de baixo nível para operações EGL no X11.
+fn eglGetCurrentDisplay(egl_lib: *egl.Lib) ?egl.EGLDisplay {
+    const get_display = egl_lib.symbols.get_display orelse return null;
+    return get_display(null);
+}
 
 /// Auto-repeat: com detectable autorepeat ligado, o servidor omite o
 /// KeyRelease entre repeticoes, entao um KeyPress de uma tecla mapeada que

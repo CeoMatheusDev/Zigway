@@ -27,6 +27,8 @@ pub const errors = @import("core/errors.zig");
 pub const caps = @import("core/caps.zig");
 pub const graphics = @import("core/graphics.zig");
 pub const vulkan = @import("platform/vulkan.zig");
+pub const opengl = @import("core/opengl.zig");
+pub const egl = @import("platform/egl.zig");
 
 pub const types = @import("core/types.zig");
 pub const WindowId = types.WindowId;
@@ -104,4 +106,6 @@ test {
     _ = @import("platform/win32/backend.zig");
     _ = @import("platform/vulkan.zig");
     _ = @import("core/graphics.zig");
+    _ = @import("platform/egl.zig");
+    _ = @import("core/opengl.zig");
 }
