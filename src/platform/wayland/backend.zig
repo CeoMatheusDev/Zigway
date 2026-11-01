@@ -10,11 +10,24 @@
 //   - outputs (monitores) via wl_output,
 //   - janelas via xdg-shell (wl_surface + xdg_surface + xdg_toplevel),
 //     com buffer shm para mapear a superficie,
-//   - despacho assincrono dos eventos do compositor.
+//   - despacho assincrono dos eventos do compositor,
+//   - ponteiro (wl_pointer) e teclado (wl_keyboard + keymap XKB via
+//     libxkbcommon em runtime),
+//   - pointer lock/confinamento (zwp_pointer_constraints_v1),
+//   - movimento relativo (zwp_relative_pointer_manager_v1),
+//   - clipboard (wl_data_device/wl_data_source/wl_data_offer),
+//   - entrada de texto/IME (zwp_text_input_v3),
+//   - cursor do sistema (libwayland-cursor em runtime).
 //
 // Ainda NAO implementado (retornam `error.NotImplemented`):
-// input (teclado/ponteiro exigem keymap XKB e wl_pointer), clipboard e
-// modos de video.
+//   - setSize (o compositor decide o tamanho via xdg_surface.configure),
+//   - setPosition (o Wayland nao expoe a posicao da janela ao cliente),
+//   - focusWindow (o foco e controlado pelo compositor),
+//   - setDisplayMode (o protocolo base nao tem troca de modo de video).
+//
+// Essas operacoes retornam `NotImplemented` quando o recurso necessario
+// nao esta disponível (ex.: compositor sem `zwp_text_input_manager_v3`)
+// ou quando o protocolo base nao as cobre.
 //
 // Os callbacks do protocolo recebem um ponteiro para `State`, que fica
 // na heap: o `Backend` e movido quando a `Platform` e devolvida por

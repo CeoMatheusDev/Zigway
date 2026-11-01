@@ -73,8 +73,14 @@ mapear a superfície, com eventos `resize`/`maximized`/`fullscreen`/
 implementada**: ponteiro (`wl_pointer` → `pointer_move`/
 `pointer_button`/`scroll`) e teclado (`wl_keyboard` + keymap XKB
 interpretado pela libxkbcommon em runtime → `key_down`/`key_up` e
-`focus`). Pendentes: clipboard do protocolo, entrada de texto Unicode
-(IME) e o `raw_key` (tecla física).
+`focus`); clipboard (`wl_data_device`/`wl_data_source`/`wl_data_offer`,
+publicação assíncrona e leitura síncrona com timeout); entrada de texto
+Unicode/IME (`zwp_text_input_v3` → `text_input`,
+`composition_start`/`composition_end`, `setSurroundingText`); e
+`raw_key` (keycode XKB via `wl_keyboard`). Pendentes: captura exclusiva
+de ponteiro (não existe no protocolo base Wayland), posicionamento
+absoluto (`setPosition`), `setSize` (o compositor decide), `focusWindow`
+(o foco é do compositor) e modos de vídeo.
 
 ## v0.6.x — Expansões de input
 
