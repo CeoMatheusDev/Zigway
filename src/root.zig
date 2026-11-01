@@ -8,14 +8,25 @@
 //   var window = try platform.createWindow(.{ .title = "Zigway" });
 //   defer window.deinit();
 //
+// Graphics (Fase v0.4.x):
+//
+//   const exts = try platform.vulkanExtensions(allocator);
+//   // criar VkInstance com as extensões em `exts`
+//   const vulkan_lib = vulkan.Lib.load() orelse return error.VulkanUnavailable;
+//   const surface = try platform.createVulkanSurface(window, vk_instance, &vulkan_lib, allocator);
+//   defer platform.destroyVulkanSurface(vk_instance, surface, &vulkan_lib);
+//
 // Documentacao: docs/. Estado real da implementacao (sem placeholders
-// funcionais): Win32 + X11 na Fase 1; Wayland planejado (Fase 5).
+// funcionais): Win32 + X11 na Fase 1; Wayland planejado (Fase 5);
+// superfície Vulkan (X11/Win32/Wayland) na fase v0.4.x.
 
 const std = @import("std");
 
 pub const version = @import("core/version.zig");
 pub const errors = @import("core/errors.zig");
 pub const caps = @import("core/caps.zig");
+pub const graphics = @import("core/graphics.zig");
+pub const vulkan = @import("platform/vulkan.zig");
 
 pub const types = @import("core/types.zig");
 pub const WindowId = types.WindowId;
@@ -91,4 +102,6 @@ test {
     _ = @import("platform/x11/backend.zig");
     _ = @import("platform/win32/api.zig");
     _ = @import("platform/win32/backend.zig");
+    _ = @import("platform/vulkan.zig");
+    _ = @import("core/graphics.zig");
 }

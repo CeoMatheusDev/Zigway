@@ -43,6 +43,8 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const graphics = @import("../../core/graphics.zig");
+const vulkan = @import("../vulkan.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const linux = std.os.linux;
 
@@ -2434,6 +2436,72 @@ pub const Backend = struct {
                 }
             }
         }
+    }
+
+    /// Extensão de instância Vulkan exigida pelo Wayland: `VK_KHR_wayland_surface`.
+    pub fn vulkanExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{"VK_KHR_wayland_surface"};
+    }
+
+    /// Cria uma `VkSurfaceKHR` para a superfície Wayland via
+    /// `vkCreateWaylandSurfaceKHR`. `instance` é o `VkInstance` da
+    /// aplicação (deve ter sido criado com a extensão
+    /// `VK_KHR_wayland_surface`).
+    pub fn createVulkanSurface(
+        self: *Backend,
+        reg: *registry.Registry,
+        instance: *anyopaque,
+        id: types.WindowId,
+        vulkan_lib: *vulkan.Lib,
+        allocator: std.mem.Allocator,
+    ) !graphics.VulkanSurface {
+        _ = allocator;
+        const st = self.state;
+        const index = st.windowIndexBySlot(reg.slotOf(id) orelse return error.InvalidWindow) orelse
+            return error.InvalidWindow;
+        const entry = &st.windows.items[index];
+        const surface_proxy = entry.surface orelse return error.InvalidWindow;
+
+        const create_fn_raw = vulkan_lib.procAddr(instance, "vkCreateWaylandSurfaceKHR");
+        const create_wayland_surface = @as(?vulkan.CreateWaylandSurfaceKHRFn, @ptrCast(create_fn_raw)) orelse
+            return error.VulkanUnavailable;
+
+        const sTypeWayland: vulkan.VkStructureType = 1000005000; // VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR
+        const info = vulkan.VkWaylandSurfaceCreateInfoKHR{
+            .sType = sTypeWayland,
+            .pNext = null,
+            .flags = 0,
+            .display = st.display,
+            .surface = @ptrCast(surface_proxy),
+        };
+
+        var vk_surface: vulkan.VkSurfaceKHR = undefined;
+        const rc = create_wayland_surface(instance, &info, null, &vk_surface);
+        if (rc != vulkan.VK_SUCCESS) return error.SurfaceCreationFailed;
+
+        return graphics.VulkanSurface{ .native = @ptrCast(vk_surface) };
+    }
+
+    /// Destrói a superfície Vulkan via `vkDestroySurfaceKHR`.
+    /// `instance` é o mesmo `VkInstance` usado para criar a superfície.
+    pub fn destroyVulkanSurface(
+        self: *Backend,
+        instance: *anyopaque,
+        surface: graphics.VulkanSurface,
+        vulkan_lib: *vulkan.Lib,
+    ) void {
+        _ = self;
+        if (surface.native == null) return;
+        const destroy_fn_raw = vulkan_lib.procAddr(instance, "vkDestroySurfaceKHR");
+        const destroy_surface = @as(?vulkan.DestroySurfaceKHRFn, @ptrCast(destroy_fn_raw)) orelse return;
+        destroy_surface(instance, @ptrCast(surface.native), null);
+    }
+
+    /// Capacidades gráficas do Wayland: superfície Vulkan.
+    pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{ .vulkan_surface = true };
     }
 };
 

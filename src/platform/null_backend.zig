@@ -10,6 +10,8 @@ const events = @import("../events.zig");
 const input = @import("../input.zig");
 const window = @import("../window.zig");
 const types = @import("../core/types.zig");
+const graphics = @import("../core/graphics.zig");
+const vulkan = @import("vulkan.zig");
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
@@ -385,5 +387,41 @@ pub const Backend = struct {
     pub fn releasePointer(self: *Backend, reg: *registry.Registry, slot: u32) void {
         _ = reg;
         if (self.captured == slot) self.captured = null;
+    }
+
+    /// Nenhuma extensão Vulkan exigida (backend sem suporte a superfície).
+    pub fn vulkanExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{};
+    }
+
+    /// O backend null não pode criar superfícies Vulkan.
+    pub fn createVulkanSurface(
+        self: *Backend,
+        reg: *registry.Registry,
+        instance: *anyopaque,
+        id: types.WindowId,
+        vulkan_lib: *vulkan.Lib,
+        allocator: std.mem.Allocator,
+    ) !graphics.VulkanSurface {
+        _ = self;
+        _ = reg;
+        _ = instance;
+        _ = id;
+        _ = vulkan_lib;
+        _ = allocator;
+        return error.UnsupportedAPI;
+    }
+
+    /// No-op (não há superfície para destruir).
+    pub fn destroyVulkanSurface(self: *Backend, surface: graphics.VulkanSurface) void {
+        _ = self;
+        _ = surface;
+    }
+
+    /// Nenhuma API gráfica suportada pelo backend null.
+    pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{};
     }
 };

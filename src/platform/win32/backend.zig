@@ -15,6 +15,8 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const graphics = @import("../../core/graphics.zig");
+const vulkan = @import("../vulkan.zig");
 
 /// Escala (fracao) a partir de um DPI (96 = 100%).
 fn scaleFromDpi(dpi: u32) types.Scale {
@@ -1310,6 +1312,73 @@ pub const Backend = struct {
     fn ensureWakeEvent(self: *Backend) void {
         if (self.wake_event != null) return;
         self.wake_event = api.CreateEventW(null, 0, 0, null);
+    }
+
+    /// Extensão de instância Vulkan exigida pelo Win32: `VK_KHR_win32_surface`.
+    pub fn vulkanExtensions(self: *const Backend) [][]const u8 {
+        _ = self;
+        return &[_][]const u8{"VK_KHR_win32_surface"};
+    }
+
+    /// Cria uma `VkSurfaceKHR` para a janela Win32 via `vkCreateWin32SurfaceKHR`.
+    /// `instance` é o `VkInstance` da aplicação (deve ter sido criado com a
+    /// extensão `VK_KHR_win32_surface`).
+    pub fn createVulkanSurface(
+        self: *Backend,
+        reg: *registry.Registry,
+        instance: *anyopaque,
+        id: types.WindowId,
+        vulkan_lib: *vulkan.Lib,
+        allocator: std.mem.Allocator,
+    ) !graphics.VulkanSurface {
+        _ = allocator;
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const entry = &self.entries.items[entry_idx];
+        const hwnd = entry.hwnd orelse return error.InvalidWindow;
+
+        const create_fn_raw = vulkan_lib.procAddr(instance, "vkCreateWin32SurfaceKHR");
+        const create_win32_surface = @as(?vulkan.CreateWin32SurfaceKHRFn, @ptrCast(create_fn_raw)) orelse
+            return error.VulkanUnavailable;
+
+        const sTypeWin32: vulkan.VkStructureType = 1000009000; // VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR
+        const info = vulkan.VkWin32SurfaceCreateInfoKHR{
+            .sType = sTypeWin32,
+            .pNext = null,
+            .flags = 0,
+            .hinstance = api.GetModuleHandleW(null),
+            .hwnd = @ptrCast(hwnd),
+        };
+
+        var vk_surface: vulkan.VkSurfaceKHR = undefined;
+        const rc = create_win32_surface(instance, &info, null, &vk_surface);
+        if (rc != vulkan.VK_SUCCESS) return error.SurfaceCreationFailed;
+
+        return graphics.VulkanSurface{ .native = @ptrCast(vk_surface) };
+    }
+
+    /// Destrói a superfície Vulkan via `vkDestroySurfaceKHR`.
+    /// `instance` é o mesmo `VkInstance` usado para criar a superfície.
+    pub fn destroyVulkanSurface(
+        self: *Backend,
+        instance: *anyopaque,
+        surface: graphics.VulkanSurface,
+        vulkan_lib: *vulkan.Lib,
+    ) void {
+        _ = self;
+        if (surface.native == null) return;
+        const destroy_fn_raw = vulkan_lib.procAddr(instance, "vkDestroySurfaceKHR");
+        const destroy_surface = @as(?vulkan.DestroySurfaceKHRFn, @ptrCast(destroy_fn_raw)) orelse return;
+        destroy_surface(instance, @ptrCast(surface.native), null);
+    }
+
+    /// Capacidades gráficas do Win32: superfície Vulkan + handles Direct3D/DXGI.
+    pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{
+            .vulkan_surface = true,
+            .direct3d_handle = true,
+        };
     }
 };
 
