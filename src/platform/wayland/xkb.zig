@@ -296,3 +296,32 @@ test "keymap translates keycodes into keysyms" {
     // Tecla desconhecida: sem keysym.
     try std.testing.expectEqual(@as(KeySym, 0), keymap.symForKey(200, true));
 }
+
+test "xkb diag (temporario)" {
+    var keymap = Keymap.init() catch {
+        std.debug.print("XKBDBG no-lib\n", .{});
+        return;
+    };
+    defer keymap.deinit();
+    keymap.loadFromString(minimal_keymap) catch {
+        std.debug.print("XKBDBG load-failed\n", .{});
+        return;
+    };
+    std.debug.print("XKBDBG ready={} len={}\n", .{ keymap.ready, minimal_keymap.len });
+
+    const GetByLevel = *const fn (*xkb_keymap, KeyCode, u32, u32, *const [*]const KeySym) callconv(.c) i32;
+    if (keymap.lib.dyn.lookup(GetByLevel, "xkb_keymap_key_get_syms_by_level")) |f| {
+        var p: [*]const KeySym = undefined;
+        const c9 = f(keymap.keymap, 9, 0, 0, &p);
+        const s9: KeySym = if (c9 > 0) p[0] else 0;
+        const c10 = f(keymap.keymap, 10, 0, 0, &p);
+        const s10: KeySym = if (c10 > 0) p[0] else 0;
+        std.debug.print("XKBDBG bylevel k9={} sym9={} k10={} sym10={}\n", .{ c9, s9, c10, s10 });
+    } else {
+        std.debug.print("XKBDBG no-by-level\n", .{});
+    }
+
+    var s: [*]const KeySym = undefined;
+    const n9 = keymap.lib.symbols.state_key_get_syms(keymap.state, 9, &s);
+    std.debug.print("XKBDBG state k9={} first={}\n", .{ n9, if (n9 > 0) s[0] else 0 });
+}
