@@ -15,7 +15,8 @@ SemVer 2.0.0: `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`.
 | v0.1.0-alpha.1 | fundação compila, testa e abre janelas |
 | v0.1.0-alpha.2 | lifecycle + CI |
 | v0.1.0-alpha.3 | display/texto/clipboard + backend Wayland nativo |
-| v0.1.0-alpha.4 | IME/cursor no Wayland, loop com espera, escala/DPI e input avancado de ponteiro (esta) |
+| v0.1.0-alpha.4 | IME/cursor no Wayland, loop com espera, escala/DPI e input avancado de ponteiro |
+| v0.1.0-alpha.5 | handle nativo de janela, superfície Vulkan e OpenGL via EGL (sem renderer), CI reativada e correções de ABI (esta) |
 | v0.1.0-beta.1 | Win32 e X11 funcionais (Windows real validado) |
 | v0.1.0-beta.2 | input e eventos completos |
 | v0.1.0-rc.1 | testes/estabilização |

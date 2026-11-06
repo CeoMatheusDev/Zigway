@@ -5,6 +5,13 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+## [0.1.0-alpha.5] — 2026-11-06
+
+Quinta etapa: integração de APIs gráficas na janela — superfície Vulkan e
+contexto OpenGL via EGL (sem renderer próprio) — mais o handle nativo de
+janela, a reativação da CI (parada há 16 dias) e as correções de ABI que
+ela revelou.
+
 ### Adicionado
 
 - **Handle nativo de janela**: `Window.nativeHandle()` /
@@ -49,18 +56,40 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 - `vulkan.enumerateInstanceExtensions` não devolve mais nomes pendurados
   (copia com `allocator.dupe`; liberar com `freeInstanceExtensions`).
 
+- **Teclado Wayland (xkb) quebrado em ReleaseFast**: o out-param de
+  `xkb_state_key_get_syms` (`const xkb_keysym_t **`) estava declarado como
+  `*const [*]const KeySym`, isto e, escrevendo em memoria marcada `const`.
+  O `LLVM` assumia que o slot nao mudava e `symForKey` devolvia `0` para
+  toda tecla em builds otimizados; em `Debug` funcionava e, sem a
+  `libxkbcommon` instalada, o teste pulava. Declaracao corrigida.
+- **CI reativada**: `.github/workflows/ci.yml` tinha um `:` sem aspas no
+  nome de um passo, o que invalida o YAML inteiro — desde o release
+  anterior o GitHub nao criava job nenhum (execucoes de 0s, CI morta por
+  16 dias). Com a CI rodando de novo, os dois bugs acima foram expostos.
+- **`zig build -Dplatform=... test`**: o teste `resolve auto on host`
+  ignorava `-Dplatform` e falhava em `-Dplatform=null_backend` e
+  `-Dplatform=wayland`. Agora compara com o backend fixado no build.
+- **Teste de layout do X11 no alvo Windows**: `XSizeHints` tem 80 bytes em
+  LP64 e 72 em LLP64; o teste de layout passou a rodar so onde `c_long`
+  tem 8 bytes (a Xlib nao existe no Windows).
+
 ### Validação
 
-- Validado neste ambiente: `zig build`, `zig build test`,
-  `zig build examples`, `zig build test-x11` (pulado: sem display),
-  `zig build test-wayland` (pulado: sem compositor),
-  `zig build test-win32-compile`, `-Dplatform={null_backend,x11,wayland}`,
-  `-Dtarget=x86_64-windows -Dplatform=win32` e `zig fmt --check .`.
+- Local (Zig 0.17.0): `zig build`, `zig build test`, `zig build examples`,
+  `zig build test-x11`, `zig build test-wayland`,
+  `zig build test-win32-compile`, `-Dplatform={null_backend,x11,wayland} test`,
+  `-Dtarget=x86_64-windows -Dplatform=win32`, `test -Doptimize=ReleaseFast`
+  e `zig fmt --check .` — todos OK.
+- CI (GitHub Actions, runners reais, Zig 0.17.0): 4/4 jobs verdes no
+  `main` — Linux `Debug` e `ReleaseFast` (incluindo `test-x11` com display
+  virtual via Xvfb) e Windows `Debug` e `ReleaseFast` (build e `test`
+  nativos no Windows).
 - **Não validado em runtime**: criar contexto OpenGL (EGL) e superfície
-  Vulkan exigem display real e `libEGL`/`libvulkan`, ausentes aqui. O
-  caminho compila e a seleção de backend do EGL segue a especificação, mas
-  o primeiro desenho/`vkCreate*SurfaceKHR` de verdade continua pendente de
-  validação manual (ver `docs/GRAPHICS.md`).
+  Vulkan exige driver/display com `libEGL`/`libvulkan`. O caminho compila
+  em todos os alvos e a selecao de configuracao do EGL segue a
+  especificacao, mas o primeiro `vkCreate*SurfaceKHR`/desenho real segue
+  pendente de validacao manual (ver `docs/GRAPHICS.md`). O mesmo vale para
+  o Win32 em runtime, que a CI apenas compila.
 
 ## [0.1.0-alpha.4] — 2026-10-20
 
