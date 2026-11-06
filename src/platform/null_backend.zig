@@ -10,6 +10,7 @@ const events = @import("../events.zig");
 const input = @import("../input.zig");
 const window = @import("../window.zig");
 const types = @import("../core/types.zig");
+const native = @import("../core/native.zig");
 
 pub const Backend = struct {
     allocator: std.mem.Allocator,
@@ -363,6 +364,18 @@ pub const Backend = struct {
         _ = self;
         _ = reg;
         _ = slot;
+    }
+
+    /// Sem recurso nativo: nao ha handle a expor.
+    pub fn nativeHandle(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+    ) !native.NativeHandle {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        return error.NotImplemented;
     }
 
     pub fn setCursor(

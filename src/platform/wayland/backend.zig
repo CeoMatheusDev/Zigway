@@ -30,6 +30,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const native = @import("../../core/native.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const linux = std.os.linux;
 
@@ -2049,6 +2050,14 @@ pub const Backend = struct {
             .not_allowed => "not-allowed",
             .wait => "wait",
         };
+    }
+
+    /// Handle nativo (wl_display/wl_surface) ainda nao exposto no Wayland.
+    pub fn nativeHandle(self: *Backend, reg: *registry.Registry, slot: u32) !native.NativeHandle {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        return error.NotImplemented;
     }
 
     pub fn setCursor(self: *Backend, reg: *registry.Registry, slot: u32, cursor: types.Cursor) !void {

@@ -5,6 +5,28 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Handle nativo de janela**: `Window.nativeHandle()` /
+  `Platform.windowNativeHandle(id)` e o tipo `zigway.NativeHandle`
+  (`src/core/native.zig`). O X11 expõe `Display*`, XID e `VisualID`; Wayland,
+  Win32 e null retornam `error.NotImplemented`.
+- **OpenGL via EGL** (`zigway.gl`, `src/gl.zig`): `Context.init`,
+  `makeCurrent`, `releaseCurrent`, `swapBuffers`, `setSwapInterval`,
+  `getProcAddress`/`getProc` e `deinit`. `libEGL` é carregada em runtime
+  (sem dependência de link), a ABI do EGL é declarada manualmente e a
+  configuração é escolhida para casar com o visual da janela. Somente X11;
+  um contexto por `Platform`.
+- Erros `GraphicsUnavailable` e `GraphicsContextFailed`.
+- Exemplo `gl_clear` e declarações Xlib `XDefaultVisual` e
+  `XVisualIDFromVisual`.
+
+### Validação
+
+- Escrito sem compilador disponível ao autor do patch: **nenhum comando de
+  build ou teste foi executado**. Validar com `zig build`, `zig build test`,
+  `zig fmt --check .` e `zig build examples` antes de lançar.
+
 ## [0.1.0-alpha.4] — 2026-10-20
 
 Quarta etapa: entrada de texto/IME e cursor nativos no Wayland, ciclo de

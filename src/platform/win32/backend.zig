@@ -15,6 +15,7 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const native = @import("../../core/native.zig");
 
 /// Escala (fracao) a partir de um DPI (96 = 100%).
 fn scaleFromDpi(dpi: u32) types.Scale {
@@ -1198,6 +1199,18 @@ pub const Backend = struct {
         _ = reg;
         const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
         _ = api.SetFocus(self.entries.items[entry_idx].hwnd);
+    }
+
+    /// Handle nativo (HWND) ainda nao exposto no Win32.
+    pub fn nativeHandle(
+        self: *Backend,
+        reg: *registry.Registry,
+        slot: u32,
+    ) !native.NativeHandle {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        return error.NotImplemented;
     }
 
     pub fn setCursor(

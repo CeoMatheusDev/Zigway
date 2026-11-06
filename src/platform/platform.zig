@@ -11,6 +11,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("../core/types.zig");
+const native_types = @import("../core/native.zig");
 const caps = @import("../core/caps.zig");
 const registry = @import("registry.zig");
 const backend_mod = @import("backend.zig");
@@ -613,6 +614,16 @@ pub const Platform = struct {
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
             inline else => |*b| try b.focusWindow(&self.reg, index),
+        }
+    }
+
+    /// Handle nativo da janela (ver `core/native.zig`). Retorna
+    /// `error.NotImplemented` nos backends que ainda nao o expoem.
+    pub fn windowNativeHandle(self: *Platform, id: types.WindowId) !native_types.NativeHandle {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| return b.nativeHandle(&self.reg, index),
         }
     }
 

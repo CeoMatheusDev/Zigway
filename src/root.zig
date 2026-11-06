@@ -72,6 +72,12 @@ pub const ScrollEvent = events_mod.ScrollEvent;
 pub const input_mod = @import("input.zig");
 pub const InputState = input_mod.InputState;
 
+pub const native = @import("core/native.zig");
+pub const NativeHandle = native.NativeHandle;
+
+/// Contexto OpenGL (EGL) por janela; nao e um renderer (docs/GRAPHICS.md).
+pub const gl = @import("gl.zig");
+
 test {
     // Agrega os testes unitarios de todos os modulos.
     std.testing.refAllDecls(@This());
@@ -79,6 +85,8 @@ test {
     _ = @import("core/handles.zig");
     _ = @import("core/types.zig");
     _ = @import("core/caps.zig");
+    _ = @import("core/native.zig");
+    _ = @import("gl.zig");
     _ = @import("events.zig");
     _ = @import("input.zig");
     _ = @import("window.zig");
