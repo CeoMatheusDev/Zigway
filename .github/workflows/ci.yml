@@ -27,15 +27,7 @@ jobs:
       - run: zig version
       - run: zig fmt --check src/ examples/ tests/ build.zig
       - run: zig build -Doptimize=${{ matrix.optimize }}
-      - name: Unit tests
-        shell: bash
-        run: |
-          set -o pipefail
-          if ! zig build test --summary all -Doptimize=${{ matrix.optimize }} 2>&1 | tee test.log; then
-            msg=$(tail -c 3500 test.log | tr '\n' '|')
-            echo "::error title=zig-test-failed::$msg"
-            exit 1
-          fi
+      - run: zig build test --summary all -Doptimize=${{ matrix.optimize }}
       - run: zig build examples -Doptimize=${{ matrix.optimize }}
       - name: Live X11 integration test (virtual display)
         run: xvfb-run -a zig build test-x11 -Doptimize=${{ matrix.optimize }}
@@ -66,14 +58,6 @@ jobs:
       - run: zig version
       - run: zig fmt --check src/ examples/ tests/ build.zig
       - run: zig build -Doptimize=${{ matrix.optimize }}
-      - name: Unit tests
-        shell: bash
-        run: |
-          set -o pipefail
-          if ! zig build test --summary all -Doptimize=${{ matrix.optimize }} 2>&1 | tee test.log; then
-            msg=$(tail -c 3500 test.log | tr '\n' '|')
-            echo "::error title=zig-test-failed::$msg"
-            exit 1
-          fi
+      - run: zig build test --summary all -Doptimize=${{ matrix.optimize }}
       # Sem test-x11 aqui: exige X11 (link + display). Win32 em runtime
       # ainda depende de validacao com desktop real (ver BACKENDS.md).

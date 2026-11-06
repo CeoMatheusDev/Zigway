@@ -53,7 +53,7 @@ const KeymapUnrefFn = *const fn (*xkb_keymap) callconv(.c) void;
 const StateNewFn = *const fn (*xkb_keymap) callconv(.c) ?*xkb_state;
 const StateUnrefFn = *const fn (*xkb_state) callconv(.c) void;
 const StateUpdateKeyFn = *const fn (*xkb_state, KeyCode, i32) callconv(.c) i32;
-const StateKeyGetSymsFn = *const fn (*xkb_state, KeyCode, *const [*]const KeySym) callconv(.c) i32;
+const StateKeyGetSymsFn = *const fn (*xkb_state, KeyCode, *[*]const KeySym) callconv(.c) i32;
 const StateUpdateMaskFn = *const fn (*xkb_state, u32, u32, u32, u32) callconv(.c) i32;
 
 /// Ponteiros de funcao da libxkbcommon (copia estavel, sem o
@@ -295,34 +295,4 @@ test "keymap translates keycodes into keysyms" {
     try std.testing.expectEqual(@as(KeySym, 0x31), keymap.symForKey(10, true));
     // Tecla desconhecida: sem keysym.
     try std.testing.expectEqual(@as(KeySym, 0), keymap.symForKey(200, true));
-}
-
-test "xkb diag (temporario)" {
-    // Instancia 1: chamada direta e depois a API publica.
-    {
-        var keymap = Keymap.init() catch {
-            std.debug.print("XKBDBG no-lib\n", .{});
-            return;
-        };
-        defer keymap.deinit();
-        keymap.loadFromString(minimal_keymap) catch {
-            std.debug.print("XKBDBG load-failed\n", .{});
-            return;
-        };
-        var s: [*]const KeySym = undefined;
-        const n9 = keymap.lib.symbols.state_key_get_syms(keymap.state, 9, &s);
-        std.debug.print("XKBDBG inst1 direct k9={} first={}\n", .{ n9, if (n9 > 0) s[0] else 0 });
-
-        const pub9 = keymap.symForKey(9, true);
-        std.debug.print("XKBDBG inst1 pub k9={}\n", .{pub9});
-    }
-    // Instancia 2: so a API publica.
-    {
-        var keymap = Keymap.init() catch return;
-        defer keymap.deinit();
-        keymap.loadFromString(minimal_keymap) catch return;
-        const pub9 = keymap.symForKey(9, true);
-        const pub10 = keymap.symForKey(10, true);
-        std.debug.print("XKBDBG inst2 pub k9={} k10={}\n", .{ pub9, pub10 });
-    }
 }
