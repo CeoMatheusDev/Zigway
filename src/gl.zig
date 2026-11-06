@@ -24,11 +24,35 @@
 // terminado antes do `XCloseDisplay`).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const native = @import("core/native.zig");
 const window_mod = @import("window.zig");
 const platform_mod = @import("platform/platform.zig");
 
 pub const Window = window_mod.Window;
+
+/// Alvos em que `std.DynLib` sabe carregar bibliotecas em runtime.
+/// O Zig 0.17.0 so implementa `DynLib` para ELF e dyld (Mach-O);
+/// no Windows o tipo existe mas `open` e `@compileError`. Sem essa
+/// guarda, o build cruzado `-Dtarget=x86_64-windows` falha mesmo com
+/// o codigo EGL inalcancavel em runtime.
+pub const dynlib_supported = switch (builtin.os.tag) {
+    .linux,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+    .dragonfly,
+    .illumos,
+    .macos,
+    .ios,
+    .tvos,
+    .watchos,
+    .visionos,
+    .maccatalyst,
+    .driverkit,
+    => true,
+    else => false,
+};
 
 pub const Options = struct {
     /// Versao do OpenGL pedida (desktop GL).
@@ -110,6 +134,11 @@ const Lib = struct {
     get_proc_address: GetProcAddressFn,
 
     fn load() error{GraphicsUnavailable}!Lib {
+        // `std.DynLib` nao tem backend no Windows: o ramo e descartado em
+        // compilacao (comptime), evitando que o @compileError do std seja
+        // analisado no build cruzado.
+        if (comptime !dynlib_supported) return error.GraphicsUnavailable;
+
         var dyn = std.DynLib.open("libEGL.so.1") catch blk: {
             break :blk std.DynLib.open("libEGL.so") catch return error.GraphicsUnavailable;
         };
@@ -152,7 +181,7 @@ const Lib = struct {
     }
 
     fn deinit(self: *Lib) void {
-        self.dyn.close();
+        if (comptime dynlib_supported) self.dyn.close();
     }
 };
 
