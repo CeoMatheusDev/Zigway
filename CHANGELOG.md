@@ -9,23 +9,58 @@ Formato baseado em Keep a Changelog; versionamento SemVer 2.0.0
 
 - **Handle nativo de janela**: `Window.nativeHandle()` /
   `Platform.windowNativeHandle(id)` e o tipo `zigway.NativeHandle`
-  (`src/core/native.zig`). O X11 expõe `Display*`, XID e `VisualID`; Wayland,
-  Win32 e null retornam `error.NotImplemented`.
+  (`src/core/native.zig`). O X11 expõe `Display*`, XID e `VisualID`;
+  Wayland, Win32 e null retornam `error.NotImplemented`.
 - **OpenGL via EGL** (`zigway.gl`, `src/gl.zig`): `Context.init`,
   `makeCurrent`, `releaseCurrent`, `swapBuffers`, `setSwapInterval`,
   `getProcAddress`/`getProc` e `deinit`. `libEGL` é carregada em runtime
   (sem dependência de link), a ABI do EGL é declarada manualmente e a
   configuração é escolhida para casar com o visual da janela. Somente X11;
   um contexto por `Platform`.
+- **Superfície Vulkan** (`zigway.vulkan`, `src/platform/vulkan.zig`):
+  `Platform.vulkanExtensions()`, `Platform.createVulkanSurface(window,
+  instance, lib)`, `Platform.destroyVulkanSurface(instance, surface, lib)` e
+  `Platform.graphicsCapabilities()`. A `libvulkan` é carregada em runtime
+  (`std.DynLib`; no Windows via `LoadLibraryA`) e as funções de extensão
+  (`vkCreateXlibSurfaceKHR`, `vkCreateWin32SurfaceKHR`,
+  `vkCreateWaylandSurfaceKHR`) são resolvidas por `vkGetInstanceProcAddr`.
+  Sem link com Vulkan; sem a biblioteca, `Lib.load()` retorna `null`.
+- `zigway.graphics`: `GraphicsAPI`, `GraphicsCapabilities` e
+  `VulkanSurface`.
 - Erros `GraphicsUnavailable` e `GraphicsContextFailed`.
-- Exemplo `gl_clear` e declarações Xlib `XDefaultVisual` e
+- Exemplo `gl_clear`; declarações Xlib `XDefaultVisual` e
   `XVisualIDFromVisual`.
+
+### Corrigido
+
+- **Build cruzado para Windows** (`zig build test-win32-compile`): o
+  carregamento do EGL em `src/gl.zig` falhava com 15 erros porque
+  `std.DynLib.open` é `@compileError` no Windows (o std 0.17.0 só
+  implementa `DynLib` para ELF e dyld). O caminho agora é descartado em
+  comptime em alvos sem `DynLib` (`zigway.gl.dynlib_supported`).
+- **Superfície Vulkan não era analisada**: os corpos dos backends nunca
+  eram compilados por nenhum teste (análise lazy do Zig) e continham erros
+  de ABI (handles como tipo opaco, `*VkSurfaceKHR` com pointee de tamanho
+  zero, `[][]const u8` a partir de slice constante, `lookup` tratado como
+  error union, campos inexistentes no Wayland). Corrigido, com teste que
+  força a análise dos quatro backends via o despacho `inline else`.
+- `Platform.vulkanExtensions` deixou de alocar: retorna slice estática
+  (sem transferência de ownership contraditória na documentação).
+- `vulkan.enumerateInstanceExtensions` não devolve mais nomes pendurados
+  (copia com `allocator.dupe`; liberar com `freeInstanceExtensions`).
 
 ### Validação
 
-- Escrito sem compilador disponível ao autor do patch: **nenhum comando de
-  build ou teste foi executado**. Validar com `zig build`, `zig build test`,
-  `zig fmt --check .` e `zig build examples` antes de lançar.
+- Validado neste ambiente: `zig build`, `zig build test`,
+  `zig build examples`, `zig build test-x11` (pulado: sem display),
+  `zig build test-wayland` (pulado: sem compositor),
+  `zig build test-win32-compile`, `-Dplatform={null_backend,x11,wayland}`,
+  `-Dtarget=x86_64-windows -Dplatform=win32` e `zig fmt --check .`.
+- **Não validado em runtime**: criar contexto OpenGL (EGL) e superfície
+  Vulkan exigem display real e `libEGL`/`libvulkan`, ausentes aqui. O
+  caminho compila e a seleção de backend do EGL segue a especificação, mas
+  o primeiro desenho/`vkCreate*SurfaceKHR` de verdade continua pendente de
+  validação manual (ver `docs/GRAPHICS.md`).
 
 ## [0.1.0-alpha.4] — 2026-10-20
 

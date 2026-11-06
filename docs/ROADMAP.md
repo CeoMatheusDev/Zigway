@@ -57,8 +57,15 @@ drop.
 
 ## v0.4.x — Graphics Integration
 
-Extensões e superfícies Vulkan; contextos OpenGL (WGL/GLX/EGL);
-handles DXGI/Direct3D. Sem renderer próprio (ver `GRAPHICS.md`).
+**Implementado** (compila em todos os alvos; validação em runtime
+pendente, ver `GRAPHICS.md`): extensões de instância Vulkan por backend e
+criação/destruição de `VkSurfaceKHR` (X11/Win32/Wayland, libvulkan
+carregada em runtime); handle nativo de janela (`Window.nativeHandle`,
+X11); contexto e superfície OpenGL via EGL no X11 (`zigway.gl`).
+
+**Pendente:** contexto OpenGL no Win32 (WGL) e no Wayland (EGL sobre
+`wl_display`); handles DXGI/Direct3D; validação em runtime das superfícies
+Vulkan e do contexto EGL com driver real. Sem renderer próprio.
 
 ## v0.5.x — Wayland (em andamento)
 
