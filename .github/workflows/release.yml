@@ -42,15 +42,27 @@ jobs:
             *alpha*|*beta*|*rc*) echo "flag=--prerelease" >> "$GITHUB_OUTPUT" ;;
             *) echo "flag=" >> "$GITHUB_OUTPUT" ;;
           esac
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE_FLAG: ${{ steps.prerelease.outputs.flag }}
         run: |
           NOTES="$(awk '/^## \[v?'"${GITHUB_REF_NAME#v}"'\]/{flag=1;next}/^## \[/{flag=0}flag' CHANGELOG.md)"
           if [ -z "$NOTES" ]; then
             NOTES="Ver CHANGELOG.md. Zig 0.17.0. Win32 validado apenas por compilacao cruzada."
           fi
-          gh release create "${GITHUB_REF_NAME}" \
-            ${{ steps.prerelease.outputs.flag }} \
-            --title "${GITHUB_REF_NAME}" \
-            --notes "$NOTES"
+          # Idempotente: as releases alpha.3 e alpha.4 falharam aqui porque a
+          # release ja existia (criada manualmente antes do push da tag) e
+          # `gh release create` retorna erro. Nesse caso, atualiza as notas.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "release ${GITHUB_REF_NAME} ja existe: atualizando notas e titulo."
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "$NOTES" \
+              $PRERELEASE_FLAG
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              $PRERELEASE_FLAG \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "$NOTES"
+          fi
