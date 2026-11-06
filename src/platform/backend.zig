@@ -4,7 +4,9 @@
 // `ActiveBackend` e o conjunto efetivamente instanciavel.
 // Regras:
 //   - `.auto` -> padrao do build (-Dplatform) ou padrao do SO.
-//   - `.wayland` -> sempre error.NotImplemented (Fase 5 do roadmap).
+//   - `.wayland` -> disponível apenas em Linux (Fase 5 do roadmap);
+//     a inicializacao pode falhar em runtime se o compositor nao expor
+//     os globais necessarios.
 //   - backend de outro SO -> error.UnsupportedBackend.
 
 const std = @import("std");
@@ -67,6 +69,20 @@ pub fn resolve(requested: BackendKind) !ActiveBackend {
 
 test "resolve auto on host" {
     const backend = try resolve(.auto);
+    // `-Dplatform` fixa o backend padrao: `.auto` resolve para ele em
+    // qualquer alvo (era o que o teste ignorava, falhando em
+    // `zig build -Dplatform=null_backend test`).
+    if (config.build_default != .auto) {
+        const expected: ActiveBackend = switch (config.build_default) {
+            .auto => unreachable,
+            .win32 => .win32,
+            .x11 => .x11,
+            .wayland => .wayland,
+            .null_backend => .null_backend,
+        };
+        try std.testing.expectEqual(expected, backend);
+        return;
+    }
     if (builtin.os.tag == .linux) try std.testing.expectEqual(ActiveBackend.x11, backend);
     if (builtin.os.tag == .windows) try std.testing.expectEqual(ActiveBackend.win32, backend);
 }

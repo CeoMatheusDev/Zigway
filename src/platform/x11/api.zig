@@ -357,6 +357,8 @@ pub const XEvent = extern union {
 pub extern "X11" fn XOpenDisplay(name: ?[*:0]const u8) ?*Display;
 pub extern "X11" fn XCloseDisplay(display: *Display) c_int;
 pub extern "X11" fn XDefaultScreen(display: *Display) c_int;
+pub extern "X11" fn XDefaultVisual(display: *Display, screen: c_int) *anyopaque;
+pub extern "X11" fn XVisualIDFromVisual(visual: *anyopaque) c_ulong;
 pub extern "X11" fn XScreenCount(display: *Display) c_int;
 pub extern "X11" fn XDisplayWidth(display: *Display, screen: c_int) c_int;
 pub extern "X11" fn XDisplayHeight(display: *Display, screen: c_int) c_int;
@@ -526,7 +528,10 @@ pub extern "X11" fn XkbSetDetectableAutoRepeat(
 ) XBool;
 
 test "XSizeHints layout matches Xutil.h (64-bit)" {
-    if (@sizeOf(usize) != 8) return;
+    // A ABI do X11 existe so em Unix: `c_long` tem 8 bytes no LP64 e 4 no
+    // Windows (LLP64). O modulo e compilado em todo alvo (backend X11
+    // indisponivel fora de Linux), mas o layout so vale onde a Xlib roda.
+    if (@sizeOf(c_long) != 8 or @sizeOf(usize) != 8) return;
     try std.testing.expectEqual(@as(usize, 80), @sizeOf(XSizeHints));
     try std.testing.expectEqual(@as(usize, 0), @offsetOf(XSizeHints, "flags"));
     try std.testing.expectEqual(@as(usize, 8), @offsetOf(XSizeHints, "x"));

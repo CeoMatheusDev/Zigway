@@ -8,14 +8,32 @@
 //   var window = try platform.createWindow(.{ .title = "Zigway" });
 //   defer window.deinit();
 //
+// Graphics (Fase v0.4.x) — Vulkan (superfície):
+//
+//   var vulkan_lib = zigway.vulkan.Lib.load() orelse return error.VulkanUnavailable;
+//   defer vulkan_lib.deinit();
+//   // criar VkInstance habilitando platform.vulkanExtensions()
+//   const surface = try platform.createVulkanSurface(window, vk_instance, &vulkan_lib);
+//   defer platform.destroyVulkanSurface(vk_instance, surface, &vulkan_lib);
+//
+// Graphics (Fase v0.4.x) — OpenGL via EGL (somente X11):
+//
+//   var ctx = try zigway.gl.Context.init(window, .{});
+//   defer ctx.deinit();
+//   try ctx.makeCurrent();
+//
 // Documentacao: docs/. Estado real da implementacao (sem placeholders
-// funcionais): Win32 + X11 na Fase 1; Wayland planejado (Fase 5).
+// funcionais): Win32 + X11 na Fase 1; Wayland na Fase 5 (Linux, depende
+// dos globais do compositor); superfície Vulkan e OpenGL/EGL (X11) na
+// fase v0.4.x.
 
 const std = @import("std");
 
 pub const version = @import("core/version.zig");
 pub const errors = @import("core/errors.zig");
 pub const caps = @import("core/caps.zig");
+pub const graphics = @import("core/graphics.zig");
+pub const vulkan = @import("platform/vulkan.zig");
 
 pub const types = @import("core/types.zig");
 pub const WindowId = types.WindowId;
@@ -72,6 +90,12 @@ pub const ScrollEvent = events_mod.ScrollEvent;
 pub const input_mod = @import("input.zig");
 pub const InputState = input_mod.InputState;
 
+pub const native = @import("core/native.zig");
+pub const NativeHandle = native.NativeHandle;
+
+/// Contexto OpenGL (EGL) por janela; nao e um renderer (docs/GRAPHICS.md).
+pub const gl = @import("gl.zig");
+
 test {
     // Agrega os testes unitarios de todos os modulos.
     std.testing.refAllDecls(@This());
@@ -79,6 +103,8 @@ test {
     _ = @import("core/handles.zig");
     _ = @import("core/types.zig");
     _ = @import("core/caps.zig");
+    _ = @import("core/native.zig");
+    _ = @import("gl.zig");
     _ = @import("events.zig");
     _ = @import("input.zig");
     _ = @import("window.zig");
@@ -91,4 +117,6 @@ test {
     _ = @import("platform/x11/backend.zig");
     _ = @import("platform/win32/api.zig");
     _ = @import("platform/win32/backend.zig");
+    _ = @import("platform/vulkan.zig");
+    _ = @import("core/graphics.zig");
 }

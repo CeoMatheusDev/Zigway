@@ -11,12 +11,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("../core/types.zig");
+const native_types = @import("../core/native.zig");
 const caps = @import("../core/caps.zig");
+const graphics = @import("../core/graphics.zig");
 const registry = @import("registry.zig");
 const backend_mod = @import("backend.zig");
 const events = @import("../events.zig");
 const input = @import("../input.zig");
 const window_mod = @import("../window.zig");
+const vulkan = @import("vulkan.zig");
 const NullBackend = @import("null_backend.zig").Backend;
 const X11Backend = @import("../platform/x11/backend.zig").Backend;
 const Win32Backend = @import("../platform/win32/backend.zig").Backend;
@@ -298,6 +301,82 @@ pub const Platform = struct {
         if (self.closed) return null;
         return switch (self.backend) {
             inline else => |*b| b.seatCapabilities(),
+        };
+    }
+
+    /// Extensões de instância Vulkan exigidas pelo backend ativo.
+    ///
+    /// O chamador deve habilitá-las ao criar o `VkInstance`. Retorna uma
+    /// slice estática (sem alocação), válida enquanto a `Platform`
+    /// existir; vazia quando o backend não suporta superfície Vulkan.
+    /// Sem efeito após `deinit` (retorna slice vazia).
+    pub fn vulkanExtensions(self: *const Platform) []const []const u8 {
+        if (self.closed) return &.{};
+        return switch (self.backend) {
+            inline else => |*b| b.vulkanExtensions(),
+        };
+    }
+
+    /// Cria uma `VkSurfaceKHR` para a janela via o backend ativo.
+    ///
+    /// - `window`: handle da janela (deve pertencer a esta Platform).
+    /// - `instance`: o `VkInstance` da aplicação, criado com as extensões
+    ///   retornadas por `vulkanExtensions`.
+    /// - `vulkan_lib`: a `vulkan.Lib` carregada pela aplicação
+    ///   (`vulkan.Lib.load().?`).
+    ///
+    /// Ownership: a superfície pertence ao chamador e deve ser destruída
+    /// com `destroyVulkanSurface` (antes de `window.deinit`).
+    ///
+    /// Retorna `UnsupportedAPI` quando o backend não tem suporte a
+    /// superfície Vulkan (ex.: backend null), `VulkanUnavailable` quando
+    /// o símbolo necessário não está na biblioteca Vulkan, e
+    /// `SurfaceCreationFailed` quando o Vulkan rejeita a criação.
+    pub fn createVulkanSurface(
+        self: *Platform,
+        window: window_mod.Window,
+        instance: vulkan.VkInstance,
+        vulkan_lib: *vulkan.Lib,
+    ) !graphics.VulkanSurface {
+        if (self.closed) return error.PlatformClosed;
+        return switch (self.backend) {
+            inline else => |*b| try b.createVulkanSurface(
+                &self.reg,
+                instance,
+                window.id,
+                vulkan_lib,
+            ),
+        };
+    }
+
+    /// Destrói uma superfície Vulkan criada por `createVulkanSurface`.
+    ///
+    /// - `instance`: o mesmo `VkInstance` usado na criação.
+    /// - `surface`: o handle retornado por `createVulkanSurface`.
+    /// - `vulkan_lib`: a mesma `vulkan.Lib` usada na criação.
+    ///
+    /// É seguro chamar com handle nulo (no-op). Sem efeito após `deinit`.
+    pub fn destroyVulkanSurface(
+        self: *Platform,
+        instance: vulkan.VkInstance,
+        surface: graphics.VulkanSurface,
+        vulkan_lib: *vulkan.Lib,
+    ) void {
+        if (self.closed) return;
+        if (surface.native == null) return;
+        switch (self.backend) {
+            inline else => |*b| b.destroyVulkanSurface(instance, surface, vulkan_lib),
+        }
+    }
+
+    /// Capacidades gráficas do backend ativo.
+    ///
+    /// Consulta de capacidades, não de validação em runtime: ver
+    /// `docs/GRAPHICS.md` para o estado real por backend.
+    pub fn graphicsCapabilities(self: *const Platform) graphics.GraphicsCapabilities {
+        if (self.closed) return .{};
+        return switch (self.backend) {
+            inline else => |*b| b.graphicsCapabilities(),
         };
     }
 
@@ -613,6 +692,16 @@ pub const Platform = struct {
         const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
         switch (self.backend) {
             inline else => |*b| try b.focusWindow(&self.reg, index),
+        }
+    }
+
+    /// Handle nativo da janela (ver `core/native.zig`). Retorna
+    /// `error.NotImplemented` nos backends que ainda nao o expoem.
+    pub fn windowNativeHandle(self: *Platform, id: types.WindowId) !native_types.NativeHandle {
+        if (self.closed) return error.PlatformClosed;
+        const index = self.reg.indexOf(id) orelse return error.InvalidWindow;
+        switch (self.backend) {
+            inline else => |*b| return b.nativeHandle(&self.reg, index),
         }
     }
 
@@ -1440,4 +1529,30 @@ test "destroy does not disturb keys or buttons held elsewhere" {
 
     try std.testing.expect(plat.inputState().isKeyDown(.a));
     try std.testing.expect(plat.inputState().isButtonDown(.left));
+}
+
+test "graphics: backend null nao anuncia nem cria superficie Vulkan" {
+    var plat = try Platform.init(std.testing.allocator, .{ .backend = .null_backend });
+    defer plat.deinit();
+
+    var w = try plat.createWindow(.{ .width = 64, .height = 64 });
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), plat.vulkanExtensions().len);
+
+    const caps_now = plat.graphicsCapabilities();
+    try std.testing.expect(!caps_now.vulkan_surface);
+    try std.testing.expect(!caps_now.opengl_context);
+    try std.testing.expect(!caps_now.direct3d_handle);
+
+    // O backend null ignora a `Lib`; o valor indefinido nunca e
+    // desreferenciado. Este teste existe tambem para forcar a analise
+    // semantica dos create/destroy de TODOS os backends: o despacho
+    // `inline else` instancia cada backend em tempo de compilacao.
+    var lib: vulkan.Lib = undefined;
+    try std.testing.expectError(
+        error.UnsupportedAPI,
+        plat.createVulkanSurface(w, @ptrFromInt(0x1000), &lib),
+    );
+    plat.destroyVulkanSurface(@ptrFromInt(0x1000), .{ .native = null }, &lib);
 }

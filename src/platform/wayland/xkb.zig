@@ -53,7 +53,7 @@ const KeymapUnrefFn = *const fn (*xkb_keymap) callconv(.c) void;
 const StateNewFn = *const fn (*xkb_keymap) callconv(.c) ?*xkb_state;
 const StateUnrefFn = *const fn (*xkb_state) callconv(.c) void;
 const StateUpdateKeyFn = *const fn (*xkb_state, KeyCode, i32) callconv(.c) i32;
-const StateKeyGetSymsFn = *const fn (*xkb_state, KeyCode, *const [*]const KeySym) callconv(.c) i32;
+const StateKeyGetSymsFn = *const fn (*xkb_state, KeyCode, *[*]const KeySym) callconv(.c) i32;
 const StateUpdateMaskFn = *const fn (*xkb_state, u32, u32, u32, u32) callconv(.c) i32;
 
 /// Ponteiros de funcao da libxkbcommon (copia estavel, sem o

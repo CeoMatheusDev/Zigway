@@ -57,8 +57,15 @@ drop.
 
 ## v0.4.x — Graphics Integration
 
-Extensões e superfícies Vulkan; contextos OpenGL (WGL/GLX/EGL);
-handles DXGI/Direct3D. Sem renderer próprio (ver `GRAPHICS.md`).
+**Implementado** (compila em todos os alvos; validação em runtime
+pendente, ver `GRAPHICS.md`): extensões de instância Vulkan por backend e
+criação/destruição de `VkSurfaceKHR` (X11/Win32/Wayland, libvulkan
+carregada em runtime); handle nativo de janela (`Window.nativeHandle`,
+X11); contexto e superfície OpenGL via EGL no X11 (`zigway.gl`).
+
+**Pendente:** contexto OpenGL no Win32 (WGL) e no Wayland (EGL sobre
+`wl_display`); handles DXGI/Direct3D; validação em runtime das superfícies
+Vulkan e do contexto EGL com driver real. Sem renderer próprio.
 
 ## v0.5.x — Wayland (em andamento)
 
@@ -73,8 +80,14 @@ mapear a superfície, com eventos `resize`/`maximized`/`fullscreen`/
 implementada**: ponteiro (`wl_pointer` → `pointer_move`/
 `pointer_button`/`scroll`) e teclado (`wl_keyboard` + keymap XKB
 interpretado pela libxkbcommon em runtime → `key_down`/`key_up` e
-`focus`). Pendentes: clipboard do protocolo, entrada de texto Unicode
-(IME) e o `raw_key` (tecla física).
+`focus`); clipboard (`wl_data_device`/`wl_data_source`/`wl_data_offer`,
+publicação assíncrona e leitura síncrona com timeout); entrada de texto
+Unicode/IME (`zwp_text_input_v3` → `text_input`,
+`composition_start`/`composition_end`, `setSurroundingText`); e
+`raw_key` (keycode XKB via `wl_keyboard`). Pendentes: captura exclusiva
+de ponteiro (não existe no protocolo base Wayland), posicionamento
+absoluto (`setPosition`), `setSize` (o compositor decide), `focusWindow`
+(o foco é do compositor) e modos de vídeo.
 
 ## v0.6.x — Expansões de input
 

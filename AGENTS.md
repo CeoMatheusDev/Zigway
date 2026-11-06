@@ -46,8 +46,16 @@ criação): https://github.com/CeoMatheusDev/Zigway
 
 ## Módulos (não mover sem atualizar imports + build)
 
-- `src/core/` — version, errors, types, handles, caps (só `std`).
+- `src/core/` — version, errors, types, handles, caps, native (handles
+  nativos), graphics (capacidades + `VulkanSurface`): só `std`.
 - `src/events.zig`, `src/input.zig` — só `core`.
+- `src/gl.zig` — contexto OpenGL via EGL (`std.DynLib`, só X11); usa
+  `core/native` + `window`; não é renderer.
+- `src/platform/vulkan.zig` — ABI Vulkan declarada à mão + carregador
+  dinâmico (`std.DynLib`/`LoadLibraryA`); nenhum link com libvulkan.
+  Toda função nova de backend precisa de teste que force a análise
+  (ver teste `graphics` em `platform.zig`): o Zig não analisa corpos
+  de função não referenciados, então código "morto" compila quebrado.
 - `src/platform/registry.zig` — slots geracionais (sem `Platform`).
 - `src/platform/{null_backend,x11/,win32/}` — nunca importam `platform`.
 - `src/platform/platform.zig` — dono de tudo; despacho por `inline else`.

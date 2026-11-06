@@ -10,11 +10,24 @@
 //   - outputs (monitores) via wl_output,
 //   - janelas via xdg-shell (wl_surface + xdg_surface + xdg_toplevel),
 //     com buffer shm para mapear a superficie,
-//   - despacho assincrono dos eventos do compositor.
+//   - despacho assincrono dos eventos do compositor,
+//   - ponteiro (wl_pointer) e teclado (wl_keyboard + keymap XKB via
+//     libxkbcommon em runtime),
+//   - pointer lock/confinamento (zwp_pointer_constraints_v1),
+//   - movimento relativo (zwp_relative_pointer_manager_v1),
+//   - clipboard (wl_data_device/wl_data_source/wl_data_offer),
+//   - entrada de texto/IME (zwp_text_input_v3),
+//   - cursor do sistema (libwayland-cursor em runtime).
 //
 // Ainda NAO implementado (retornam `error.NotImplemented`):
-// input (teclado/ponteiro exigem keymap XKB e wl_pointer), clipboard e
-// modos de video.
+//   - setSize (o compositor decide o tamanho via xdg_surface.configure),
+//   - setPosition (o Wayland nao expoe a posicao da janela ao cliente),
+//   - focusWindow (o foco e controlado pelo compositor),
+//   - setDisplayMode (o protocolo base nao tem troca de modo de video).
+//
+// Essas operacoes retornam `NotImplemented` quando o recurso necessario
+// nao esta disponível (ex.: compositor sem `zwp_text_input_manager_v3`)
+// ou quando o protocolo base nao as cobre.
 //
 // Os callbacks do protocolo recebem um ponteiro para `State`, que fica
 // na heap: o `Backend` e movido quando a `Platform` e devolvida por
@@ -30,6 +43,9 @@ const events = @import("../../events.zig");
 const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
+const native = @import("../../core/native.zig");
+const graphics = @import("../../core/graphics.zig");
+const vulkan = @import("../vulkan.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const linux = std.os.linux;
 
@@ -2051,6 +2067,14 @@ pub const Backend = struct {
         };
     }
 
+    /// Handle nativo (wl_display/wl_surface) ainda nao exposto no Wayland.
+    pub fn nativeHandle(self: *Backend, reg: *registry.Registry, slot: u32) !native.NativeHandle {
+        _ = self;
+        _ = reg;
+        _ = slot;
+        return error.NotImplemented;
+    }
+
     pub fn setCursor(self: *Backend, reg: *registry.Registry, slot: u32, cursor: types.Cursor) !void {
         _ = reg;
         _ = slot;
@@ -2421,6 +2445,72 @@ pub const Backend = struct {
                 }
             }
         }
+    }
+
+    /// Extensão de instância Vulkan exigida pelo Wayland: `VK_KHR_wayland_surface`.
+    pub fn vulkanExtensions(self: *const Backend) []const []const u8 {
+        _ = self;
+        return &[_][]const u8{vulkan.extension_wayland};
+    }
+
+    /// Cria uma `VkSurfaceKHR` para a superfície Wayland via
+    /// `vkCreateWaylandSurfaceKHR`. `instance` é o `VkInstance` da
+    /// aplicação (deve ter sido criado com a extensão
+    /// `VK_KHR_wayland_surface`).
+    pub fn createVulkanSurface(
+        self: *Backend,
+        reg: *registry.Registry,
+        instance: vulkan.VkInstance,
+        id: types.WindowId,
+        vulkan_lib: *vulkan.Lib,
+    ) !graphics.VulkanSurface {
+        const st = self.state;
+        const index = st.windowIndexBySlot(reg.slotOf(id) orelse return error.InvalidWindow) orelse
+            return error.InvalidWindow;
+        const entry = &st.windows.items[index];
+        const surface_proxy = entry.surface;
+
+        const create_wayland_surface = vulkan.resolve(
+            vulkan.CreateWaylandSurfaceKHRFn,
+            vulkan_lib.procAddr(instance, "vkCreateWaylandSurfaceKHR"),
+        ) orelse return error.VulkanUnavailable;
+
+        const info = vulkan.VkWaylandSurfaceCreateInfoKHR{
+            .sType = vulkan.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
+            .pNext = null,
+            .flags = 0,
+            .display = self.display,
+            .surface = @ptrCast(surface_proxy),
+        };
+
+        var vk_surface: vulkan.VkSurfaceKHR = null;
+        const rc = create_wayland_surface(instance, &info, null, &vk_surface);
+        if (rc != vulkan.VK_SUCCESS) return error.SurfaceCreationFailed;
+
+        return graphics.VulkanSurface{ .native = vk_surface };
+    }
+
+    /// Destrói a superfície Vulkan via `vkDestroySurfaceKHR`.
+    /// `instance` é o mesmo `VkInstance` usado para criar a superfície.
+    pub fn destroyVulkanSurface(
+        self: *Backend,
+        instance: vulkan.VkInstance,
+        surface: graphics.VulkanSurface,
+        vulkan_lib: *vulkan.Lib,
+    ) void {
+        _ = self;
+        if (surface.native == null) return;
+        const destroy_surface = vulkan.resolve(
+            vulkan.DestroySurfaceKHRFn,
+            vulkan_lib.procAddr(instance, "vkDestroySurfaceKHR"),
+        ) orelse return;
+        destroy_surface(instance, surface.native, null);
+    }
+
+    /// Capacidades gráficas do Wayland: superfície Vulkan.
+    pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{ .vulkan_surface = true };
     }
 };
 

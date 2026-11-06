@@ -210,7 +210,7 @@ A published release archive is not yet available; use a local dependency until a
 
 ## Examples
 
-The repository includes six example programs:
+The repository includes example programs:
 
 | Example | Purpose |
 | --- | --- |
@@ -220,16 +220,19 @@ The repository includes six example programs:
 | [`displays.zig`](examples/displays.zig) | List monitors and their geometry |
 | [`display_change.zig`](examples/display_change.zig) | React to display configuration changes |
 | [`fullscreen.zig`](examples/fullscreen.zig) | Toggle fullscreen with F11 |
+| [`gl_clear.zig`](examples/gl_clear.zig) | Create an OpenGL (EGL) context and clear the window |
 
 Build all examples with `zig build examples`.
 
 ## Roadmap
 
-**Available in the current alpha:** the core platform API, window lifecycle, event/input handling, generational handles, Win32, X11, and a null backend.
+**Available in the current alpha:** the core platform API, window lifecycle, event/input handling, generational handles, Win32, X11, native Wayland (Linux), and a null backend.
+
+**Graphics integration (v0.4.x):** Vulkan surface creation (`zigway.vulkan`) and OpenGL via EGL on X11 (`zigway.gl`) are implemented and compile on every target, but still **pending runtime validation** with a real driver — see [Graphics](docs/GRAPHICS.md).
 
 **Ongoing:** platform validation, CI reliability, and runtime hardening.
 
-**Planned / under consideration:** expanded input capabilities, text and clipboard integration, display and cursor functionality, native Wayland, and an optional isolated C ABI.
+**Planned / under consideration:** OpenGL/WGL contexts on Win32, EGL on Wayland, Direct3D/DXGI handles, and an optional isolated C ABI.
 
 See the [roadmap](docs/ROADMAP.md) for the latest development milestones. Planned items are **not** part of the current public API.
 
@@ -239,6 +242,7 @@ See the [roadmap](docs/ROADMAP.md) for the latest development milestones. Planne
 - [Architecture](docs/ARCHITECTURE.md) — ownership and subsystem boundaries
 - [API reference](docs/API.md) — public types and operations
 - [Backend coverage](docs/BACKENDS.md) — implementation status and limitations
+- [Graphics](docs/GRAPHICS.md) — Vulkan surfaces and OpenGL via EGL
 - [Roadmap](docs/ROADMAP.md) — upcoming milestones
 - [Changelog](CHANGELOG.md) — version history
 - [Contributing](CONTRIBUTING.md) — contribution guidelines

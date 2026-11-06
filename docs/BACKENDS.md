@@ -428,3 +428,21 @@ Entrada de texto e input bruto: sem teclado nativo (os eventos podem ser
 injetados).
 Área de transferência: texto guardado em memória, dentro da plataforma
 (`setClipboardText`/`clipboardText` fazem round-trip). Usado pelos testes unitários e como fallback em SOs sem backend.
+
+## Gráficos (todos os backends)
+
+Integração de APIs gráficas, sem renderer próprio. Detalhes de uso e
+limitações em [GRAPHICS.md](GRAPHICS.md).
+
+| Backend | Handle nativo | Vulkan (`VkSurfaceKHR`) | OpenGL (EGL) | Direct3D |
+| --- | --- | --- | --- | --- |
+| X11 | `Display*` + XID + `VisualID` | `VK_KHR_xlib_surface` | sim (`zigway.gl`) | n/a |
+| Win32 | `error.NotImplemented` | `VK_KHR_win32_surface` | não (WGL pendente) | não |
+| Wayland | `error.NotImplemented` | `VK_KHR_wayland_surface` | não | n/a |
+| null | `error.NotImplemented` | `error.UnsupportedAPI` | não | não |
+
+Nenhuma dessas integrações foi validada em runtime neste ambiente (sem
+`libvulkan`/`libEGL`/display): o que está validado é compilação em todos
+os alvos, forma da ABI e os caminhos de erro/indisponibilidade. O backend
+null nunca anuncia capacidade (`graphicsCapabilities()` tudo falso) e
+`createVulkanSurface` retorna `error.UnsupportedAPI`.

@@ -37,6 +37,11 @@ platform.windowPointerConstraint(id) PointerConstraint  // restricao ativa
 platform.windowScale(id) Scale            // escala da janela (1/1 = 100%)
 platform.windowBufferSize(id) WindowSize   // tamanho fisico do buffer
 platform.displayScale(id) Scale            // escala do display
+platform.windowNativeHandle(id) !NativeHandle // handle nativo (X11 hoje)
+platform.vulkanExtensions() []const []const u8 // extensões exigidas (estática)
+platform.createVulkanSurface(w, instance, lib) !VulkanSurface // antes de destroyWindow
+platform.destroyVulkanSurface(instance, surface, lib) void
+platform.graphicsCapabilities() GraphicsCapabilities
 ```
 
 Janelas via Platform:
@@ -94,6 +99,7 @@ window.setMaximized(on) !void
 window.isMaximized() bool
 window.setSizeLimits(limits) !void
 window.sizeLimits() WindowSizeLimits
+window.nativeHandle() !NativeHandle // Display*/XID/VisualID no X11
 ```
 
 ## Displays
@@ -523,6 +529,40 @@ fora de seus limites; o ponteiro não é confinado.
 (`InputState.forgetWindow`), evitando referência a id morto. Teclas e
 botões são estado global e não são associados a janela.
 
+## Gráficos (Vulkan e OpenGL)
+
+Integração apenas: o Zigway cria a superfície/contexto nativo e devolve o
+handle; dispositivo, pipeline, swapchain e desenho são da engine. Estado
+real e limitações em `GRAPHICS.md` (nada aqui é validado em runtime sem
+GPU/driver).
+
+```zig
+// Vulkan: superfície para a instância do chamador
+var vk = zigway.vulkan.Lib.load() orelse return error.VulkanUnavailable;
+defer vk.deinit();
+const exts = platform.vulkanExtensions();          // habilitar na VkInstance
+const surface = try platform.createVulkanSurface(w, instance, &vk);
+defer platform.destroyVulkanSurface(instance, surface, &vk);
+platform.graphicsCapabilities();                   // .vulkan_surface/.opengl_context/.direct3d_handle
+
+// OpenGL (EGL, X11): contexto + superfície da janela
+var ctx = try zigway.gl.Context.init(w, .{ .major = 3, .minor = 3 });
+defer ctx.deinit();                                // antes de w.deinit()
+try ctx.makeCurrent();
+const fn_ptr = ctx.getProc(*const fn (u32) callconv(.c) void, "glClear");
+try ctx.swapBuffers();
+```
+
+- `zigway.vulkan.Lib` carrega `libvulkan` em runtime; sem ela, `load()`
+  retorna `null` (nunca erro de build). `vulkanExtensions()` é slice
+  estática, válida enquanto a `Platform` existir (sem free).
+- `zigway.gl.dynlib_supported` indica se o alvo consegue carregar `libEGL`
+  em runtime (o `std.DynLib` 0.17.0 não cobre o Windows).
+- `NativeHandle` hoje só tem a variante `.x11`; Wayland/Win32/null
+  retornam `error.NotImplemented`.
+- Erros novos: `GraphicsUnavailable`, `GraphicsContextFailed`,
+  `UnsupportedAPI`, `VulkanUnavailable`, `SurfaceCreationFailed`.
+
 ## Tipos e erros
 
 `BackendKind` (com `.auto`), `ActiveBackend`, `WindowId` (`eql`,
@@ -544,7 +584,9 @@ Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `CursorCreationFailed`,
 `PointerCaptureFailed`, `InvalidWindow`, `PlatformClosed`,
 `InvalidDisplay`, `InvalidDisplayMode`, `DisplayModeFailed`,
-`DisplayModeUnsupported`, `ClipboardFailed`.
+`DisplayModeUnsupported`, `ClipboardFailed`, `GraphicsUnavailable`,
+`GraphicsContextFailed`, `UnsupportedAPI`, `VulkanUnavailable`,
+`SurfaceCreationFailed`.
 
 ## Lifecycle
 
