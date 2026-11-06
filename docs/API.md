@@ -1,4 +1,4 @@
-# API — Zigway v0.1.0-alpha.4
+# API — Zigway v0.1.0-alpha.5
 
 Referência da API pública real (`@import("zigway")`). Nada aqui é
 aspiracional: se não está no código, não está neste documento.
@@ -576,7 +576,7 @@ try ctx.swapBuffers();
 `PointerConstraint`, `ConstraintRegion`, `PointerRelativeEvent`,
 `PointerConstraintEvent`,
 `version.string`
-(`"0.1.0-alpha.4"`).
+(`"0.1.0-alpha.5"`).
 
 Erros (`core/errors.zig` + `OutOfMemory`): `UnsupportedBackend`,
 `NotImplemented`, `NoDisplay`, `ConnectionFailed`, `InvalidConfig`,

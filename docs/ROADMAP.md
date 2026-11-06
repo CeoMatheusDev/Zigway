@@ -9,7 +9,7 @@ entrada de texto/IME. Não há renderer, dispositivo gráfico ou pipeline
 próprio: a integração com GPU entra como extensão de plataforma (ver
 `GRAPHICS.md`).
 
-## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.4)
+## v0.1.x — Fundação e estabilização (atual: v0.1.0-alpha.5)
 
 - [x] Build Zig 0.17.0, Core, Platform multi-janelas
 - [x] Window, Events (`union(enum)`), Input (teclado/mouse)
@@ -57,8 +57,8 @@ drop.
 
 ## v0.4.x — Graphics Integration
 
-**Implementado** (compila em todos os alvos; validação em runtime
-pendente, ver `GRAPHICS.md`): extensões de instância Vulkan por backend e
+**Implementado na v0.1.0-alpha.5** (compila em todos os alvos; validação
+em runtime pendente, ver `GRAPHICS.md`): extensões de instância Vulkan por backend e
 criação/destruição de `VkSurfaceKHR` (X11/Win32/Wayland, libvulkan
 carregada em runtime); handle nativo de janela (`Window.nativeHandle`,
 X11); contexto e superfície OpenGL via EGL no X11 (`zigway.gl`).
