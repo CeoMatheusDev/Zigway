@@ -4,7 +4,9 @@
 // `ActiveBackend` e o conjunto efetivamente instanciavel.
 // Regras:
 //   - `.auto` -> padrao do build (-Dplatform) ou padrao do SO.
-//   - `.wayland` -> sempre error.NotImplemented (Fase 5 do roadmap).
+//   - `.wayland` -> disponível apenas em Linux (Fase 5 do roadmap);
+//     a inicializacao pode falhar em runtime se o compositor nao expor
+//     os globais necessarios.
 //   - backend de outro SO -> error.UnsupportedBackend.
 
 const std = @import("std");

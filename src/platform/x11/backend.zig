@@ -15,6 +15,8 @@ const input = @import("../../input.zig");
 const window = @import("../../window.zig");
 const types = @import("../../core/types.zig");
 const native_types = @import("../../core/native.zig");
+const graphics = @import("../../core/graphics.zig");
+const vulkan = @import("../vulkan.zig");
 const wakeup_mod = @import("../wakeup.zig");
 const keysym = @import("../keysym.zig");
 
@@ -1820,6 +1822,69 @@ pub const Backend = struct {
     ) ?types.WindowId {
         const slot = self.slotOfNative(reg, win) orelse return null;
         return reg.idOf(slot);
+    }
+
+    /// Extensão de instância Vulkan exigida pelo X11: `VK_KHR_xlib_surface`.
+    pub fn vulkanExtensions(self: *const Backend) []const []const u8 {
+        _ = self;
+        return &[_][]const u8{vulkan.extension_xlib};
+    }
+
+    /// Cria uma `VkSurfaceKHR` para a janela X11 via `vkCreateXlibSurfaceKHR`.
+    /// `instance` é o `VkInstance` da aplicação (deve ter sido criado com a
+    /// extensão `VK_KHR_xlib_surface`).
+    pub fn createVulkanSurface(
+        self: *Backend,
+        reg: *registry.Registry,
+        instance: vulkan.VkInstance,
+        id: types.WindowId,
+        vulkan_lib: *vulkan.Lib,
+    ) !graphics.VulkanSurface {
+        const slot = reg.slotOf(id) orelse return error.InvalidWindow;
+        const entry_idx = self.findEntry(slot) orelse return error.InvalidWindow;
+        const win = self.entries.items[entry_idx].win;
+
+        const create_xlib_surface = vulkan.resolve(
+            vulkan.CreateXlibSurfaceKHRFn,
+            vulkan_lib.procAddr(instance, "vkCreateXlibSurfaceKHR"),
+        ) orelse return error.VulkanUnavailable;
+
+        const info = vulkan.VkXlibSurfaceCreateInfoKHR{
+            .sType = vulkan.VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+            .pNext = null,
+            .flags = 0,
+            .dpy = self.display,
+            .window = @intCast(win),
+        };
+
+        var surface: vulkan.VkSurfaceKHR = null;
+        const rc = create_xlib_surface(instance, &info, null, &surface);
+        if (rc != vulkan.VK_SUCCESS) return error.SurfaceCreationFailed;
+
+        return graphics.VulkanSurface{ .native = surface };
+    }
+
+    /// Destrói a superfície Vulkan via `vkDestroySurfaceKHR`.
+    /// `instance` é o mesmo `VkInstance` usado para criar a superfície.
+    pub fn destroyVulkanSurface(
+        self: *Backend,
+        instance: vulkan.VkInstance,
+        surface: graphics.VulkanSurface,
+        vulkan_lib: *vulkan.Lib,
+    ) void {
+        _ = self;
+        if (surface.native == null) return;
+        const destroy_surface = vulkan.resolve(
+            vulkan.DestroySurfaceKHRFn,
+            vulkan_lib.procAddr(instance, "vkDestroySurfaceKHR"),
+        ) orelse return;
+        destroy_surface(instance, surface.native, null);
+    }
+
+    /// Capacidades gráficas do X11: superfície Vulkan.
+    pub fn graphicsCapabilities(self: *const Backend) graphics.GraphicsCapabilities {
+        _ = self;
+        return .{ .vulkan_surface = true };
     }
 };
 
